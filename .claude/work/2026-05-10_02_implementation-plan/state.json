@@ -1,6 +1,6 @@
 {
   "status": "implementing",
-  "current_task": "TASK-005",
+  "current_task": "TASK-007",
   "active_phase": "0",
   "tasks": [
     {
@@ -95,7 +95,10 @@
       "title": "HTML accordion extractor",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-05-10",
+      "outputs": ["corpus/extractors/html_extractor.py", "tests/test_html_extractor.py"],
+      "notes": "10 tests pass. Capture rate 100% on 3 fixtures (33 items). Confidence logic based on ?-ending and interrogative words.",
       "dependencies": ["TASK-004"],
       "acceptance_criteria": [
         "corpus/extractors/html_extractor.py reuses/wraps existing ema_parser.py::_parse_accordion",
@@ -115,7 +118,10 @@
       "title": "PDF Q&A extractor",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-05-10",
+      "outputs": ["corpus/extractors/pdf_extractor.py", "tests/test_pdf_extractor.py"],
+      "notes": "14 tests pass. Benzyl alcohol PDF: 5 Q&As extracted, EMA/CHMP/508188/2013 reference correct. Cross-refs resolved to qa_ids.",
       "dependencies": ["TASK-004"],
       "acceptance_criteria": [
         "corpus/extractors/pdf_extractor.py uses PyMuPDF4LLM for text extraction",
