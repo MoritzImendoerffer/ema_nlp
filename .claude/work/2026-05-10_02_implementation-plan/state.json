@@ -1,6 +1,6 @@
 {
   "status": "implementing",
-  "current_task": "TASK-002",
+  "current_task": "TASK-003",
   "active_phase": "0",
   "tasks": [
     {
@@ -30,7 +30,10 @@
       "title": "Topic stratification + cross-ref chain completeness analysis",
       "type": "foundation",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-05-10",
+      "outputs": ["scripts/phase0_topic_report.py", "scripts/phase0_topic_report.md"],
+      "notes": "11 clusters. Research & Dev largest (492 Q&As, HTML+PDF). Chain completeness 43.6% from HTML links. 2 thin clusters (PDF-only).",
       "dependencies": ["TASK-001"],
       "acceptance_criteria": [
         "Identifies ≥3 distinct topic clusters from URL-derived topic_path grouping",
@@ -50,7 +53,9 @@
       "type": "foundation",
       "owner": "collaborative",
       "owner_note": "Claude generates; User makes the call",
-      "status": "pending",
+      "status": "awaiting_sme",
+      "outputs": ["scripts/phase0_scope_decision.ipynb", "scripts/generate_phase0_notebook.py"],
+      "notes": "Notebook generated. SME must open, run all cells, fill the Decision cell, and commit.",
       "dependencies": ["TASK-002"],
       "acceptance_criteria": [
         "Jupyter notebook scripts/phase0_scope_decision.ipynb with plots: source counts, topic split, chain completeness",
