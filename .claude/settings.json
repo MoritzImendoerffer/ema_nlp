@@ -13,6 +13,8 @@
     "memory@local": true,
     "development@local": true,
     "transition@local": true,
+    "web-development@local": true,
+    "reports@local": true,
     "session-report@claude-plugins-official": true
   },
   "hooks": {
