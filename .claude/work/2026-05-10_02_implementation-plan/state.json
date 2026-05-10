@@ -1,6 +1,6 @@
 {
   "status": "implementing",
-  "current_task": "TASK-003",
+  "current_task": "TASK-005",
   "active_phase": "0",
   "tasks": [
     {
@@ -53,9 +53,10 @@
       "type": "foundation",
       "owner": "collaborative",
       "owner_note": "Claude generates; User makes the call",
-      "status": "awaiting_sme",
+      "status": "completed",
+      "completed_at": "2026-05-10",
       "outputs": ["scripts/phase0_scope_decision.ipynb", "scripts/generate_phase0_notebook.py"],
-      "notes": "Notebook generated. SME must open, run all cells, fill the Decision cell, and commit.",
+      "notes": "Decision: GO. 'The project scope is clear. The clusters are representative and the chain completeness is ok.'",
       "dependencies": ["TASK-002"],
       "acceptance_criteria": [
         "Jupyter notebook scripts/phase0_scope_decision.ipynb with plots: source counts, topic split, chain completeness",
@@ -72,7 +73,10 @@
       "title": "Project setup — pyproject.toml, directory structure, schema doc",
       "type": "foundation",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-05-10",
+      "outputs": ["pyproject.toml", "corpus/SCHEMA.md", "benchmark/SCHEMA.md", "tests/test_schema.py"],
+      "notes": "All dirs created. pytest/ruff/mypy pass. Deps pinned at latest stable.",
       "dependencies": ["TASK-003"],
       "acceptance_criteria": [
         "pyproject.toml with pinned deps: pymupdf4llm, pymongo, rank-bm25, faiss-cpu, sentence-transformers, anthropic, pytest, ruff, mypy",
