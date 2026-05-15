@@ -14,10 +14,19 @@ dependencies = [
     "lxml>=5.0",
     # Database
     "pymongo>=4.17",
-    # Retrieval
+    # RAG framework — LlamaIndex core + backends
+    "llama-index-core>=0.12",
+    "llama-index-embeddings-huggingface>=0.4",   # wraps sentence-transformers
+    "llama-index-vector-stores-faiss>=0.3",       # wraps faiss-cpu
+    "llama-index-retrievers-bm25>=0.5",           # wraps rank-bm25
+    "llama-index-llms-anthropic>=0.6",            # Claude LLM integration
+    # Retrieval backends (used by LlamaIndex)
     "rank-bm25>=0.2.2",
     "faiss-cpu>=1.13",
     "sentence-transformers>=5.4",
+    # Observability — model-agnostic tracing
+    "arize-phoenix>=4.0",
+    "openinference-instrumentation-llama-index>=2.0",
     # LLM
     "anthropic>=0.100",
     # Utilities

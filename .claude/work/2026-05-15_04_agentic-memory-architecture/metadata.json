@@ -1,0 +1,9 @@
+{
+  "id": "2026-05-15_04_agentic-memory-architecture",
+  "type": "exploration",
+  "status": "complete",
+  "created_at": "2026-05-15",
+  "topic": "Agentic memory, document tree indexing, transparency/tracing, extensible RAG architecture",
+  "phase_at_creation": "Phase 1 (corpus in progress)",
+  "next_step": "Review and decide which recommendations to accept before TASK-016 (embedding pipeline)"
+}

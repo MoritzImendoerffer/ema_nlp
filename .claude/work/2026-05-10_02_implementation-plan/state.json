@@ -11,7 +11,10 @@
       "owner": "claude",
       "status": "completed",
       "completed_at": "2026-05-10",
-      "outputs": ["scripts/phase0_inventory.py", "scripts/phase0_inventory.csv"],
+      "outputs": [
+        "scripts/phase0_inventory.py",
+        "scripts/phase0_inventory.csv"
+      ],
       "notes": "165 sources (64 HTML, 101 PDFs). 1,506 estimated Q&A pairs from HTML. GO signal met.",
       "dependencies": [],
       "acceptance_criteria": [
@@ -32,11 +35,16 @@
       "owner": "claude",
       "status": "completed",
       "completed_at": "2026-05-10",
-      "outputs": ["scripts/phase0_topic_report.py", "scripts/phase0_topic_report.md"],
+      "outputs": [
+        "scripts/phase0_topic_report.py",
+        "scripts/phase0_topic_report.md"
+      ],
       "notes": "11 clusters. Research & Dev largest (492 Q&As, HTML+PDF). Chain completeness 43.6% from HTML links. 2 thin clusters (PDF-only).",
-      "dependencies": ["TASK-001"],
+      "dependencies": [
+        "TASK-001"
+      ],
       "acceptance_criteria": [
-        "Identifies ≥3 distinct topic clusters from URL-derived topic_path grouping",
+        "Identifies \u22653 distinct topic clusters from URL-derived topic_path grouping",
         "Reports Q&A count per cluster; flags clusters with <5 Q&As as thin",
         "Extracts cross-reference pattern ('see Q&A N') counts from PDF sources",
         "Verifies what fraction of referenced Q&As exist in the same corpus (chain completeness %)",
@@ -55,9 +63,14 @@
       "owner_note": "Claude generates; User makes the call",
       "status": "completed",
       "completed_at": "2026-05-10",
-      "outputs": ["scripts/phase0_scope_decision.ipynb", "scripts/generate_phase0_notebook.py"],
+      "outputs": [
+        "scripts/phase0_scope_decision.ipynb",
+        "scripts/generate_phase0_notebook.py"
+      ],
       "notes": "Decision: GO. 'The project scope is clear. The clusters are representative and the chain completeness is ok.'",
-      "dependencies": ["TASK-002"],
+      "dependencies": [
+        "TASK-002"
+      ],
       "acceptance_criteria": [
         "Jupyter notebook scripts/phase0_scope_decision.ipynb with plots: source counts, topic split, chain completeness",
         "Notebook has a clearly labelled 'Decision' cell that the user fills in: GO / NO-GO + rationale",
@@ -70,14 +83,21 @@
     {
       "id": "TASK-004",
       "phase": "1",
-      "title": "Project setup — pyproject.toml, directory structure, schema doc",
+      "title": "Project setup \u2014 pyproject.toml, directory structure, schema doc",
       "type": "foundation",
       "owner": "claude",
       "status": "completed",
       "completed_at": "2026-05-10",
-      "outputs": ["pyproject.toml", "corpus/SCHEMA.md", "benchmark/SCHEMA.md", "tests/test_schema.py"],
+      "outputs": [
+        "pyproject.toml",
+        "corpus/SCHEMA.md",
+        "benchmark/SCHEMA.md",
+        "tests/test_schema.py"
+      ],
       "notes": "All dirs created. pytest/ruff/mypy pass. Deps pinned at latest stable.",
-      "dependencies": ["TASK-003"],
+      "dependencies": [
+        "TASK-003"
+      ],
       "acceptance_criteria": [
         "pyproject.toml with pinned deps: pymupdf4llm, pymongo, rank-bm25, faiss-cpu, sentence-transformers, anthropic, pytest, ruff, mypy",
         "Directory tree created: corpus/, benchmark/, harness/configs/, harness/judges/, harness/prompts/, results/, ablations/A/, ablations/B/, ablations/C/, docs/",
@@ -97,15 +117,20 @@
       "owner": "claude",
       "status": "completed",
       "completed_at": "2026-05-10",
-      "outputs": ["corpus/extractors/html_extractor.py", "tests/test_html_extractor.py"],
+      "outputs": [
+        "corpus/extractors/html_extractor.py",
+        "tests/test_html_extractor.py"
+      ],
       "notes": "10 tests pass. Capture rate 100% on 3 fixtures (33 items). Confidence logic based on ?-ending and interrogative words.",
-      "dependencies": ["TASK-004"],
+      "dependencies": [
+        "TASK-004"
+      ],
       "acceptance_criteria": [
         "corpus/extractors/html_extractor.py reuses/wraps existing ema_parser.py::_parse_accordion",
         "Splits accordion items into Q/A pairs; flags items where heading isn't question-form",
         "Builds topic_path from URL segments; assigns extraction_confidence",
         "Output: list of QA records matching corpus/SCHEMA.md",
-        "Tests in tests/test_html_extractor.py: ≥3 real accordion pages used as fixtures; ≥90% Q&A capture rate on known pages",
+        "Tests in tests/test_html_extractor.py: \u22653 real accordion pages used as fixtures; \u226590% Q&A capture rate on known pages",
         "ruff + mypy clean"
       ],
       "estimated_hours": 3,
@@ -120,14 +145,19 @@
       "owner": "claude",
       "status": "completed",
       "completed_at": "2026-05-10",
-      "outputs": ["corpus/extractors/pdf_extractor.py", "tests/test_pdf_extractor.py"],
+      "outputs": [
+        "corpus/extractors/pdf_extractor.py",
+        "tests/test_pdf_extractor.py"
+      ],
       "notes": "14 tests pass. Benzyl alcohol PDF: 5 Q&As extracted, EMA/CHMP/508188/2013 reference correct. Cross-refs resolved to qa_ids.",
-      "dependencies": ["TASK-004"],
+      "dependencies": [
+        "TASK-004"
+      ],
       "acceptance_criteria": [
         "corpus/extractors/pdf_extractor.py uses PyMuPDF4LLM for text extraction",
-        "Regex-based Q segmentation on numbered headings ('1. Should the risk…', '2. What is…')",
-        "Revision history table parsed → revision field; reference number extracted from title page",
-        "cross_refs extracted from 'see Q&A N' patterns → list of qa_id strings",
+        "Regex-based Q segmentation on numbered headings ('1. Should the risk\u2026', '2. What is\u2026')",
+        "Revision history table parsed \u2192 revision field; reference number extracted from title page",
+        "cross_refs extracted from 'see Q&A N' patterns \u2192 list of qa_id strings",
         "Flags PDFs without numbered-heading structure for manual review",
         "Tests in tests/test_pdf_extractor.py: nitrosamine Q&A PDF as fixture; Q22 has correct cross_refs [Q20, Q10]; revision parsed correctly",
         "ruff + mypy clean"
@@ -143,9 +173,12 @@
       "type": "feature",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-005", "TASK-006"],
+      "dependencies": [
+        "TASK-005",
+        "TASK-006"
+      ],
       "acceptance_criteria": [
-        "corpus/build_corpus.py orchestrates: extract → dedup → filter → write",
+        "corpus/build_corpus.py orchestrates: extract \u2192 dedup \u2192 filter \u2192 write",
         "Hash-based dedup on normalized question text; prefers PDF version when duplicates found; dedup log written",
         "Landing pages (no accordion + no numbered Q headings) filtered out; filter log written",
         "Stable qa_id = hash(source_url + normalized_question)",
@@ -158,15 +191,17 @@
     {
       "id": "TASK-008",
       "phase": "1",
-      "title": "Corpus manifest — corpus.jsonl + corpus_stats.md",
+      "title": "Corpus manifest \u2014 corpus.jsonl + corpus_stats.md",
       "type": "feature",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-007"],
+      "dependencies": [
+        "TASK-007"
+      ],
       "acceptance_criteria": [
         "corpus/corpus.jsonl written; one record per line; schema validates against corpus/SCHEMA.md",
         "corpus/corpus_stats.md: counts by topic_path, source_type, revision date distribution, cross_refs coverage",
-        "Success criterion met: ≥200 Q&A records, ≥3 topic paths covered",
+        "Success criterion met: \u2265200 Q&A records, \u22653 topic paths covered",
         "If <200 records: script prints explicit SCOPE-RISK warning and halts"
       ],
       "estimated_hours": 2,
@@ -176,11 +211,13 @@
     {
       "id": "TASK-009",
       "phase": "1.5",
-      "title": "Training data contamination check — Dolma 3 / Common Corpus",
+      "title": "Training data contamination check \u2014 Dolma 3 / Common Corpus",
       "type": "testing",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-008"],
+      "dependencies": [
+        "TASK-008"
+      ],
       "acceptance_criteria": [
         "docs/training_data_verification.md written",
         "5-10 distinctive sentences extracted from each main source doc (nitrosamine Q&A, level-of-detail Q&A, Quality Q&A parts 1/2)",
@@ -195,12 +232,14 @@
     {
       "id": "TASK-010",
       "phase": "2",
-      "title": "T1 Lookup benchmark questions — candidates + SME review",
+      "title": "T1 Lookup benchmark questions \u2014 candidates + SME review",
       "type": "feature",
       "owner": "collaborative",
       "owner_note": "Claude generates 30 candidates; User selects and validates 20",
       "status": "pending",
-      "dependencies": ["TASK-008"],
+      "dependencies": [
+        "TASK-008"
+      ],
       "acceptance_criteria": [
         "Claude generates benchmark/candidates/t1_candidates.jsonl with 30 T1 candidates sampled from corpus",
         "Each candidate has: question (verbatim Q from corpus), gold_answer, gold_qa_ids, topic_path",
@@ -215,12 +254,14 @@
     {
       "id": "TASK-011",
       "phase": "2",
-      "title": "T2 Scoping benchmark questions — author",
+      "title": "T2 Scoping benchmark questions \u2014 author",
       "type": "sme-artifact",
       "owner": "sme",
       "owner_note": "User authors; Claude validates schema and generates paraphrases",
       "status": "pending",
-      "dependencies": ["TASK-008"],
+      "dependencies": [
+        "TASK-008"
+      ],
       "acceptance_criteria": [
         "User authors 10 T2 questions where the answer requires correct selection among topically-adjacent Q&As",
         "Each question paired with: 2 topically-adjacent 'distractor' Q&As (wrong scope) + 1 correct Q&A",
@@ -235,14 +276,17 @@
     {
       "id": "TASK-012",
       "phase": "2",
-      "title": "T3 Multi-hop benchmark questions — chain composition",
+      "title": "T3 Multi-hop benchmark questions \u2014 chain composition",
       "type": "feature",
       "owner": "collaborative",
       "owner_note": "Claude identifies valid chains; User composes the questions",
       "status": "pending",
-      "dependencies": ["TASK-008", "TASK-002"],
+      "dependencies": [
+        "TASK-008",
+        "TASK-002"
+      ],
       "acceptance_criteria": [
-        "Claude enumerates all cross_ref chains of length ≥2 where all hops are in-corpus",
+        "Claude enumerates all cross_ref chains of length \u22652 where all hops are in-corpus",
         "Claude generates a chain map: benchmark/candidates/t3_chain_map.md showing each chain with hop Q&As",
         "User composes 10 questions that require traversing those chains to answer (chain cannot be answered from first hop alone)",
         "Claude validates all hops are in corpus and adds paraphrases",
@@ -255,17 +299,19 @@
     {
       "id": "TASK-013",
       "phase": "2",
-      "title": "T4 Synthesis benchmark questions — hand-curate",
+      "title": "T4 Synthesis benchmark questions \u2014 hand-curate",
       "type": "sme-artifact",
       "owner": "sme",
       "owner_note": "User hand-curates; Claude assists with paraphrases and schema",
       "status": "pending",
-      "dependencies": ["TASK-008"],
+      "dependencies": [
+        "TASK-008"
+      ],
       "acceptance_criteria": [
-        "User curates ≥5 synthesis questions combining ≥2 Q&As from different source documents",
-        "Includes ≥2 'composite/counterfactual' items that combine published Q&As in ways the documents don't (contamination-resistant by construction)",
-        "Claude adds paraphrases and validates gold_qa_ids span ≥2 distinct source_urls",
-        "≥5 T4 items appended to benchmark/benchmark.jsonl"
+        "User curates \u22655 synthesis questions combining \u22652 Q&As from different source documents",
+        "Includes \u22652 'composite/counterfactual' items that combine published Q&As in ways the documents don't (contamination-resistant by construction)",
+        "Claude adds paraphrases and validates gold_qa_ids span \u22652 distinct source_urls",
+        "\u22655 T4 items appended to benchmark/benchmark.jsonl"
       ],
       "estimated_hours": 3,
       "priority": "high",
@@ -278,10 +324,15 @@
       "type": "feature",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-010", "TASK-011", "TASK-012", "TASK-013"],
+      "dependencies": [
+        "TASK-010",
+        "TASK-011",
+        "TASK-012",
+        "TASK-013"
+      ],
       "acceptance_criteria": [
         "benchmark/validate_benchmark.py validates each item against benchmark/SCHEMA.md",
-        "Checks: no duplicate bench_ids; all gold_qa_ids exist in corpus.jsonl; paraphrases field present; type distribution T1=20, T2=10, T3=10, T4≥5",
+        "Checks: no duplicate bench_ids; all gold_qa_ids exist in corpus.jsonl; paraphrases field present; type distribution T1=20, T2=10, T3=10, T4\u22655",
         "benchmark/STATS.md: stratification report, topic distribution, source diversity",
         "Script exits non-zero on any validation failure"
       ],
@@ -296,7 +347,9 @@
       "type": "testing",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-014"],
+      "dependencies": [
+        "TASK-014"
+      ],
       "acceptance_criteria": [
         "harness/contamination_screen.py runs every benchmark item through configured models with no retrieval context",
         "Captures: model answer, matches_gold (bool), zero_shot_known flag per model",
@@ -311,35 +364,64 @@
     {
       "id": "TASK-016",
       "phase": "3",
-      "title": "Embedding pipeline + FAISS vector store",
+      "title": "LlamaIndex DocumentSummaryIndex + FAISS backend",
       "type": "foundation",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-008"],
-      "acceptance_criteria": [
-        "harness/embed.py embeds each Q&A record (question + answer concatenated) using BGE-large-en",
-        "FAISS flat index saved to harness/index/corpus.faiss; id-to-qa_id map saved alongside",
-        "Dense retrieval function returns top-k (qa_id, score) pairs in <100ms for k=10",
-        "Unit test: known question retrieves its own Q&A in top-1"
+      "dependencies": [
+        "TASK-008"
       ],
-      "estimated_hours": 3,
+      "acceptance_criteria": [
+        "harness/embed.py builds a LlamaIndex DocumentSummaryIndex from corpus.jsonl",
+        "Each Q&A record becomes a TextNode; cross_refs field becomes NodeRelationship.RELATED links between nodes",
+        "Embeddings use BGE-large-en via llama-index-embeddings-huggingface (wraps existing sentence-transformers dep)",
+        "FAISS flat index used as the vector store backend (llama-index-vector-stores-faiss)",
+        "Index persisted to harness/index/ \u2014 reloadable without rebuilding",
+        "Dense retrieval returns top-k (qa_id, score) pairs; unit test: known question retrieves itself in top-1",
+        "Document-level summary nodes generated for each source document (cheap, uses cheap LLM or extractive summary)"
+      ],
+      "estimated_hours": 4,
       "priority": "high",
       "github_issue": null
     },
     {
-      "id": "TASK-017",
+      "id": "TASK-016.5",
       "phase": "3",
-      "title": "BM25 hybrid retrieval",
+      "title": "IDMP ontology concept tagging \u2014 node metadata",
       "type": "feature",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-016"],
+      "dependencies": [
+        "TASK-016"
+      ],
       "acceptance_criteria": [
-        "harness/retrieve.py implements: dense-only (A0), BM25-only, hybrid RRF fusion (A0+)",
-        "Retriever selects mode via config flag",
-        "BM25 uses rank-bm25 on tokenized Q&A text",
-        "Reciprocal Rank Fusion merges dense and BM25 result lists",
-        "Test: hybrid outperforms dense-only on a known exact-match query ('26.5 ng/day')"
+        "scripts/tag_concepts.py parses IDMP RDF (from ~/Nextcloud/Datasets/) and extracts ~50-100 key regulatory concepts",
+        "Each Q&A node in the index gets a metadata['concepts'] list from simple string matching against the concept labels",
+        "Concept list written to harness/ontology/concepts.yaml for human review and editing",
+        "filter_by_concept(concept) retriever built on top of LlamaIndex metadata filters",
+        "Graceful fallback if RDF file is absent (concepts field left empty \u2014 index still works)"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium",
+      "github_issue": null,
+      "notes": "Lightweight ontology-as-metadata \u2014 no graph DB. Foundation for v2+ graph-RAG if benchmark demands it."
+    },
+    {
+      "id": "TASK-017",
+      "phase": "3",
+      "title": "LlamaIndex BM25Retriever + hybrid RRF fusion",
+      "type": "feature",
+      "owner": "claude",
+      "status": "pending",
+      "dependencies": [
+        "TASK-016"
+      ],
+      "acceptance_criteria": [
+        "harness/retrieve.py wraps LlamaIndex BM25Retriever (backed by rank-bm25) for keyword retrieval",
+        "QueryFusionRetriever combines dense VectorIndex retrieval and BM25 via Reciprocal Rank Fusion",
+        "Retriever mode selectable via config flag: dense-only (A0), BM25-only, hybrid RRF (A0+)",
+        "Test: hybrid outperforms dense-only on an exact-match query ('26.5 ng/day')",
+        "Both retrievers return (qa_id, score, node_metadata) \u2014 metadata includes concepts and topic_path"
       ],
       "estimated_hours": 2,
       "priority": "high",
@@ -348,11 +430,13 @@
     {
       "id": "TASK-018",
       "phase": "3",
-      "title": "Evaluation harness — retrieval metrics (Recall@k, Precision@k, Citation Accuracy)",
+      "title": "Evaluation harness \u2014 retrieval metrics (Recall@k, Precision@k, Citation Accuracy)",
       "type": "testing",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-017"],
+      "dependencies": [
+        "TASK-017"
+      ],
       "acceptance_criteria": [
         "harness/eval_retrieval.py computes Recall@k, Precision@k, Citation Accuracy per benchmark item",
         "All three metrics broken down by question type (T1/T2/T3/T4)",
@@ -366,11 +450,13 @@
     {
       "id": "TASK-019",
       "phase": "3",
-      "title": "LLM judge — Faithfulness + Correctness",
+      "title": "LLM judge \u2014 Faithfulness + Correctness",
       "type": "feature",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-018"],
+      "dependencies": [
+        "TASK-018"
+      ],
       "acceptance_criteria": [
         "harness/judges/faithfulness.md and correctness.md: judge prompts as files (not string literals)",
         "harness/judge.py runs judge model (different from generator) on each answer",
@@ -389,15 +475,20 @@
       "type": "foundation",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-018", "TASK-019"],
+      "dependencies": [
+        "TASK-018",
+        "TASK-019"
+      ],
       "acceptance_criteria": [
         "harness/run_eval.py: single entry point, driven by YAML config",
         "Config schema covers: retriever mode, generator model, judge model, k, ablation flags",
-        "Each run creates results/<run_id>/ with: config.yaml copy, raw outputs JSONL, metrics JSON, plots",
+        "Arize Phoenix launched at startup (px.launch_app()); LlamaIndexInstrumentor().instrument() called before first query",
+        "Each run creates results/<run_id>/ with: config.yaml copy, raw outputs JSONL, metrics JSON, plots, traces.jsonl",
         "run_id = datetime + config hash (reproducible)",
+        "traces.jsonl: Phoenix span export per query (retrieval steps, reranking, LLM calls, latency)",
         "Example configs in harness/configs/: baseline_a0.yaml, baseline_a0plus.yaml"
       ],
-      "estimated_hours": 2,
+      "estimated_hours": 3,
       "priority": "high",
       "github_issue": null
     },
@@ -408,7 +499,10 @@
       "type": "feature",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-015", "TASK-020"],
+      "dependencies": [
+        "TASK-015",
+        "TASK-020"
+      ],
       "acceptance_criteria": [
         "A0 (dense-only) and A0+ (hybrid) both run end-to-end on full benchmark",
         "Results report results/baseline/baseline_report.md: all 5 metrics per T1-T4; open-book + closed-book side by side; lift computed",
@@ -422,15 +516,17 @@
     {
       "id": "TASK-022",
       "phase": "4A",
-      "title": "SME acronym dictionary — author",
+      "title": "SME acronym dictionary \u2014 author",
       "type": "sme-artifact",
       "owner": "sme",
       "owner_note": "User authors YAML; Claude integrates into A1 query expansion",
       "status": "pending",
-      "dependencies": ["TASK-021"],
+      "dependencies": [
+        "TASK-021"
+      ],
       "acceptance_criteria": [
         "ablations/A_evidence_filter/acronym_dict.yaml written by user",
-        "≥30 entries covering: AI (Acceptable Intake), MAH, CAPA, ICH Q3A/M7/Q9, GMP, CEP, ASMF, TTC, LoQ, ppm/ppb, and any others encountered during benchmark curation",
+        "\u226530 entries covering: AI (Acceptable Intake), MAH, CAPA, ICH Q3A/M7/Q9, GMP, CEP, ASMF, TTC, LoQ, ppm/ppb, and any others encountered during benchmark curation",
         "Each entry has: canonical, acronym, synonyms[], context_disambiguation[], topic_paths_where_relevant[]",
         "Validated by Claude: no duplicate acronyms; context_disambiguation present for all collision-risk entries (AI, MA)"
       ],
@@ -445,7 +541,9 @@
       "type": "feature",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-022"],
+      "dependencies": [
+        "TASK-022"
+      ],
       "acceptance_criteria": [
         "harness/ablations/a1_query_expansion.py: reads acronym_dict.yaml, expands queries contextually",
         "harness/ablations/a2_topic_filter.py: predicts topic from question (LLM classify or keyword rules); filters retrieval to matching topic_path",
@@ -459,12 +557,14 @@
     {
       "id": "TASK-024",
       "phase": "4A",
-      "title": "SME relevance rubric — author",
+      "title": "SME relevance rubric \u2014 author",
       "type": "sme-artifact",
       "owner": "sme",
       "owner_note": "User writes ~200-word rubric for A3 LLM reranker",
       "status": "pending",
-      "dependencies": ["TASK-021"],
+      "dependencies": [
+        "TASK-021"
+      ],
       "acceptance_criteria": [
         "harness/prompts/relevance_rubric_sme.md written by user",
         "Rubric defines: what 'relevant' means for EMA Q&A (procedure match, scope alignment, threshold specificity)",
@@ -482,12 +582,14 @@
       "type": "feature",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-024"],
+      "dependencies": [
+        "TASK-024"
+      ],
       "acceptance_criteria": [
         "harness/ablations/a3_reranker.py: LLM reranker using harness/prompts/relevance_rubric_sme.md",
         "harness/ablations/a4_reranker.py: same architecture but generic 'is this relevant?' prompt",
         "Both use Haiku-tier model to control cost; configurable",
-        "Cost budget enforced: ≤40 questions × 5 chunks × configurable max_rerank_calls",
+        "Cost budget enforced: \u226440 questions \u00d7 5 chunks \u00d7 configurable max_rerank_calls",
         "Integrated as flags in run_eval.py"
       ],
       "estimated_hours": 3,
@@ -497,14 +599,17 @@
     {
       "id": "TASK-026",
       "phase": "4A",
-      "title": "Run Ablation A variants A0–A5 + analysis report",
+      "title": "Run Ablation A variants A0\u2013A5 + analysis report",
       "type": "testing",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-023", "TASK-025"],
+      "dependencies": [
+        "TASK-023",
+        "TASK-025"
+      ],
       "acceptance_criteria": [
         "All 6 variants run (A0, A0+, A1, A2, A3, A4, A5) via harness/configs/ablation_a_*.yaml",
-        "Results in results/ablation_a/: metrics JSON per variant, grouped bar chart (per T-type × variant)",
+        "Results in results/ablation_a/: metrics JSON per variant, grouped bar chart (per T-type \u00d7 variant)",
         "A3 vs A4 comparison explicitly reported: is SME rubric authorship what helps?",
         "ablations/A_evidence_filter/FINDINGS.md written: which variant gained most, on which types, pre-registered predictions vs actual"
       ],
@@ -515,31 +620,38 @@
     {
       "id": "TASK-027",
       "phase": "4B",
-      "title": "ReAct agent + tools (search, follow_cross_refs, filter_by_topic, answer)",
+      "title": "LlamaIndex ReActAgent + tools (search, follow_cross_refs, filter_by_topic, answer)",
       "type": "feature",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-020", "TASK-026"],
+      "dependencies": [
+        "TASK-020",
+        "TASK-026"
+      ],
       "acceptance_criteria": [
-        "harness/agents/react_agent.py implements ReAct loop: think → act → observe → think → answer",
-        "Four tools implemented: search(query,k), follow_cross_refs(qa_id), filter_by_topic(topic), answer(text, cited_qa_ids)",
-        "Retriever mode uses best-A variant from TASK-026 (configurable)",
-        "Trajectories logged as JSONL: step, thought, action, observation per turn",
+        "harness/agents/react_agent.py builds a LlamaIndex ReActAgent with four FunctionTool wrappers",
+        "Tools: search(query,k), follow_cross_refs(qa_id), filter_by_topic(topic), answer(text,cited_qa_ids)",
+        "follow_cross_refs uses NodeRelationship.RELATED links from TASK-016 \u2014 O(1) lookup, no retrieval needed",
+        "Retriever mode uses best-A variant from TASK-026 (configurable in YAML)",
+        "Agent loop managed by LlamaIndex (no custom ReAct implementation)",
+        "Trajectories automatically captured by Phoenix instrumentation from TASK-020 \u2014 no extra logging code",
         "Agent terminates on answer() call or max_steps exceeded; no infinite loops"
       ],
-      "estimated_hours": 4,
+      "estimated_hours": 3,
       "priority": "high",
       "github_issue": null
     },
     {
       "id": "TASK-028",
       "phase": "4B",
-      "title": "B1 sanity check — 5 questions + trajectory review",
+      "title": "B1 sanity check \u2014 5 questions + trajectory review",
       "type": "testing",
       "owner": "collaborative",
       "owner_note": "Claude runs B1 on 5 questions; User reviews trajectory quality and makes go/no-go call on B3 SME labeling",
       "status": "pending",
-      "dependencies": ["TASK-027"],
+      "dependencies": [
+        "TASK-027"
+      ],
       "acceptance_criteria": [
         "B1 run on 5 benchmark questions (1 T1, 1 T2, 2 T3, 1 T4); trajectories saved",
         "User reviews trajectories for: coherent thought steps, appropriate tool selection, no runaway loops",
@@ -558,9 +670,11 @@
       "owner": "sme",
       "owner_note": "User labels trajectory steps; skipped if B1 sanity check fails",
       "status": "pending",
-      "dependencies": ["TASK-028"],
+      "dependencies": [
+        "TASK-028"
+      ],
       "acceptance_criteria": [
-        "User runs B1 on a held-out subset and labels ≥50 trajectory steps",
+        "User runs B1 on a held-out subset and labels \u226550 trajectory steps",
         "Labels: good_step | suboptimal_step | wrong_step + one-line reason",
         "Stored in ablations/B_process_rewards/trajectory_labels.jsonl",
         "First 10 labels reviewed for consistency before continuing (label rubric may need iteration)"
@@ -572,11 +686,13 @@
     {
       "id": "TASK-030",
       "phase": "4B",
-      "title": "Run Ablation B variants B0–B4 + analysis report",
+      "title": "Run Ablation B variants B0\u2013B4 + analysis report",
       "type": "testing",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-029"],
+      "dependencies": [
+        "TASK-029"
+      ],
       "acceptance_criteria": [
         "All applicable B variants run (B0-B4, or B0/B1/B2/B4 if B3 skipped)",
         "Results in results/ablation_b/: per-type Recall@5, Correctness, Citation Accuracy + tool-call trace counts",
@@ -590,12 +706,14 @@
     {
       "id": "TASK-031",
       "phase": "4C",
-      "title": "SME few-shot exemplars — author",
+      "title": "SME few-shot exemplars \u2014 author",
       "type": "sme-artifact",
       "owner": "sme",
       "owner_note": "User writes 3-5 Q&A solving traces; held-out from benchmark",
       "status": "pending",
-      "dependencies": ["TASK-021"],
+      "dependencies": [
+        "TASK-021"
+      ],
       "acceptance_criteria": [
         "harness/prompts/few_shot_examples.md written by user",
         "3-5 examples covering T1, T2, T3 question types (T4 optional if feasible)",
@@ -614,7 +732,9 @@
       "type": "integration",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-020"],
+      "dependencies": [
+        "TASK-020"
+      ],
       "acceptance_criteria": [
         "harness/models.py: unified model interface for mid-tier (Haiku 4.5), frontier reasoning (Opus 4.x), OLMo 3 (Together AI or self-hosted)",
         "OLMo 3 32B Think accessible via configured API endpoint",
@@ -628,15 +748,18 @@
     {
       "id": "TASK-033",
       "phase": "4C",
-      "title": "3×3 grid runs + analysis report",
+      "title": "3\u00d73 grid runs + analysis report",
       "type": "testing",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-031", "TASK-032"],
+      "dependencies": [
+        "TASK-031",
+        "TASK-032"
+      ],
       "acceptance_criteria": [
-        "All 9 cells run: 3 models × {zero-shot, SME few-shot, self-generated CoT}",
+        "All 9 cells run: 3 models \u00d7 {zero-shot, SME few-shot, self-generated CoT}",
         "Results in results/ablation_c/: per-type Correctness and Citation Accuracy for all 9 cells",
-        "Δ(few-shot − zero-shot) computed across all three model tiers — row-pattern consistency chart",
+        "\u0394(few-shot \u2212 zero-shot) computed across all three model tiers \u2014 row-pattern consistency chart",
         "OlmoTrace used on 5 OLMo 3 answers to verify contamination status post-hoc",
         "ablations/C_prompting_matrix/FINDINGS.md: all pre-registered predictions checked; open questions highlighted"
       ],
@@ -652,7 +775,11 @@
       "owner": "collaborative",
       "owner_note": "Claude drafts from BLOG_OUTLINE.md; User revises",
       "status": "pending",
-      "dependencies": ["TASK-026", "TASK-030", "TASK-033"],
+      "dependencies": [
+        "TASK-026",
+        "TASK-030",
+        "TASK-033"
+      ],
       "acceptance_criteria": [
         "docs/blog_post.md follows structure in project_roadmap/BLOG_OUTLINE.md",
         "All three ablation findings reported; 'surprising finding' section filled in from actual results",
@@ -671,10 +798,12 @@
       "type": "documentation",
       "owner": "claude",
       "status": "pending",
-      "dependencies": ["TASK-034"],
+      "dependencies": [
+        "TASK-034"
+      ],
       "acceptance_criteria": [
         "README.md follows structure in project_roadmap/README_OUTLINE.md",
-        "Quickstart: pip install + run baseline + see numbers works from fresh clone in ≤30 min",
+        "Quickstart: pip install + run baseline + see numbers works from fresh clone in \u226430 min",
         "Honest limitations section: corpus size, English-only, EU-only, no biomedical reasoning",
         "CC-BY-4.0 (data) + MIT (code) licensing documented",
         "EMA attribution section present"
@@ -685,41 +814,128 @@
     }
   ],
   "completed_tasks": [],
-  "next_available": ["TASK-001"],
+  "next_available": [
+    "TASK-001"
+  ],
   "blocked": {
-    "TASK-002": ["TASK-001"],
-    "TASK-003": ["TASK-002"],
-    "TASK-004": ["TASK-003"],
-    "TASK-005": ["TASK-004"],
-    "TASK-006": ["TASK-004"],
-    "TASK-007": ["TASK-005", "TASK-006"],
-    "TASK-008": ["TASK-007"],
-    "TASK-009": ["TASK-008"],
-    "TASK-010": ["TASK-008"],
-    "TASK-011": ["TASK-008"],
-    "TASK-012": ["TASK-008", "TASK-002"],
-    "TASK-013": ["TASK-008"],
-    "TASK-014": ["TASK-010", "TASK-011", "TASK-012", "TASK-013"],
-    "TASK-015": ["TASK-014"],
-    "TASK-016": ["TASK-008"],
-    "TASK-017": ["TASK-016"],
-    "TASK-018": ["TASK-017"],
-    "TASK-019": ["TASK-018"],
-    "TASK-020": ["TASK-018", "TASK-019"],
-    "TASK-021": ["TASK-015", "TASK-020"],
-    "TASK-022": ["TASK-021"],
-    "TASK-023": ["TASK-022"],
-    "TASK-024": ["TASK-021"],
-    "TASK-025": ["TASK-024"],
-    "TASK-026": ["TASK-023", "TASK-025"],
-    "TASK-027": ["TASK-020", "TASK-026"],
-    "TASK-028": ["TASK-027"],
-    "TASK-029": ["TASK-028"],
-    "TASK-030": ["TASK-029"],
-    "TASK-031": ["TASK-021"],
-    "TASK-032": ["TASK-020"],
-    "TASK-033": ["TASK-031", "TASK-032"],
-    "TASK-034": ["TASK-026", "TASK-030", "TASK-033"],
-    "TASK-035": ["TASK-034"]
+    "TASK-002": [
+      "TASK-001"
+    ],
+    "TASK-003": [
+      "TASK-002"
+    ],
+    "TASK-004": [
+      "TASK-003"
+    ],
+    "TASK-005": [
+      "TASK-004"
+    ],
+    "TASK-006": [
+      "TASK-004"
+    ],
+    "TASK-007": [
+      "TASK-005",
+      "TASK-006"
+    ],
+    "TASK-008": [
+      "TASK-007"
+    ],
+    "TASK-009": [
+      "TASK-008"
+    ],
+    "TASK-010": [
+      "TASK-008"
+    ],
+    "TASK-011": [
+      "TASK-008"
+    ],
+    "TASK-012": [
+      "TASK-008",
+      "TASK-002"
+    ],
+    "TASK-013": [
+      "TASK-008"
+    ],
+    "TASK-014": [
+      "TASK-010",
+      "TASK-011",
+      "TASK-012",
+      "TASK-013"
+    ],
+    "TASK-015": [
+      "TASK-014"
+    ],
+    "TASK-016": [
+      "TASK-008"
+    ],
+    "TASK-017": [
+      "TASK-016"
+    ],
+    "TASK-018": [
+      "TASK-017"
+    ],
+    "TASK-019": [
+      "TASK-018"
+    ],
+    "TASK-020": [
+      "TASK-018",
+      "TASK-019"
+    ],
+    "TASK-021": [
+      "TASK-015",
+      "TASK-020"
+    ],
+    "TASK-022": [
+      "TASK-021"
+    ],
+    "TASK-023": [
+      "TASK-022"
+    ],
+    "TASK-024": [
+      "TASK-021"
+    ],
+    "TASK-025": [
+      "TASK-024"
+    ],
+    "TASK-026": [
+      "TASK-023",
+      "TASK-025"
+    ],
+    "TASK-027": [
+      "TASK-020",
+      "TASK-026"
+    ],
+    "TASK-028": [
+      "TASK-027"
+    ],
+    "TASK-029": [
+      "TASK-028"
+    ],
+    "TASK-030": [
+      "TASK-029"
+    ],
+    "TASK-031": [
+      "TASK-021"
+    ],
+    "TASK-032": [
+      "TASK-020"
+    ],
+    "TASK-033": [
+      "TASK-031",
+      "TASK-032"
+    ],
+    "TASK-034": [
+      "TASK-026",
+      "TASK-030",
+      "TASK-033"
+    ],
+    "TASK-035": [
+      "TASK-034"
+    ]
+  },
+  "framework_decisions": {
+    "retrieval_framework": "LlamaIndex",
+    "decided_at": "2026-05-15",
+    "rationale": "DocumentSummaryIndex for document-tree memory, NodeRelationship for cross-refs, ReActAgent for agents, OpenInference+Phoenix for model-agnostic tracing. See .claude/work/2026-05-15_04_agentic-memory-architecture/exploration.md"
   }
 }

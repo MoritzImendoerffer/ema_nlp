@@ -2,7 +2,19 @@
 
 **Date:** 2026-05-10  
 **Phase at time of planning:** Phase 0 (scoping)  
-**Total tasks:** 35 | **Claude tasks:** 22 | **SME (user) tasks:** 7 | **Collaborative:** 6
+**Total tasks:** 36 | **Claude tasks:** 23 | **SME (user) tasks:** 7 | **Collaborative:** 6
+
+### Framework decisions (2026-05-15)
+
+| Concern | Decision |
+|---------|---------|
+| Retrieval framework | **LlamaIndex** — `DocumentSummaryIndex` for document-tree memory, `NodeRelationship` for cross-refs, `ReActAgent` for Ablation B |
+| Tracing | **Arize Phoenix + OpenInference** — model-agnostic, self-hosted, wired at TASK-020 before first baseline run |
+| Ontology | **Node metadata only** (TASK-016.5) — IDMP concepts as metadata filters; no graph DB; foundation for v2+ graph-RAG |
+| Raw backends | Unchanged — FAISS, sentence-transformers, rank-bm25 all used via LlamaIndex wrappers |
+
+See `.claude/work/2026-05-15_04_agentic-memory-architecture/exploration.md` for the full rationale.  
+Tasks modified: TASK-016, TASK-017, TASK-020, TASK-027. Task added: TASK-016.5. state.json is authoritative.
 
 ---
 
