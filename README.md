@@ -1,5 +1,7 @@
 # ema_nlp
-Tinkering with Graph RAG and data from the website of ema.europa.eu, based on ema_scraper
+A Q&A benchmark and reference RAG implementations built from European Medicines Agency (EMA) human-regulatory content.
+
+**[Setup guide →](docs/SETUP.md)** — how to install dependencies, configure credentials, and sync the database across machines.
 
 ## Strategy
 

@@ -51,7 +51,17 @@ Currently in **Phase 0 (scoping)**. Do not introduce work from later phases with
 
 ## Work history
 
-After completing any work unit saved under `.claude/work/`, append one row to `.claude/HISTORY.md` with: today's date, a one-sentence summary of the instruction, and a relative link to the primary findings markdown. Do not read HISTORY.md automatically at session start — only consult it when the user asks about past work.
+After **any interaction that results in code or config changes**, append one row to `.claude/HISTORY.md`. The table has five columns:
+
+| Column | Content |
+|--------|---------|
+| Date | `YYYY-MM-DD` |
+| Summary | One sentence on what was done (outcome, not the request) |
+| Changed | Comma-separated files or dirs touched (e.g. `config.py`, `scripts/`) |
+| Phase | Current roadmap phase (e.g. `Phase 0`) |
+| Work unit | Relative link to `.claude/work/` doc if one exists, else `—` |
+
+Do not read HISTORY.md at session start — only when the user asks about past work. The file is never auto-loaded, so it does not consume context window.
 
 ## Evaluation design notes
 

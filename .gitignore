@@ -134,7 +134,7 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-# Environments
+# Environments — credentials live at ~/.myenvs/ema_nlp.env, never in this repo
 .env
 .envrc
 .venv
