@@ -1,0 +1,9 @@
+{
+  "id": "2026-05-15_05_rl-feedback-cache",
+  "type": "exploration",
+  "status": "complete",
+  "created_at": "2026-05-15",
+  "topic": "RL-style feedback on agent trajectories, semantic query cache with user confirmation, online few-shot learning",
+  "phase_at_creation": "Phase 1 (corpus in progress)",
+  "next_step": "Review findings; decide tier (v1 extension vs v2). Key question: rate full answer only, or individual steps?"
+}
