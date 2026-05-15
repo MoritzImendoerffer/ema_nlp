@@ -642,6 +642,120 @@
       "github_issue": null
     },
     {
+      "id": "TASK-027.5",
+      "phase": "4B",
+      "title": "Query cache \u2014 FAISS index over past query embeddings + JSON sidecar",
+      "type": "feature",
+      "owner": "claude",
+      "status": "pending",
+      "dependencies": [
+        "TASK-020",
+        "TASK-016"
+      ],
+      "acceptance_criteria": [
+        "harness/query_cache.py builds and persists a secondary FAISS index over past query embeddings to harness/index/query_cache.faiss",
+        "JSON sidecar harness/index/query_cache.json maps each vector id to {run_id, question_text, answer_summary, rating, cited_qa_ids}",
+        "get_similar(query_vec, k, min_rating, threshold) returns ranked list of past interactions above cosine threshold",
+        "add_entry(run_id, question, answer, cited_qa_ids) appends to index + sidecar",
+        "update_rating(run_id, rating) patches the sidecar entry",
+        "Index reloads without rebuilding; handles empty-index case gracefully",
+        "Similarity threshold configurable (default 0.88); benchmark configs always set cache: false"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium",
+      "github_issue": null,
+      "notes": "Reuses BGE-large embedding model from TASK-016 \u2014 no new dependencies."
+    },
+    {
+      "id": "TASK-027.6",
+      "phase": "4B",
+      "title": "Semantic cache CLI \u2014 similarity lookup + user confirmation before pipeline runs",
+      "type": "feature",
+      "owner": "claude",
+      "status": "pending",
+      "dependencies": [
+        "TASK-027.5"
+      ],
+      "acceptance_criteria": [
+        "Before each interactive agent run, query_cache.get_similar() is called",
+        "If matches found, CLI presents numbered list: similarity score, rating, question preview, answer preview, run_id",
+        "User options: [a/b/...] use cached answer, [c] use as few-shot context + run fresh, [Enter/d] run full pipeline",
+        "Cached answer path: returns stored answer + prints stored trajectory; no LLM call made",
+        "Fresh-retrieval path (options c and d): proceeds to agent; option c passes cached trajectory to TASK-027.7",
+        "run_eval.py respects cache: false in config \u2014 skips cache lookup entirely for benchmark runs"
+      ],
+      "estimated_hours": 1,
+      "priority": "medium",
+      "github_issue": null
+    },
+    {
+      "id": "TASK-027.7",
+      "phase": "4B",
+      "title": "Runtime few-shot injection \u2014 top-k rated trajectories injected into agent prompt",
+      "type": "feature",
+      "owner": "claude",
+      "status": "pending",
+      "dependencies": [
+        "TASK-027.5",
+        "TASK-027"
+      ],
+      "acceptance_criteria": [
+        "get_fewshot_context(query_vec, k=3, min_rating=4) fetches top-k similar trajectories rated >= min_rating from query cache",
+        "Fetches full trajectory text from Phoenix API by run_id (span export endpoint)",
+        "Formats trajectories as few-shot block injected into ReActAgent system prompt before each run",
+        "Injected examples are logged as metadata on the Phoenix trace (visible in UI, fully reproducible)",
+        "No injection if fewer than min_examples rated interactions exist (configurable, default 3)",
+        "k and min_rating configurable in YAML; injection disabled when cache: false"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium",
+      "github_issue": null,
+      "notes": "No new dependencies. Phoenix SDK already in arize-phoenix dep."
+    },
+    {
+      "id": "TASK-027.8",
+      "phase": "4B",
+      "title": "CLI rating UI + Phoenix annotation posting",
+      "type": "feature",
+      "owner": "claude",
+      "status": "pending",
+      "dependencies": [
+        "TASK-027"
+      ],
+      "acceptance_criteria": [
+        "After each agent run, CLI prompts: rate 1-5 (Enter to skip), optional note, optional per-step labels (good/suboptimal/wrong)",
+        "Rating posted to Phoenix via annotation API: {span_id, label='user_rating', score=rating, explanation=note}",
+        "Per-step labels posted as child annotations on step spans if provided",
+        "query_cache.update_rating(run_id, rating) called after Phoenix post so sidecar stays in sync",
+        "Rating step is always skippable (non-blocking); benchmark runs skip it automatically"
+      ],
+      "estimated_hours": 1,
+      "priority": "medium",
+      "github_issue": null
+    },
+    {
+      "id": "TASK-027.9",
+      "phase": "4B",
+      "title": "JSONL export from Phoenix rated traces \u2014 feeds TASK-029 + reproducibility",
+      "type": "feature",
+      "owner": "claude",
+      "status": "pending",
+      "dependencies": [
+        "TASK-027.8"
+      ],
+      "acceptance_criteria": [
+        "export_rated_traces(min_rating, output_path) fetches annotated traces from Phoenix API, writes JSONL",
+        "Each record: {question, trajectory, answer, cited_qa_ids, rating, step_ratings, run_id, model, retriever}",
+        "Running export on B1 traces produces ablations/B_process_rewards/trajectory_labels.jsonl (same schema as TASK-029)",
+        "Export can filter by min_rating, date range, model, retriever",
+        "Exported file is the reproducibility artifact \u2014 can be committed to git to snapshot a labeling session"
+      ],
+      "estimated_hours": 1,
+      "priority": "medium",
+      "github_issue": null,
+      "notes": "Unifies the online rating system with TASK-029 SME labeling \u2014 no separate labeling workflow needed for Ablation B."
+    },
+    {
       "id": "TASK-028",
       "phase": "4B",
       "title": "B1 sanity check \u2014 5 questions + trajectory review",
