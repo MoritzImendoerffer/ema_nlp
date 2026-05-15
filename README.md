@@ -1,22 +1,48 @@
 # ema_nlp
+
 A Q&A benchmark and reference RAG implementations built from European Medicines Agency (EMA) human-regulatory content.
 
-**[Setup guide →](docs/SETUP.md)** — how to install dependencies, configure credentials, and sync the database across machines.
+**Goal:** Build a shareable benchmark from EMA Q&A documents and measure where expert effort actually pays off in agentic RAG pipelines — corpus quality, retrieval filtering, agent planning, and prompting strategy.
 
-## Strategy
+## Deliverables
 
-Use scraped data stored in MongoDB together with downloaded pdfs to construct a knowlegde graph using Neo4J
+| Artifact | Description |
+|----------|-------------|
+| `corpus/corpus.jsonl` | Normalized Q&A pairs extracted from EMA HTML accordions and PDFs |
+| `benchmark/benchmark.jsonl` | ~50 evaluation questions stratified across four types (T1–T4) with gold answers |
+| `harness/` | MIRAGE-style evaluation pipeline with LLM judges, config-as-code, full tracing |
 
-1) Create simple Graph from parsed documents.
+## Quick links
 
-2) Analyse logs from ema_scraper for warnings, indicating that the parser strategy with sidebar navigation did not work. 
+- **[Setup guide →](docs/SETUP.md)** — install dependencies, configure credentials, sync the database across machines
+- **[Decisions →](DECISIONS.md)** — architectural and scope decisions with rationale
+- **[Open questions →](OPEN_QUESTIONS.md)** — decisions not yet made
+- **[Roadmap →](project_roadmap/ROADMAP.md)** — full phase-by-phase plan and success criteria
+- **[Glossary →](project_roadmap/GLOSSARY.md)** — EMA regulatory terminology (read before touching pharma acronyms)
 
-3) Derive strategy to extract text from nodes (e.g. raw html) and extract metadata as well as text for nodes from step 2.
+## Current status
 
-4) Review text extraction strategy for all other nodes
+**Phase 1 — corpus extraction.** Extractors for HTML accordions and PDF Q&As are complete (TASK-005, TASK-006). Next: deduplication and corpus manifest (TASK-007, TASK-008).
 
-5) Define schema for nodes
+See `.claude/work/2026-05-10_02_implementation-plan/state.json` for the full task list.
 
-6) Fill nodes with text and metadata.
+## Stack
 
-7) Tinker and have fun
+| Layer | Choice |
+|-------|--------|
+| RAG framework | LlamaIndex (`DocumentSummaryIndex`, `ReActAgent`) |
+| Embeddings | BGE-large-en via sentence-transformers |
+| Vector store | FAISS (document index + query cache) |
+| Keyword retrieval | rank-bm25 via LlamaIndex BM25Retriever |
+| Tracing | Arize Phoenix + OpenInference (model-agnostic) |
+| Feedback | Phoenix annotations + CLI rating UI |
+| LLM | Anthropic Claude (primary); OLMo 3 as contamination-verifiable reference |
+| Data | MongoDB (raw scrape) → JSONL (corpus/benchmark) |
+
+## Data source
+
+Scraped EMA website content from the companion repo [ema_scraper](https://github.com/MoritzImendoerffer/ema_scraper), stored in MongoDB (`ema_scraper` / `web_items`). See the setup guide for sync instructions.
+
+## License
+
+Code: MIT. Corpus and benchmark data: CC-BY-4.0 (EMA content reproduced under EMA terms; cite both this repo and EMA).
