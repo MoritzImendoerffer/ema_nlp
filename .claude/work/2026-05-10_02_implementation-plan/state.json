@@ -1,6 +1,6 @@
 {
   "status": "implementing",
-  "current_task": "TASK-017",
+  "current_task": "TASK-018",
   "active_phase": "3",
   "tasks": [
     {
@@ -428,7 +428,7 @@
       "dependencies": [
         "TASK-007B"
       ],
-      "notes": "Implemented as VectorStoreIndex (not DocumentSummaryIndex — no LLM required for indexing). cross_refs stored in excluded_embed_metadata_keys so only Q+A text drives embeddings. 11 tests pass incl. top-1 self-retrieval. Production run must re-index from corpus.jsonl after TASK-008 completes.",
+      "notes": "Implemented as VectorStoreIndex (not DocumentSummaryIndex \u2014 no LLM required for indexing). cross_refs stored in excluded_embed_metadata_keys so only Q+A text drives embeddings. 11 tests pass incl. top-1 self-retrieval. Production run must re-index from corpus.jsonl after TASK-008 completes.",
       "acceptance_criteria": [
         "harness/embed.py builds a LlamaIndex DocumentSummaryIndex from corpus.jsonl",
         "Each Q&A record becomes a TextNode; cross_refs field becomes NodeRelationship.RELATED links between nodes",
@@ -470,7 +470,7 @@
       "title": "LlamaIndex BM25Retriever + hybrid RRF fusion",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-016"
       ],
@@ -483,7 +483,13 @@
       ],
       "estimated_hours": 2,
       "priority": "high",
-      "github_issue": null
+      "github_issue": null,
+      "completed_at": "2026-05-17",
+      "outputs": [
+        "harness/retrieve.py",
+        "tests/test_retrieve.py"
+      ],
+      "notes": "BM25Retriever + RRF fusion implemented. QueryFusionRetriever avoided (requires OpenAI); RRF implemented manually. 8 tests pass."
     },
     {
       "id": "TASK-018",
@@ -606,7 +612,7 @@
       ],
       "acceptance_criteria": [
         "harness/ablations/a1_query_expansion.py: reads acronym_dict.yaml, expands queries contextually",
-        "harness/ablations/a2_topic_filter.py: two modes — (a) topic_path keyword filter, (b) IDMP concept metadata filter via filter_by_concept() from TASK-016.5; mode selectable in config",
+        "harness/ablations/a2_topic_filter.py: two modes \u2014 (a) topic_path keyword filter, (b) IDMP concept metadata filter via filter_by_concept() from TASK-016.5; mode selectable in config",
         "Both integrated as flags in run_eval.py config",
         "Test: query 'What is the AI for nitrosamines?' expands to include 'Acceptable Intake'",
         "Test: concept filter mode retrieves only nodes tagged with 'nitrosamine' concept"
