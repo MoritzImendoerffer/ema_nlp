@@ -212,6 +212,5 @@ corpus/mini_corpus_dedup_log.jsonl
 corpus/mini_corpus_filter_log.jsonl
 corpus/corpus_dedup_log.jsonl
 corpus/corpus_filter_log.jsonl
-corpus/corpus_stats.md
 harness/index/*
 !harness/index/.gitkeep

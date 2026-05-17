@@ -245,7 +245,7 @@
       "title": "Corpus manifest \u2014 corpus.jsonl + corpus_stats.md",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-007"
       ],
