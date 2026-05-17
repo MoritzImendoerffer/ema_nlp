@@ -13,6 +13,10 @@
 
 set -euo pipefail
 
+# uv installs to ~/.local/bin (Linux/macOS) or ~/.cargo/bin — add both so
+# command -v uv works in non-interactive shells that don't source ~/.bashrc.
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
@@ -54,15 +58,29 @@ done
 [ -n "$PYTHON" ] || err "Python 3.11+ not found. Install it and re-run."
 ok "Python $($PYTHON --version)"
 
-# ── 3. pip / uv ───────────────────────────────────────────────────────────────
+# ── 3. pip / uv + virtualenv ──────────────────────────────────────────────────
+VENV_DIR="${REPO_ROOT}/.venv"
+
 if command -v uv &>/dev/null; then
     ok "uv $(uv --version | awk '{print $2}')"
-    INSTALL_CMD="uv pip install -e \"${REPO_ROOT}[dev]\""
+    if [ ! -d "$VENV_DIR" ]; then
+        echo "Creating virtual environment at $VENV_DIR ..."
+        uv venv "$VENV_DIR"
+    else
+        ok "Virtual environment already exists at $VENV_DIR"
+    fi
+    INSTALL_CMD="uv pip install --python \"${VENV_DIR}\" -e \"${REPO_ROOT}[dev]\""
 else
-    warn "uv not found, falling back to pip."
+    warn "uv not found, falling back to pip + venv."
     command -v pip &>/dev/null || command -v pip3 &>/dev/null || \
         err "Neither uv nor pip found. Install one of them."
-    INSTALL_CMD="pip install -e \"${REPO_ROOT}[dev]\""
+    if [ ! -d "$VENV_DIR" ]; then
+        echo "Creating virtual environment at $VENV_DIR ..."
+        "$PYTHON" -m venv "$VENV_DIR"
+    else
+        ok "Virtual environment already exists at $VENV_DIR"
+    fi
+    INSTALL_CMD="\"${VENV_DIR}/bin/pip\" install -e \"${REPO_ROOT}[dev]\""
 fi
 
 # ── 4. Claude Code ────────────────────────────────────────────────────────────
@@ -145,9 +163,10 @@ echo ""
 echo "=== Setup complete ==="
 echo ""
 echo "Next steps:"
-echo "  1. Authenticate Claude Code:  claude  (first run opens a browser)"
-echo "  2. Run tests:                 cd $REPO_ROOT && pytest"
-echo "  3. Start a session:           cd $REPO_ROOT && claude"
+echo "  1. Activate the venv:         source $REPO_ROOT/.venv/bin/activate"
+echo "  2. Authenticate Claude Code:  claude  (first run opens a browser)"
+echo "  3. Run tests:                 cd $REPO_ROOT && pytest"
+echo "  4. Start a session:           cd $REPO_ROOT && claude"
 echo ""
 echo "To sync MongoDB from your PC to this machine (one-time, on demand):"
 echo "  scripts/sync_mongo.sh --host <tailscale-ip-or-hostname> --user <ssh-user>"
