@@ -1,7 +1,7 @@
 {
   "status": "implementing",
-  "current_task": "TASK-007",
-  "active_phase": "0",
+  "current_task": "TASK-017",
+  "active_phase": "3",
   "tasks": [
     {
       "id": "TASK-001",
@@ -167,22 +167,73 @@
       "github_issue": null
     },
     {
-      "id": "TASK-007",
+      "id": "TASK-007A",
       "phase": "1",
-      "title": "Deduplication + landing page filter + corpus writer",
+      "title": "build_corpus.py \u2014 pure dedup/filter/write logic (no MongoDB)",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-05-17",
       "dependencies": [
         "TASK-005",
         "TASK-006"
       ],
+      "notes": "Source-agnostic core: accepts Iterable[QARecord] from any caller. MongoDB adaptor wired in TASK-007. Testable entirely on fixture data. 16 tests pass; ruff+mypy clean.",
       "acceptance_criteria": [
-        "corpus/build_corpus.py orchestrates: extract \u2192 dedup \u2192 filter \u2192 write",
-        "Hash-based dedup on normalized question text; prefers PDF version when duplicates found; dedup log written",
-        "Landing pages (no accordion + no numbered Q headings) filtered out; filter log written",
-        "Stable qa_id = hash(source_url + normalized_question)",
-        "Tests: dedup correctly drops HTML when PDF exists; landing pages filtered"
+        "corpus/build_corpus.py exposes build_corpus(records: Iterable[QARecord], output_path: Path) \u2192 CorpusStats",
+        "Hash-based dedup on normalised question text; prefers PDF version when duplicate found; dedup_log written",
+        "Landing-page filter: drops records where extraction_confidence=='low' AND cross_refs==[] AND len(answer)<100; filter_log written",
+        "Stable qa_id = sha256(source_url + NUL + normalised_question)[:16] \u2014 already implemented in extractors, re-used here",
+        "CorpusStats dataclass: total_records, deduped, filtered, by_source_type, by_topic_path",
+        "Tests in tests/test_build_corpus.py: dedup drops HTML duplicate when PDF exists; landing page dropped; stats correct",
+        "ruff + mypy clean; no pymongo import in build_corpus.py"
+      ],
+      "estimated_hours": 2,
+      "priority": "high",
+      "github_issue": null
+    },
+    {
+      "id": "TASK-007B",
+      "phase": "1",
+      "title": "Mini-corpus HTTP fetcher \u2014 ~100 real Q&As without MongoDB",
+      "type": "feature",
+      "owner": "claude",
+      "status": "completed",
+      "completed_at": "2026-05-17",
+      "dependencies": [
+        "TASK-007A"
+      ],
+      "notes": "Development fixture so Phases 3+ (embed, retrieve) can be built and tested before MongoDB is available. 10 curated EMA URLs; httpx with 1s delay; mini_corpus.jsonl gitignored. Not a substitute for full TASK-008 corpus.",
+      "acceptance_criteria": [
+        "scripts/fetch_mini_corpus.py reads scripts/phase0_inventory.csv and fetches 10 curated HTML URLs via httpx (with polite 1s delay)",
+        "Each fetched page passed through html_extractor.extract_from_html(); records collected",
+        "build_corpus.build_corpus() called on collected records \u2192 writes corpus/mini_corpus.jsonl",
+        "Mini-corpus covers \u22653 distinct topic_paths and \u226580 Q&A records (or raises a warning if fewer fetched)",
+        "Script is idempotent: re-running overwrites mini_corpus.jsonl; HTTP errors on individual pages are logged and skipped (not fatal)",
+        "corpus/mini_corpus.jsonl added to .gitignore (large generated file)",
+        "Requires only: httpx (already a transitive dep or added to dev extras)"
+      ],
+      "estimated_hours": 1,
+      "priority": "high",
+      "github_issue": null
+    },
+    {
+      "id": "TASK-007",
+      "phase": "1",
+      "title": "Deduplication + landing page filter + corpus writer (MongoDB driver)",
+      "type": "feature",
+      "owner": "claude",
+      "status": "pending",
+      "dependencies": [
+        "TASK-007A"
+      ],
+      "notes": "Thin MongoDB adaptor on top of TASK-007A. Blocked until MongoDB is available. build_corpus.py logic already done in TASK-007A.",
+      "acceptance_criteria": [
+        "corpus/sources/mongo_source.py: records_from_mongodb(host, db, collection, query_filter) \u2192 Iterator[QARecord]",
+        "Calls html_extractor / pdf_extractor per document type; yields QARecord objects",
+        "build_corpus.build_corpus() called with mongo iterator \u2192 produces corpus/corpus.jsonl",
+        "Dedup log and filter log written alongside corpus.jsonl",
+        "Integration test (requires live MongoDB): connects, extracts \u226510 records, dedup runs cleanly"
       ],
       "estimated_hours": 2,
       "priority": "high",
@@ -238,7 +289,8 @@
       "owner_note": "Claude generates 30 candidates; User selects and validates 20",
       "status": "pending",
       "dependencies": [
-        "TASK-008"
+        "TASK-008",
+        "TASK-009"
       ],
       "acceptance_criteria": [
         "Claude generates benchmark/candidates/t1_candidates.jsonl with 30 T1 candidates sampled from corpus",
@@ -260,7 +312,8 @@
       "owner_note": "User authors; Claude validates schema and generates paraphrases",
       "status": "pending",
       "dependencies": [
-        "TASK-008"
+        "TASK-008",
+        "TASK-009"
       ],
       "acceptance_criteria": [
         "User authors 10 T2 questions where the answer requires correct selection among topically-adjacent Q&As",
@@ -283,6 +336,7 @@
       "status": "pending",
       "dependencies": [
         "TASK-008",
+        "TASK-009",
         "TASK-002"
       ],
       "acceptance_criteria": [
@@ -305,7 +359,8 @@
       "owner_note": "User hand-curates; Claude assists with paraphrases and schema",
       "status": "pending",
       "dependencies": [
-        "TASK-008"
+        "TASK-008",
+        "TASK-009"
       ],
       "acceptance_criteria": [
         "User curates \u22655 synthesis questions combining \u22652 Q&As from different source documents",
@@ -355,7 +410,8 @@
         "Captures: model answer, matches_gold (bool), zero_shot_known flag per model",
         "Slot-guessing test on 10-item subsample: masks numeric values, asks model to fill in; records hit rate",
         "Results written to results/contamination/<model>_closed_book.jsonl",
-        "contamination_summary.md: aggregate zero_shot_known rate per model; which items are most exposed"
+        "contamination_summary.md: aggregate zero_shot_known rate per model; which items are most exposed",
+        "PASS/FAIL gate: if zero_shot_known > 40% on T1 items for any model, those items are flagged REMOVE and must be replaced before TASK-021; threshold is configurable and documented in the script header"
       ],
       "estimated_hours": 3,
       "priority": "high",
@@ -364,13 +420,15 @@
     {
       "id": "TASK-016",
       "phase": "3",
-      "title": "LlamaIndex DocumentSummaryIndex + FAISS backend",
+      "title": "LlamaIndex VectorStoreIndex + FAISS backend",
       "type": "foundation",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-05-17",
       "dependencies": [
-        "TASK-008"
+        "TASK-007B"
       ],
+      "notes": "Implemented as VectorStoreIndex (not DocumentSummaryIndex — no LLM required for indexing). cross_refs stored in excluded_embed_metadata_keys so only Q+A text drives embeddings. 11 tests pass incl. top-1 self-retrieval. Production run must re-index from corpus.jsonl after TASK-008 completes.",
       "acceptance_criteria": [
         "harness/embed.py builds a LlamaIndex DocumentSummaryIndex from corpus.jsonl",
         "Each Q&A record becomes a TextNode; cross_refs field becomes NodeRelationship.RELATED links between nodes",
@@ -404,7 +462,7 @@
       "estimated_hours": 2,
       "priority": "medium",
       "github_issue": null,
-      "notes": "Lightweight ontology-as-metadata \u2014 no graph DB. Foundation for v2+ graph-RAG if benchmark demands it."
+      "notes": "Lightweight ontology-as-metadata \u2014 no graph DB. filter_by_concept() is the backend for A2 topic filter in TASK-023 (concept-based variant). Foundation for v2+ graph-RAG if benchmark demands it."
     },
     {
       "id": "TASK-017",
@@ -522,8 +580,9 @@
       "owner_note": "User authors YAML; Claude integrates into A1 query expansion",
       "status": "pending",
       "dependencies": [
-        "TASK-021"
+        "TASK-008"
       ],
+      "notes": "Unblocked after corpus (TASK-008) \u2014 SME knows EMA vocabulary without needing baseline results. Can be authored in parallel with Phase 2\u20133. Baseline results (TASK-021) are informative but not required.",
       "acceptance_criteria": [
         "ablations/A_evidence_filter/acronym_dict.yaml written by user",
         "\u226530 entries covering: AI (Acceptable Intake), MAH, CAPA, ICH Q3A/M7/Q9, GMP, CEP, ASMF, TTC, LoQ, ppm/ppb, and any others encountered during benchmark curation",
@@ -542,13 +601,15 @@
       "owner": "claude",
       "status": "pending",
       "dependencies": [
-        "TASK-022"
+        "TASK-022",
+        "TASK-016.5"
       ],
       "acceptance_criteria": [
         "harness/ablations/a1_query_expansion.py: reads acronym_dict.yaml, expands queries contextually",
-        "harness/ablations/a2_topic_filter.py: predicts topic from question (LLM classify or keyword rules); filters retrieval to matching topic_path",
+        "harness/ablations/a2_topic_filter.py: two modes — (a) topic_path keyword filter, (b) IDMP concept metadata filter via filter_by_concept() from TASK-016.5; mode selectable in config",
         "Both integrated as flags in run_eval.py config",
-        "Test: query 'What is the AI for nitrosamines?' expands to include 'Acceptable Intake'"
+        "Test: query 'What is the AI for nitrosamines?' expands to include 'Acceptable Intake'",
+        "Test: concept filter mode retrieves only nodes tagged with 'nitrosamine' concept"
       ],
       "estimated_hours": 2,
       "priority": "high",
@@ -563,8 +624,9 @@
       "owner_note": "User writes ~200-word rubric for A3 LLM reranker",
       "status": "pending",
       "dependencies": [
-        "TASK-021"
+        "TASK-008"
       ],
+      "notes": "Unblocked after corpus (TASK-008) \u2014 rubric is based on EMA Q&A domain knowledge, not benchmark outcomes. Can be authored in parallel with Phase 2\u20133. Baseline results (TASK-021) are informative but not required.",
       "acceptance_criteria": [
         "harness/prompts/relevance_rubric_sme.md written by user",
         "Rubric defines: what 'relevant' means for EMA Q&A (procedure match, scope alignment, threshold specificity)",
@@ -697,7 +759,8 @@
       "status": "pending",
       "dependencies": [
         "TASK-027.5",
-        "TASK-027"
+        "TASK-027",
+        "TASK-027.8"
       ],
       "acceptance_criteria": [
         "get_fewshot_context(query_vec, k=3, min_rating=4) fetches top-k similar trajectories rated >= min_rating from query cache",
@@ -805,12 +868,15 @@
       "owner": "claude",
       "status": "pending",
       "dependencies": [
+        "TASK-028",
         "TASK-029"
       ],
+      "notes": "TASK-029 is conditional: if SANITY_CHECK.md in TASK-028 records a NO-GO for B3 labeling, TASK-029 is skipped and TASK-030 proceeds directly after TASK-028. Check SANITY_CHECK.md to determine which B variants apply.",
       "acceptance_criteria": [
-        "All applicable B variants run (B0-B4, or B0/B1/B2/B4 if B3 skipped)",
+        "Read ablations/B_process_rewards/SANITY_CHECK.md first to determine which variants apply",
+        "If B3 GO: run B0/B1/B2/B3/B4; if B3 NO-GO: run B0/B1/B2/B4 only (skip B3)",
         "Results in results/ablation_b/: per-type Recall@5, Correctness, Citation Accuracy + tool-call trace counts",
-        "B2 vs B3 comparison explicit (LLM-judge process reward vs SME labels)",
+        "B2 vs B3 comparison explicit if B3 ran (LLM-judge process reward vs SME labels); note if skipped and why",
         "ablations/B_process_rewards/FINDINGS.md: pre-registered predictions vs actual; T3 multi-hop gain highlighted"
       ],
       "estimated_hours": 3,
@@ -929,7 +995,8 @@
   ],
   "completed_tasks": [],
   "next_available": [
-    "TASK-001"
+    "TASK-007",
+    "TASK-017"
   ],
   "blocked": {
     "TASK-002": [
@@ -947,9 +1014,15 @@
     "TASK-006": [
       "TASK-004"
     ],
-    "TASK-007": [
+    "TASK-007A": [
       "TASK-005",
       "TASK-006"
+    ],
+    "TASK-007B": [
+      "TASK-007A"
+    ],
+    "TASK-007": [
+      "TASK-007A"
     ],
     "TASK-008": [
       "TASK-007"
@@ -958,17 +1031,21 @@
       "TASK-008"
     ],
     "TASK-010": [
-      "TASK-008"
+      "TASK-008",
+      "TASK-009"
     ],
     "TASK-011": [
-      "TASK-008"
+      "TASK-008",
+      "TASK-009"
     ],
     "TASK-012": [
       "TASK-008",
+      "TASK-009",
       "TASK-002"
     ],
     "TASK-013": [
-      "TASK-008"
+      "TASK-008",
+      "TASK-009"
     ],
     "TASK-014": [
       "TASK-010",
@@ -980,7 +1057,7 @@
       "TASK-014"
     ],
     "TASK-016": [
-      "TASK-008"
+      "TASK-007B"
     ],
     "TASK-017": [
       "TASK-016"
@@ -1000,13 +1077,14 @@
       "TASK-020"
     ],
     "TASK-022": [
-      "TASK-021"
+      "TASK-008"
     ],
     "TASK-023": [
-      "TASK-022"
+      "TASK-022",
+      "TASK-016.5"
     ],
     "TASK-024": [
-      "TASK-021"
+      "TASK-008"
     ],
     "TASK-025": [
       "TASK-024"
@@ -1019,6 +1097,11 @@
       "TASK-020",
       "TASK-026"
     ],
+    "TASK-027.7": [
+      "TASK-027.5",
+      "TASK-027",
+      "TASK-027.8"
+    ],
     "TASK-028": [
       "TASK-027"
     ],
@@ -1026,6 +1109,7 @@
       "TASK-028"
     ],
     "TASK-030": [
+      "TASK-028",
       "TASK-029"
     ],
     "TASK-031": [
