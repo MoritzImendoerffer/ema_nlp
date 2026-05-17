@@ -73,6 +73,78 @@ ANTHROPIC_API_KEY=sk-ant-...
 # MONGO_SYNC_SSH_PORT=22
 ```
 
+### LLM and embedding model settings
+
+These variables let you swap models and providers without touching any code.
+All are optional — the defaults match the project's current configuration.
+
+```bash
+# ── Anthropic API endpoint ────────────────────────────────────────────────────
+# Default endpoint is https://api.anthropic.com.
+# Override when using a third-party gateway (e.g. https://gw.claudeapi.com).
+# ANTHROPIC_BASE_URL=https://api.anthropic.com
+
+# ── LLM model (used by judge, rerankers, and chat UI) ─────────────────────────
+# Any model name accepted by the Anthropic API (or your gateway).
+# The chat UI also accepts EMA_CLAUDE_MODEL as a more specific override.
+#
+# Fast / cheap (default):
+# EMA_LLM_MODEL=claude-haiku-4-5-20251001
+#
+# Better quality — useful for the judge and synthesis:
+# EMA_LLM_MODEL=claude-sonnet-4-6
+#
+# Highest quality (slower, more expensive):
+# EMA_LLM_MODEL=claude-opus-4-7
+
+# ── Embedding model ───────────────────────────────────────────────────────────
+# Controls what index is built and how queries are embedded at retrieval time.
+# Changing this requires rebuilding the index (set force_rebuild: true in the
+# run config, or delete harness/index/).
+#
+# Provider: "huggingface" (default, runs locally, no API key needed)
+#           "openai"      (requires OPENAI_API_KEY; needs: pip install -e ".[ui]")
+# EMA_EMBED_PROVIDER=huggingface
+#
+# HuggingFace model examples:
+#   Large (default, best quality, ~1.3 GB):
+#   EMA_EMBED_MODEL=BAAI/bge-large-en-v1.5
+#
+#   Small (faster, lower memory, slightly lower recall):
+#   EMA_EMBED_MODEL=BAAI/bge-small-en-v1.5
+#
+#   Multilingual (if non-English content is added later):
+#   EMA_EMBED_MODEL=intfloat/multilingual-e5-large
+#
+# OpenAI model examples (provider must be set to "openai"):
+#   EMA_EMBED_PROVIDER=openai
+#   EMA_EMBED_MODEL=text-embedding-3-small    # cheap, 1536-dim
+#   EMA_EMBED_MODEL=text-embedding-3-large    # best quality, 3072-dim
+```
+
+**Precedence (high → low):**
+1. YAML run-config field (`embed_model:`, `model:`) — per-run override
+2. `EMA_*` env vars in `~/.myenvs/ema_nlp.env` — machine default
+3. Code constant in `harness/providers.py` — fallback (`claude-haiku-4-5-20251001` / `BAAI/bge-large-en-v1.5`)
+
+**Example: lighter setup for a laptop with limited RAM**
+
+```bash
+# ~/.myenvs/ema_nlp.env
+ANTHROPIC_API_KEY=sk-ant-...
+EMA_LLM_MODEL=claude-haiku-4-5-20251001
+EMA_EMBED_MODEL=BAAI/bge-small-en-v1.5   # ~130 MB instead of ~1.3 GB
+```
+
+**Example: third-party API gateway**
+
+```bash
+# ~/.myenvs/ema_nlp.env
+ANTHROPIC_API_KEY=sk-Z7VX3f...            # key issued by the gateway
+ANTHROPIC_BASE_URL=https://gw.claudeapi.com
+EMA_LLM_MODEL=claude-sonnet-4-6
+```
+
 `config.py` loads this file via `python-dotenv` at import time
 (`override=False`, so a variable already set in the shell always wins).
 

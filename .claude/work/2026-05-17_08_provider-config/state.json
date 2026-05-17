@@ -1,0 +1,56 @@
+{
+  "status": "planning_complete",
+  "current_task": null,
+  "work_unit": "2026-05-17_08_provider-config",
+  "description": "Centralized LLM provider + embedding model configuration via harness/providers.py and ~/.myenvs/ema_nlp.env",
+  "tasks": [
+    {
+      "id": "PROV-001",
+      "title": "harness/providers.py — configure_embed_model() + get_llm_model()",
+      "type": "feature",
+      "owner": "claude",
+      "status": "pending",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "harness/providers.py exports configure_embed_model(model_name=None) and get_llm_model(override=None)",
+        "Reads EMA_LLM_MODEL, EMA_EMBED_MODEL, EMA_EMBED_PROVIDER from env (via config.py dotenv load)",
+        "configure_embed_model: huggingface provider → HuggingFaceEmbedding; openai provider → OpenAIEmbedding (guarded import)",
+        "get_llm_model: returns override if given, else EMA_LLM_MODEL, else 'claude-haiku-4-5-20251001'",
+        "ruff + mypy clean"
+      ],
+      "estimated_hours": 0.5
+    },
+    {
+      "id": "PROV-002",
+      "title": "Wire providers.py into harness modules (embed, judge, rerankers, run_eval, app)",
+      "type": "refactor",
+      "owner": "claude",
+      "status": "pending",
+      "dependencies": ["PROV-001"],
+      "acceptance_criteria": [
+        "harness/embed.py: _configure_embed_model() calls providers.configure_embed_model()",
+        "harness/judge.py: DEFAULT_JUDGE_MODEL replaced by providers.get_llm_model()",
+        "harness/ablations/a3_reranker.py: _DEFAULT_MODEL replaced by providers.get_llm_model()",
+        "harness/ablations/a4_reranker.py: _DEFAULT_MODEL replaced by providers.get_llm_model()",
+        "harness/run_eval.py: fallback model strings use providers.get_llm_model(); embed setup calls providers.configure_embed_model(name)",
+        "app.py: CLAUDE_MODEL uses providers.get_llm_model(os.getenv('EMA_CLAUDE_MODEL'))",
+        "All existing tests pass unchanged"
+      ],
+      "estimated_hours": 1
+    },
+    {
+      "id": "PROV-003",
+      "title": "Update docs/SETUP.md with env var reference",
+      "type": "docs",
+      "owner": "claude",
+      "status": "pending",
+      "dependencies": ["PROV-001"],
+      "acceptance_criteria": [
+        "docs/SETUP.md has a section listing EMA_LLM_MODEL, EMA_EMBED_MODEL, EMA_EMBED_PROVIDER with defaults and examples",
+        "Example shows switching to a lighter embed model (bge-small) and a different LLM tier"
+      ],
+      "estimated_hours": 0.25
+    }
+  ],
+  "next_available": ["PROV-001"]
+}
