@@ -37,6 +37,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ui = [
+    "chainlit>=2.11,<3",
+    "openinference-instrumentation-anthropic>=0.1",
+]
 dev = [
     "pytest>=9.0",
     "pytest-cov>=5.0",

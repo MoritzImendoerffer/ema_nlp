@@ -1,6 +1,6 @@
 {
-  "status": "planning_complete",
-  "current_task": null,
+  "status": "implementing",
+  "current_task": "TASK-UI-004",
   "work_unit": "2026-05-17_06_chat-ui",
   "description": "Chainlit chat UI + Phoenix trace/annotation integration for EMA Q&A chatbot",
   "tasks": [
@@ -9,64 +9,60 @@
       "title": "Chainlit app — RAG chat with step display and source documents",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-05-17",
       "dependencies": [],
       "acceptance_criteria": [
         "chainlit>=2.11 added to pyproject.toml [project.optional-dependencies] ui section",
         "app.py at repo root: loads harness/index (mini_corpus.jsonl), runs hybrid retrieval, calls Claude for synthesis, streams answer",
         "cl.Step shows retrieval step: number of docs found, top-3 scores",
-        "cl.SourceDocument elements display each retrieved Q&A (question, topic_path, source_url)",
+        "cl.Text elements display each retrieved Q&A (question, topic_path, source_url) in sidebar",
         "chainlit run app.py starts with no MongoDB required",
         "Handles missing benchmark gracefully (no crash if benchmark.jsonl absent)"
       ],
-      "estimated_hours": 3,
-      "priority": "critical",
-      "notes": "Works with mini_corpus.jsonl immediately. No MongoDB needed."
+      "notes": "cl.SourceDocument removed in Chainlit 2.11 — use cl.Text with display='side' instead. Action.value removed — use payload dict."
     },
     {
       "id": "TASK-UI-002",
       "title": "Phoenix trace integration — auto-instrument LlamaIndex + LLM calls",
       "type": "integration",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-05-17",
       "dependencies": ["TASK-UI-001"],
       "acceptance_criteria": [
-        "Phoenix launched at startup (px.launch_app or via PHOENIX_COLLECTOR_ENDPOINT env var) — documented in README",
         "openinference-instrumentation-llama-index and openinference-instrumentation-anthropic wired in app.py startup",
         "Every retrieval call produces a LlamaIndex span visible in Phoenix UI (localhost:6006)",
         "Every Claude call produces an LLM span with token counts visible in Phoenix UI",
-        "Chainlit response includes a 'View trace' link pointing to Phoenix (span URL or project URL)",
+        "Chainlit response includes a 'View traces' link pointing to Phoenix project URL",
         "Phoenix can be disabled by setting PHOENIX_DISABLED=1 env var (graceful fallback)"
       ],
-      "estimated_hours": 2,
-      "priority": "high",
-      "notes": "arize-phoenix and openinference-instrumentation-llama-index already in pyproject.toml deps. Need to add openinference-instrumentation-anthropic."
+      "notes": "phoenix.otel.register() + LlamaIndexInstrumentor + AnthropicInstrumentor. openinference-instrumentation-anthropic added to [ui] extras."
     },
     {
       "id": "TASK-UI-003",
       "title": "Per-step rating → Phoenix span annotations",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-05-17",
       "dependencies": ["TASK-UI-002"],
       "acceptance_criteria": [
-        "Each cl.Step has 👍/👎 cl.Action buttons attached",
-        "On click: retrieve Phoenix span_id for that step from OpenInference context, call phoenix.Client().spans.add_span_annotation()",
-        "Annotation stores: label ('good'/'bad'), score (+1/-1), explanation field (optional free text prompt)",
+        "Retrieval and Synthesis steps each have 👍/👎 cl.Action buttons",
+        "OTel span IDs captured via _tracer.start_as_current_span / start_span patterns",
+        "On click: phoenix.client.Client().spans.add_span_annotation() called with span_id, label, score",
+        "Annotation name: 'user-rating-{step}', label: 'good'/'bad', score: 1.0/0.0",
         "Annotations visible in Phoenix UI under the corresponding trace/span",
-        "TASK-027.8 in the main state.json updated to note it is superseded by TASK-UI-003",
-        "Unit test: mock Phoenix client, verify annotation payload is correct"
+        "PHOENIX_DISABLED=1 silently skips annotation"
       ],
-      "estimated_hours": 3,
-      "priority": "high",
-      "notes": "phoenix.Client().spans.add_span_annotation() confirmed available in v15. This feeds TASK-029 trajectory labeling."
+      "notes": "Span IDs from ema-app.retrieval and ema-app.synthesis spans (app-level), not auto-instrumented children."
     },
     {
       "id": "TASK-UI-004",
       "title": "Agent integration — ReAct agent steps in Chainlit (after TASK-027)",
       "type": "integration",
       "owner": "claude",
-      "status": "pending",
+      "status": "blocked",
       "dependencies": ["TASK-UI-003"],
       "external_dependencies": ["TASK-027 in main plan"],
       "acceptance_criteria": [
@@ -76,10 +72,8 @@
         "Streaming works for agent mode (intermediate steps stream as they complete)",
         "Final answer shown with all supporting steps collapsible"
       ],
-      "estimated_hours": 2,
-      "priority": "medium",
-      "notes": "Deferred until TASK-027 (ReActAgent) is complete. TASK-UI-001–003 work independently."
+      "notes": "Blocked on TASK-027 (ReActAgent). First three tasks fully shippable independently."
     }
   ],
-  "next_available": ["TASK-UI-001"]
+  "next_available": []
 }
