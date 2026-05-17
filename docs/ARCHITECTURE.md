@@ -246,6 +246,8 @@ Then delete `harness/index/docstore.json` and run `python -m harness.embed`.
 
 ## 4. Retrieval modes
 
+See **[docs/RETRIEVAL_PIPELINE.md](RETRIEVAL_PIPELINE.md)** for a detailed walk-through of LlamaIndex internals, RRF fusion, and the ablation A pipeline.
+
 `harness/retrieve.py` exposes three modes, all returning `(qa_id, score, metadata)` triples:
 
 | Mode | How it works | Best for |
