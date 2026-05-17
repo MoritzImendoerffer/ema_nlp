@@ -22,9 +22,14 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 
 ## Current status
 
-**Phase 1 — corpus extraction.** Extractors for HTML accordions and PDF Q&As are complete (TASK-005, TASK-006). Next: deduplication and corpus manifest (TASK-007, TASK-008).
+**Phase 1 — corpus extraction complete.** `corpus/corpus.jsonl` has been produced:
+- 26,251 Q&A records (83,895 extracted, 57,644 deduped)
+- Sources: 17,505 HTML accordion + 8,746 PDF records
+- 65,263 parsed PDFs ingested into MongoDB `parsed_pdfs` collection (10.5% parse-failure rate documented)
 
-See `.claude/work/2026-05-10_02_implementation-plan/state.json` for the full task list.
+Next phase: benchmark construction (Phase 2 — curating 30–50 evaluation questions).
+
+See `.claude/work/` for all work unit logs.
 
 ## Stack
 
@@ -39,9 +44,14 @@ See `.claude/work/2026-05-10_02_implementation-plan/state.json` for the full tas
 | LLM | Anthropic Claude (primary); OLMo 3 as contamination-verifiable reference |
 | Data | MongoDB (raw scrape) → JSONL (corpus/benchmark) |
 
-## Data source
+## Data sources
 
-Scraped EMA website content from the companion repo [ema_scraper](https://github.com/MoritzImendoerffer/ema_scraper), stored in MongoDB (`ema_scraper` / `web_items`). See the setup guide for sync instructions.
+| Collection | Contents | Count |
+|------------|----------|-------|
+| `ema_scraper.web_items` | Raw scraped pages — HTML (`html_raw`) and PDF metadata (`url`, `content_type`) | 115k |
+| `ema_scraper.parsed_pdfs` | Parsed PDF markdown keyed by URL (`_id`), produced by `scripts/ingest_parsed_pdfs.py` | 65k |
+
+Scraped content comes from the companion repo [ema_scraper](https://github.com/MoritzImendoerffer/ema_scraper). The `parsed_pdfs` collection is built locally from the Scrapy cache (`~/Nextcloud/Datasets/ema_scraper/cache/`). See the setup guide for sync instructions.
 
 ## License
 

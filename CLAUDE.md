@@ -26,16 +26,20 @@ Open decisions not yet made are in `OPEN_QUESTIONS.md`.
 
 ## Current project phase
 
-**Phase 1 — corpus extraction.** Next task: **TASK-007** (deduplication + landing page filter + corpus writer).
+**Phase 1 — corpus extraction complete.** `corpus/corpus.jsonl` has 26,251 Q&A records (17,505 HTML + 8,746 PDF).
 
-Completed: TASK-001 through TASK-006 (Phase 0 scoping + Phase 1 extractors).  
+Completed: TASK-001 through TASK-007 (Phase 0 scoping, Phase 1 extractors, corpus writer, MongoDB adaptor) + PDF-001–PDF-004 (parsed PDF ingest pipeline; 65k docs in `parsed_pdfs` collection).
+
+Next phase: **Phase 2 — benchmark construction** (curate 30–50 evaluation questions, T1–T4 types).  
 Full task list and status: `.claude/work/2026-05-10_02_implementation-plan/state.json`
 
 ## Data sources
 
-- **MongoDB**: `localhost:27017`, database `ema_scraper`, collection `web_items` — scraped EMA website content from the companion repo [ema_scraper](https://github.com/MoritzImendoerffer/ema_scraper)
-- **Nextcloud**: `~/Nextcloud/Datasets/` — local dataset storage including IDMP ontology RDF files
+- **MongoDB** `ema_scraper.web_items` — raw scraped EMA pages; HTML stored as `html_raw` (1-element list), PDFs as metadata only
+- **MongoDB** `ema_scraper.parsed_pdfs` — pymupdf4llm markdown keyed by URL; built by `scripts/ingest_parsed_pdfs.py`; 65k docs; query `{error: ""}` for clean parses
+- **Nextcloud**: `~/Nextcloud/Datasets/` — Scrapy cache (`ema_scraper/cache/`) + IDMP ontology RDF files
 - Paths are configured in `config.py`, which loads `~/.myenvs/ema_nlp.env` via python-dotenv
+- MongoDB source adaptor: `corpus/sources/mongo_source.py` — `records_from_mongodb(host, db)` yields `QARecord` from both collections
 
 ## Commands
 

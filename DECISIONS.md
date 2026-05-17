@@ -113,6 +113,17 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Why:** The repo is public. The user does not want credentials stored in or near the repo even as examples.  
 **Ref:** [`docs/SETUP.md`](docs/SETUP.md)
 
+### Separate `parsed_pdfs` collection for PDF markdown (not embedded in `web_items`)
+**Decided:** 2026-05-17  
+**What:** A dedicated `ema_scraper.parsed_pdfs` collection stores the pymupdf4llm-parsed markdown for each PDF, keyed by URL (`_id = url`). Fields: `markdown`, `parsed_with`, `error`, `cache_path`, `ingested_at`. The corpus pipeline queries this collection directly rather than loading `.pkl` files from disk.  
+**Why:** Three alternatives were considered and rejected:
+- *Embed in web_items*: 600 MB extra storage in a collection that's conceptually about raw scrape metadata. Harder to rebuild if parsing is rerun.
+- *Store only cache_path in web_items*: path is machine-specific; breaks across machines without Nextcloud.
+- *Separate collection (chosen)*: URL as `_id` gives O(1) lookup; handles 65k PDFs including the ~4.6k not in `web_items`; `parsed_pdfs.find({error: ""})` directly iterates valid parsed content; collection can be dropped and rebuilt without touching `web_items`.  
+**Implementation:** `scripts/ingest_parsed_pdfs.py` — walks the Scrapy cache with `os.walk` (not `Path.walk`, which is Python 3.12+), batch-upserts in groups of 500. 65,263 docs ingested; 10.5% parse-failure rate (`error != ""`); 2 docs skipped (corrupted pkl, markdown > 14 MB).  
+**Corpus query:** `parsed_pdfs.find({"error": ""})` for strictly clean parses, or `{"markdown": {"$ne": ""}}` to also include 19,494 legacy-format docs.  
+**Ref:** [`.claude/work/2026-05-17_07_pdf-mongodb-linking/exploration.md`](.claude/work/2026-05-17_07_pdf-mongodb-linking/exploration.md)
+
 ### MongoDB sync via Nextcloud (no cloud database account)
 **Decided:** 2026-05-15  
 **What:** `scripts/sync_mongo.sh export` dumps the local `ema_scraper` database to `~/Nextcloud/Datasets/mongo_sync/ema_scraper.archive`. The other machine imports it after Nextcloud syncs the file. A live SSH pull via Tailscale is also available when both machines are online simultaneously.  
