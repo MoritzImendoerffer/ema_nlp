@@ -181,7 +181,7 @@ locally on each machine.
 
 | File | Description |
 |------|-------------|
-| `faiss.index` | FAISS flat-L2 index (~100 MB for 26k records with BGE-large-en 1024-dim) |
+| `faiss.index` | FAISS flat-L2 index (~107 MB: 26k × 1024-dim × 4 bytes float32) |
 | `docstore.json` | LlamaIndex docstore — full node text + metadata for every Q&A |
 | `default__vector_store.json` | Vector store config and node-id mapping |
 | `index_store.json` | Top-level index registry |
@@ -361,25 +361,29 @@ results/
 ### In Git (versioned)
 
 ```
-corpus/corpus.jsonl            # 26k Q&A records, ~95 MB — the main dataset
-corpus/mini_corpus.jsonl       # 156-record dev subset
 benchmark/benchmark.jsonl      # evaluation questions (30–50, in progress)
-harness/configs/               # run configs
+harness/configs/               # eval run configs
 harness/prompts/               # judge and reranker prompt files
+harness/index/.gitkeep         # placeholder to keep the empty index directory
 ablations/A_evidence_filter/   # acronym dict and related assets
 ```
 
-> `corpus.jsonl` is large but versioned in Git because it is the primary research
-> artifact. Use `git lfs` if it grows beyond GitHub's 100 MB file limit.
-
-### Local only (not in Git)
+### Local only — gitignored, rebuild from MongoDB
 
 ```
-harness/index/                 # FAISS index — rebuild with: python -m harness.embed
+corpus/corpus.jsonl            # 95 MB — rebuilt by: python corpus/build_corpus.py
+corpus/mini_corpus.jsonl       # 156-record dev subset — rebuilt by: scripts/fetch_mini_corpus.py
+corpus/*_log.jsonl             # dedup/filter logs
+harness/index/                 # FAISS index (~300 MB once built) — rebuild with: python -m harness.embed
 results/                       # eval run outputs
-.phoenix.log                   # Phoenix server log (gitignored)
+.phoenix.log                   # Phoenix server log
 ~/.myenvs/ema_nlp.env          # credentials and machine defaults
 ```
+
+> Both the corpus JSONL and the FAISS index are excluded from Git — they are large
+> derived artifacts that can be fully reconstructed from MongoDB + the embedding model.
+> The `.gitkeep` in `harness/index/` is the only tracked file there; it just preserves
+> the directory so `python -m harness.embed` has somewhere to write.
 
 ### Nextcloud (shared via cloud sync)
 
