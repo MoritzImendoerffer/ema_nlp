@@ -67,6 +67,9 @@ warn_return_any = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+markers = [
+    "integration: requires live external services (MongoDB, network)",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
