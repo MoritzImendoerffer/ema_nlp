@@ -31,6 +31,8 @@ if _EMA_SCRAPER_REPO.exists() and str(_EMA_SCRAPER_REPO) not in sys.path:
 _DEFAULT_CACHE = Path("~/Nextcloud/Datasets/ema_scraper/cache/ema-sitemap").expanduser()
 CACHE_PATH = Path(os.getenv("EMA_CACHE_PATH", str(_DEFAULT_CACHE)))
 BATCH_SIZE = 500
+# MongoDB hard document limit is 16 MB; skip any markdown exceeding this.
+MARKDOWN_MAX_BYTES = 14 * 1024 * 1024  # 14 MB (conservative)
 
 
 def _iter_pdf_cache(cache_path: Path) -> Iterator[tuple[Path, str]]:
@@ -89,14 +91,19 @@ def main() -> None:
         try:
             with open(pkl, "rb") as f:
                 doc = pickle.load(f)
+            markdown: str = doc.markdown
+            if len(markdown.encode()) > MARKDOWN_MAX_BYTES:
+                tqdm.write(f"SKIP {pkl}: markdown {len(markdown)} chars exceeds limit")
+                skipped += 1
+                continue
             ops.append(
                 UpdateOne(
                     {"_id": url},
                     {
                         "$set": {
-                            "markdown": doc.markdown,
-                            "parsed_with": doc.parsed_with,
-                            "error": doc.error,
+                            "markdown": markdown,
+                            "parsed_with": getattr(doc, "parsed_with", "unknown"),
+                            "error": getattr(doc, "error", ""),
                             "cache_path": str(cache_dir),
                             "ingested_at": now,
                         }

@@ -178,3 +178,48 @@ Estimated runtime: ~5–10 min on local machine (disk-bound pkl reads).
 
 Run `/plan` or directly implement the linking script if you agree with Option C.
 The script could live at `scripts/ingest_parsed_pdfs.py` in this repo.
+
+---
+
+## PDF-002 Ingestion Results (2026-05-17)
+
+### Run stats
+
+```
+Found:    65,265 PDF cache entries
+Ingested: 65,263
+Errors:    0 (ingestion errors)
+Skipped:   2 (markdown > 14 MB BSON limit — corrupted pickles)
+```
+
+### Collection validation
+
+```
+parsed_pdfs.countDocuments(): 65,263  ✓ (within expected 60k–70k range)
+avg document size:            28.6 KB
+parsed_pdfs dataSize:         1,821 MB (uncompressed)
+parsed_pdfs storageSize:        781 MB (WiredTiger compressed)
+DB total storageSize:         1,259 MB
+```
+
+### Error field breakdown
+
+| error value            | count  | meaning                                              |
+|------------------------|--------|------------------------------------------------------|
+| `""` (empty string)    | 38,948 | Successful pymupdf4llm parse — full markdown present |
+| `None` (null)          | 19,494 | Legacy `ParsedDocument` schema (`parsed_with="unknown"`); 19,392 have non-empty markdown |
+| non-empty string       |  6,821 | Parse failure — markdown empty or partial            |
+
+**Parse failure rate: 10.5%** (6,821 / 65,263)
+
+Top parse errors:
+- `"Invalid PDF (bad magic bytes)"` — 496 files (scraped with PDF URL but not valid PDF)
+- `"Parse error: ..."` — handful of malformed PDFs
+
+### Corpus pipeline implication
+
+The `corpus/sources/mongo_source.py` PDF branch should query:
+```python
+{'$or': [{'error': ''}, {'error': None}]}   # 58,442 usable docs
+```
+or simply `{'markdown': {'$ne': ''}}` (58,340 docs with non-empty markdown).

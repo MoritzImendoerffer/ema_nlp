@@ -1,6 +1,6 @@
 {
   "status": "implementing",
-  "current_task": "PDF-002",
+  "current_task": "PDF-003",
   "tasks": [
     {
       "id": "PDF-001",
@@ -23,7 +23,7 @@
       "id": "PDF-002",
       "title": "Run ingestion script and validate parsed_pdfs collection",
       "type": "integration",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["PDF-001"],
       "acceptance_criteria": [
         "Script runs to completion without fatal errors",
@@ -68,10 +68,9 @@
       "priority": "high"
     }
   ],
-  "completed_tasks": ["PDF-001"],
-  "next_available": ["PDF-002"],
+  "completed_tasks": ["PDF-001", "PDF-002"],
+  "next_available": ["PDF-003"],
   "blocked": {
-    "PDF-003": ["PDF-002"],
     "PDF-004": ["PDF-003"]
   }
 }
