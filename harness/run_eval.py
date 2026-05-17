@@ -72,7 +72,7 @@ def run(config_path: Path) -> dict:
     from llama_index.core.settings import Settings
     from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
-    from harness.embed import build_index, load_index
+    from harness.embed import build_index
 
     idx_cfg = cfg["index"]
     corpus_path = _resolve(idx_cfg["corpus"])
@@ -88,15 +88,63 @@ def run(config_path: Path) -> dict:
         index = build_index(corpus_path, index_dir, force=True)
     else:
         log.info("Loading existing index from %s", index_dir)
-        index = load_index(index_dir)
+        index = build_index(corpus_path, index_dir, force=False)
 
     # ---------- Build retriever ----------
     from harness.retrieve import RetrieverMode, retrieve
     mode: RetrieverMode = cfg["retrieval"]["mode"]
     k: int = cfg["retrieval"]["k"]
 
+    # ---------- Ablation config ----------
+    abl_cfg: dict = cfg.get("ablation", {})
+    _query_exp_cfg: dict = abl_cfg.get("query_expansion", {})
+    _topic_cfg: dict = abl_cfg.get("topic_filter", {})
+    _reranker_name: str | None = abl_cfg.get("reranker", None)
+    _reranker_model: str = abl_cfg.get("reranker_model", "claude-haiku-4-5-20251001")
+    _reranker_max_chunks: int = abl_cfg.get("reranker_max_chunks", 5)
+
+    _expander = None
+    if _query_exp_cfg.get("enabled", False):
+        from harness.ablations.a1_query_expansion import QueryExpander
+        _dict_path_str: str | None = _query_exp_cfg.get("acronym_dict")
+        _dict_path = _resolve(_dict_path_str) if _dict_path_str else None
+        _expander = QueryExpander(_dict_path) if _dict_path else QueryExpander()
+        log.info("A1 query expansion enabled (dict: %s)", _expander)
+
+    _topic_filter_mode: str | None = _topic_cfg.get("mode") if _topic_cfg.get("enabled", False) else None
+    if _topic_filter_mode:
+        log.info("A2 topic filter enabled (mode: %s)", _topic_filter_mode)
+
+    if _reranker_name:
+        log.info("Reranker enabled: %s (model=%s, max_chunks=%d)", _reranker_name, _reranker_model, _reranker_max_chunks)
+
     def retrieve_fn(query: str):
-        return retrieve(index, query, mode=mode, k=k)
+        # A1 — optional query expansion
+        expanded = _expander.expand(query) if _expander else query
+        if expanded != query:
+            log.debug("A1 expanded: %r → %r", query, expanded)
+
+        results = retrieve(index, expanded, mode=mode, k=k)
+
+        # A2 — optional topic filter
+        if _topic_filter_mode == "keyword":
+            from harness.ablations.a2_topic_filter import filter_by_topic_keyword
+            results = filter_by_topic_keyword(results, query)
+        elif _topic_filter_mode == "concept":
+            from harness.ablations.a2_topic_filter import make_concept_retriever
+            retriever = make_concept_retriever(index, query, k=k)
+            from harness.retrieve import _results_from_nodes
+            results = _results_from_nodes(retriever.retrieve(expanded))
+
+        # A3/A4 — optional LLM reranker
+        if _reranker_name == "sme":
+            import harness.ablations.a3_reranker as _a3
+            results = _a3.rerank(results, query, index, model=_reranker_model, max_chunks=_reranker_max_chunks)
+        elif _reranker_name == "generic":
+            import harness.ablations.a4_reranker as _a4
+            results = _a4.rerank(results, query, index, model=_reranker_model, max_chunks=_reranker_max_chunks)
+
+        return results
 
     # ---------- Retrieval eval ----------
     from harness.eval_retrieval import run_eval as eval_retrieval

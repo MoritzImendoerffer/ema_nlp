@@ -1,0 +1,408 @@
+# EMA Q&A acronym/synonym dictionary — v1
+# Used by harness/ablations/a1_query_expansion.py for query expansion.
+#
+# Schema per entry:
+#   acronym:          The short form as it appears in questions
+#   canonical:        Full human-readable expansion
+#   synonyms:         Alternate phrasings (retrieved documents may use these)
+#   context_disambiguation: When acronym is ambiguous — what context triggers this sense
+#   topic_paths_where_relevant: Substring matches against corpus topic_path field
+
+acronyms:
+
+# ── Impurity / toxicology ────────────────────────────────────────────────────
+- acronym: AI
+  canonical: Acceptable Intake
+  synonyms:
+    - acceptable daily intake
+    - acceptable daily exposure
+    - safe intake
+    - toxicological threshold
+  context_disambiguation:
+    - "impurity/nitrosamine/genotoxic/N-nitroso context — NOT artificial intelligence"
+    - "triggers when question contains: impurity, nitrosamine, N-nitroso, genotoxic, TTC, ppm, ppb, ng/day"
+  topic_paths_where_relevant:
+    - nitrosamines
+    - genotoxic-impurities
+    - impurities
+    - quality
+
+- acronym: TTC
+  canonical: Threshold of Toxicological Concern
+  synonyms:
+    - toxicological threshold
+    - Cramer threshold
+  context_disambiguation:
+    - "toxicology/impurity context"
+  topic_paths_where_relevant:
+    - impurities
+    - genotoxic-impurities
+
+- acronym: ICH M7
+  canonical: ICH M7 guideline on mutagenic impurities
+  synonyms:
+    - ICH M7(R2)
+    - ICH M7(R1)
+    - M7 guideline
+    - mutagenic impurity guideline
+  topic_paths_where_relevant:
+    - genotoxic-impurities
+    - impurities
+
+- acronym: ICH Q3A
+  canonical: ICH Q3A guideline on impurities in new drug substances
+  synonyms:
+    - Q3A(R2)
+    - new drug substance impurity guideline
+  topic_paths_where_relevant:
+    - impurities
+    - quality
+
+- acronym: ICH Q3B
+  canonical: ICH Q3B guideline on impurities in new drug products
+  synonyms:
+    - Q3B(R2)
+    - drug product impurity guideline
+  topic_paths_where_relevant:
+    - impurities
+    - quality
+
+- acronym: ICH Q3C
+  canonical: ICH Q3C guideline on residual solvents
+  synonyms:
+    - Q3C(R8)
+    - residual solvent guideline
+  topic_paths_where_relevant:
+    - impurities
+    - quality
+
+- acronym: ICH Q3D
+  canonical: ICH Q3D guideline on elemental impurities
+  synonyms:
+    - Q3D(R2)
+    - elemental impurity guideline
+    - heavy metal impurity guideline
+  topic_paths_where_relevant:
+    - impurities
+    - quality
+
+- acronym: ICH Q9
+  canonical: ICH Q9 quality risk management
+  synonyms:
+    - ICH Q9(R1)
+    - quality risk management
+    - QRM
+  topic_paths_where_relevant:
+    - quality
+    - manufacturing
+
+- acronym: LoQ
+  canonical: Limit of Quantification
+  synonyms:
+    - LOQ
+    - quantitation limit
+    - limit of quantitation
+  topic_paths_where_relevant:
+    - impurities
+    - quality
+
+- acronym: LoD
+  canonical: Limit of Detection
+  synonyms:
+    - LOD
+    - detection limit
+  topic_paths_where_relevant:
+    - impurities
+    - quality
+
+- acronym: ppm
+  canonical: parts per million
+  synonyms:
+    - mg/kg
+    - micrograms per gram
+  topic_paths_where_relevant:
+    - impurities
+
+- acronym: ppb
+  canonical: parts per billion
+  synonyms:
+    - μg/kg
+    - micrograms per kilogram
+    - nanograms per gram
+  topic_paths_where_relevant:
+    - impurities
+    - nitrosamines
+
+# ── Authorisation / regulatory procedure ────────────────────────────────────
+- acronym: MAH
+  canonical: Marketing Authorisation Holder
+  synonyms:
+    - licence holder
+    - authorisation holder
+    - marketing authorisation holder
+    - MA holder
+  context_disambiguation:
+    - "company that holds the marketing authorisation — distinct from applicant (pre-authorisation)"
+  topic_paths_where_relevant:
+    - marketing-authorisation
+    - post-authorisation
+    - compliance
+
+- acronym: MA
+  canonical: Marketing Authorisation
+  synonyms:
+    - marketing authorisation
+    - product licence
+    - marketing approval
+  context_disambiguation:
+    - "regulatory approval to market a medicinal product — NOT Master Agreement or MA degree"
+  topic_paths_where_relevant:
+    - marketing-authorisation
+
+- acronym: CAP
+  canonical: Centrally Authorised Product
+  synonyms:
+    - centrally authorised product
+    - central procedure product
+    - centralised procedure
+  context_disambiguation:
+    - "EMA centralised procedure — as opposed to NAP (nationally authorised product)"
+  topic_paths_where_relevant:
+    - marketing-authorisation
+
+- acronym: NAP
+  canonical: Nationally Authorised Product
+  synonyms:
+    - nationally authorised product
+    - national procedure
+    - MRP
+    - DCP
+  context_disambiguation:
+    - "national or mutual recognition / decentralised procedure — as opposed to CAP"
+  topic_paths_where_relevant:
+    - marketing-authorisation
+
+- acronym: PSUR
+  canonical: Periodic Safety Update Report
+  synonyms:
+    - PSUR
+    - PBRER
+    - periodic benefit-risk evaluation report
+    - periodic safety report
+  topic_paths_where_relevant:
+    - pharmacovigilance
+    - post-authorisation
+
+- acronym: PASS
+  canonical: Post-Authorisation Safety Study
+  synonyms:
+    - post-authorisation safety study
+    - pharmacoepidemiological study
+  topic_paths_where_relevant:
+    - pharmacovigilance
+    - post-authorisation
+
+- acronym: PAES
+  canonical: Post-Authorisation Efficacy Study
+  synonyms:
+    - post-authorisation efficacy study
+  topic_paths_where_relevant:
+    - post-authorisation
+
+- acronym: RMP
+  canonical: Risk Management Plan
+  synonyms:
+    - risk management plan
+    - risk minimisation
+  topic_paths_where_relevant:
+    - pharmacovigilance
+    - marketing-authorisation
+
+- acronym: CHMP
+  canonical: Committee for Medicinal Products for Human Use
+  synonyms:
+    - EMA scientific committee
+    - Committee for Human Medicinal Products
+  topic_paths_where_relevant:
+    - marketing-authorisation
+    - scientific-opinions
+
+# ── Manufacturing / quality ──────────────────────────────────────────────────
+- acronym: GMP
+  canonical: Good Manufacturing Practice
+  synonyms:
+    - good manufacturing practice
+    - manufacturing standards
+  topic_paths_where_relevant:
+    - manufacturing
+    - quality
+
+- acronym: GDP
+  canonical: Good Distribution Practice
+  synonyms:
+    - good distribution practice
+    - distribution standards
+  topic_paths_where_relevant:
+    - distribution
+    - supply-chain
+
+- acronym: CAPA
+  canonical: Corrective and Preventive Action
+  synonyms:
+    - corrective action
+    - preventive action
+    - remediation plan
+  topic_paths_where_relevant:
+    - manufacturing
+    - quality
+    - compliance
+
+- acronym: CEP
+  canonical: Certificate of Suitability to the Monographs of the European Pharmacopoeia
+  synonyms:
+    - Ph. Eur. certificate
+    - CEP certificate
+    - EDQM certificate
+  topic_paths_where_relevant:
+    - quality
+    - active-substance
+
+- acronym: ASMF
+  canonical: Active Substance Master File
+  synonyms:
+    - drug master file
+    - DMF
+    - API master file
+  topic_paths_where_relevant:
+    - quality
+    - active-substance
+
+- acronym: API
+  canonical: Active Pharmaceutical Ingredient
+  synonyms:
+    - active substance
+    - drug substance
+    - active ingredient
+  context_disambiguation:
+    - "pharmaceutical ingredient — NOT Application Programming Interface in this corpus"
+  topic_paths_where_relevant:
+    - quality
+    - active-substance
+
+- acronym: DS
+  canonical: Drug Substance
+  synonyms:
+    - active substance
+    - API
+    - active pharmaceutical ingredient
+  topic_paths_where_relevant:
+    - quality
+
+- acronym: DP
+  canonical: Drug Product
+  synonyms:
+    - finished product
+    - medicinal product formulation
+  topic_paths_where_relevant:
+    - quality
+
+- acronym: ICH Q8
+  canonical: ICH Q8 pharmaceutical development
+  synonyms:
+    - ICH Q8(R2)
+    - pharmaceutical development guideline
+    - QbD guideline
+  topic_paths_where_relevant:
+    - quality
+
+- acronym: ICH Q10
+  canonical: ICH Q10 pharmaceutical quality system
+  synonyms:
+    - pharmaceutical quality system
+    - PQS
+  topic_paths_where_relevant:
+    - quality
+    - manufacturing
+
+- acronym: QP
+  canonical: Qualified Person
+  synonyms:
+    - qualified person
+    - batch release QP
+  topic_paths_where_relevant:
+    - manufacturing
+    - compliance
+
+- acronym: MIA
+  canonical: Manufacturing Importation Authorisation
+  synonyms:
+    - manufacturing authorisation
+    - manufacturing licence
+  topic_paths_where_relevant:
+    - manufacturing
+
+# ── Clinical / non-clinical ──────────────────────────────────────────────────
+- acronym: NOAEL
+  canonical: No Observed Adverse Effect Level
+  synonyms:
+    - no observed adverse effect level
+    - NOEL
+  topic_paths_where_relevant:
+    - non-clinical
+    - impurities
+
+- acronym: PK
+  canonical: Pharmacokinetics
+  synonyms:
+    - pharmacokinetics
+    - absorption distribution metabolism excretion
+    - ADME
+  topic_paths_where_relevant:
+    - clinical
+    - bioequivalence
+
+- acronym: BE
+  canonical: Bioequivalence
+  synonyms:
+    - bioequivalence study
+    - bioavailability study
+    - BA/BE
+  topic_paths_where_relevant:
+    - bioequivalence
+    - generics
+
+- acronym: BCS
+  canonical: Biopharmaceutics Classification System
+  synonyms:
+    - biopharmaceutics classification
+    - BCS classification
+  topic_paths_where_relevant:
+    - bioequivalence
+    - generics
+    - quality
+
+- acronym: CHMP Scientific Advice
+  canonical: CHMP Scientific Advice
+  synonyms:
+    - scientific advice
+    - protocol assistance
+    - SA/PA
+  topic_paths_where_relevant:
+    - scientific-advice
+
+# ── Paediatric ───────────────────────────────────────────────────────────────
+- acronym: PIP
+  canonical: Paediatric Investigation Plan
+  synonyms:
+    - paediatric investigation plan
+    - paediatric development plan
+  topic_paths_where_relevant:
+    - paediatrics
+
+- acronym: PDCO
+  canonical: Paediatric Committee
+  synonyms:
+    - EMA Paediatric Committee
+    - Committee on Paediatric Medicines
+  topic_paths_where_relevant:
+    - paediatrics

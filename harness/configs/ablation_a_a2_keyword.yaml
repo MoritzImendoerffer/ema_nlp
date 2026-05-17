@@ -1,0 +1,29 @@
+# A2 (keyword mode) — Hybrid retrieval + topic-path keyword post-filter
+run_id: ablation_a_a2_keyword
+description: "A2 keyword: hybrid RRF + topic-path keyword post-filter"
+
+retrieval:
+  mode: hybrid
+  k: 10
+
+ablation:
+  topic_filter:
+    enabled: true
+    mode: keyword   # post-filter results by topic_path keyword matching
+
+index:
+  corpus: corpus/corpus.jsonl
+  index_dir: harness/index
+  embed_model: BAAI/bge-large-en-v1.5
+  force_rebuild: false
+
+benchmark:
+  path: benchmark/benchmark.jsonl
+
+judge:
+  enabled: false
+  model: claude-haiku-4-5-20251001
+  sample_fraction: 1.0
+
+results:
+  base_dir: results
