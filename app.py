@@ -28,9 +28,6 @@ from opentelemetry.trace import set_span_in_context
 
 load_dotenv(Path.home() / ".myenvs" / "ema_nlp.env", override=False)
 
-REPO_ROOT = Path(__file__).parent
-DEFAULT_CORPUS = REPO_ROOT / "corpus" / "corpus.jsonl"
-DEFAULT_INDEX_DIR = REPO_ROOT / "harness" / "index"
 PHOENIX_URL = os.getenv("PHOENIX_URL", "http://localhost:6006")
 PHOENIX_DISABLED = os.getenv("PHOENIX_DISABLED", "").lower() in ("1", "true", "yes")
 CLAUDE_MODEL = os.getenv("EMA_CLAUDE_MODEL") or os.getenv("EMA_LLM_MODEL", "claude-haiku-4-5-20251001")

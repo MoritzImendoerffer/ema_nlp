@@ -206,12 +206,12 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Generated corpus artifacts (large, re-creatable)
+# Generated corpus artifacts (large, re-creatable — stored in ~/Nextcloud/Datasets/ema_nlp/)
 corpus/mini_corpus.jsonl
 corpus/mini_corpus_dedup_log.jsonl
 corpus/mini_corpus_filter_log.jsonl
-corpus/corpus.jsonl
 corpus/corpus_dedup_log.jsonl
 corpus/corpus_filter_log.jsonl
 corpus/corpus_stats.md
-harness/index/
+harness/index/*
+!harness/index/.gitkeep

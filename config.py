@@ -15,6 +15,11 @@ if _env_file.exists():
 # Nexcloud dateset storage
 nx_datafolder = Path("~/Nextcloud/Datasets/")
 
+# EMA NLP processed data — override with EMA_DATA_DIR env var
+EMA_DATA_DIR = Path(os.getenv("EMA_DATA_DIR", "~/Nextcloud/Datasets/ema_nlp")).expanduser()
+CORPUS_PATH = Path(os.getenv("EMA_CORPUS_PATH", str(EMA_DATA_DIR / "corpus" / "corpus.jsonl"))).expanduser()
+INDEX_DIR = Path(os.getenv("EMA_INDEX_PATH", str(EMA_DATA_DIR / "index"))).expanduser()
+
 # IDMP Onologies
 rdf_path = nx_datafolder.joinpath("Pistoia-Alliance-Ontologies/IDMP-O/1.3.0").expanduser()
 rdf_file_name = "IdentificationOfMedicinalProductsOntology.rdf"

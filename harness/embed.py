@@ -29,9 +29,7 @@ from harness.providers import configure_embed_model as _providers_configure
 
 log = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).parent.parent
-DEFAULT_CORPUS = REPO_ROOT / "corpus" / "corpus.jsonl"
-DEFAULT_INDEX_DIR = REPO_ROOT / "harness" / "index"
+from config import CORPUS_PATH as DEFAULT_CORPUS, INDEX_DIR as DEFAULT_INDEX_DIR
 EMBED_MODEL_NAME = "BAAI/bge-large-en-v1.5"
 EMBED_DIM = 1024  # BGE-large-en output dimension
 

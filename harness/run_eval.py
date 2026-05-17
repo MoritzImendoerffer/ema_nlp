@@ -45,7 +45,7 @@ def load_config(config_path: Path) -> dict:
 
 
 def _resolve(path_str: str) -> Path:
-    p = Path(path_str)
+    p = Path(path_str).expanduser()
     if not p.is_absolute():
         p = REPO_ROOT / p
     return p

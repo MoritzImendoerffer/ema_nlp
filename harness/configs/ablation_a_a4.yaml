@@ -14,8 +14,8 @@ ablation:
   reranker_max_chunks: 5
 
 index:
-  corpus: corpus/corpus.jsonl
-  index_dir: harness/index
+  corpus: ~/Nextcloud/Datasets/ema_nlp/corpus/corpus.jsonl
+  index_dir: ~/Nextcloud/Datasets/ema_nlp/index
   embed_model: BAAI/bge-large-en-v1.5
   force_rebuild: false
 
