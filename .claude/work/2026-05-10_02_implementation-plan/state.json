@@ -223,7 +223,7 @@
       "title": "Deduplication + landing page filter + corpus writer (MongoDB driver)",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-007A"
       ],
@@ -767,7 +767,7 @@
       "title": "Semantic cache CLI \u2014 similarity lookup + user confirmation before pipeline runs",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-027.5"
       ],

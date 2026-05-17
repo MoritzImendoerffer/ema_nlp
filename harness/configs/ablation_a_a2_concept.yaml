@@ -26,5 +26,7 @@ judge:
   model: claude-haiku-4-5-20251001
   sample_fraction: 1.0
 
+cache: false   # interactive cache disabled for batch eval runs
+
 results:
   base_dir: results

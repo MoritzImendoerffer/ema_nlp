@@ -68,6 +68,10 @@ def run(config_path: Path) -> dict:
 
     log.info("=== Run %s [%s] ===", run_id, timestamp)
 
+    # cache: false — the interactive semantic cache (app.py) is bypassed for batch runs
+    if cfg.get("cache", False):
+        log.warning("cache: true has no effect in run_eval — cache is interactive-only (app.py)")
+
     # ---------- Build / reload index ----------
     from harness.embed import build_index
     from harness.providers import configure_embed_model, get_llm_model
