@@ -15,6 +15,7 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 ## Quick links
 
 - **[Setup guide →](docs/SETUP.md)** — install dependencies, configure credentials, sync the database across machines
+- **[Architecture →](docs/ARCHITECTURE.md)** — data flow, MongoDB collections, corpus pipeline, FAISS index, common operations
 - **[Decisions →](DECISIONS.md)** — architectural and scope decisions with rationale
 - **[Open questions →](OPEN_QUESTIONS.md)** — decisions not yet made
 - **[Roadmap →](project_roadmap/ROADMAP.md)** — full phase-by-phase plan and success criteria

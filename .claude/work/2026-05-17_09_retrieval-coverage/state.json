@@ -1,0 +1,37 @@
+{
+  "status": "completed",
+  "current_task": null,
+  "work_unit": "2026-05-17_09_retrieval-coverage",
+  "description": "Fix retrieval coverage: switch default corpus from mini_corpus to corpus.jsonl, document EMA_CORPUS_PATH",
+  "tasks": [
+    {
+      "id": "COV-001",
+      "title": "Switch DEFAULT_CORPUS to corpus.jsonl in embed.py and app.py",
+      "type": "bugfix",
+      "owner": "claude",
+      "status": "completed",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "harness/embed.py:34 DEFAULT_CORPUS = REPO_ROOT / 'corpus' / 'corpus.jsonl'",
+        "app.py:32 DEFAULT_CORPUS = REPO_ROOT / 'corpus' / 'corpus.jsonl'",
+        "ruff + mypy clean",
+        "All existing tests pass"
+      ],
+      "estimated_hours": 0.1
+    },
+    {
+      "id": "COV-002",
+      "title": "Document EMA_CORPUS_PATH in docs/SETUP.md",
+      "type": "docs",
+      "owner": "claude",
+      "status": "completed",
+      "dependencies": ["COV-001"],
+      "acceptance_criteria": [
+        "docs/SETUP.md documents EMA_CORPUS_PATH env var with default and example",
+        "Note that index must be deleted and rebuilt when corpus path changes"
+      ],
+      "estimated_hours": 0.1
+    }
+  ],
+  "next_available": ["COV-001"]
+}

@@ -71,6 +71,16 @@ ANTHROPIC_API_KEY=sk-ant-...
 # MONGO_SYNC_HOST=your-pc-tailscale-hostname-or-ip
 # MONGO_SYNC_USER=moritz
 # MONGO_SYNC_SSH_PORT=22
+
+# ── Corpus and index paths ─────────────────────────────────────────────────────
+# Path to the Q&A corpus JSONL used to build the FAISS index.
+# Default: corpus/corpus.jsonl (26 k records).
+# Override when experimenting with a smaller or custom corpus.
+# After changing this, delete harness/index/ to force a rebuild.
+# EMA_CORPUS_PATH=/path/to/corpus.jsonl
+
+# Path to the FAISS index directory (default: harness/index/).
+# EMA_INDEX_PATH=/path/to/index/
 ```
 
 ### LLM and embedding model settings

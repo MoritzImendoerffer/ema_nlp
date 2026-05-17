@@ -31,7 +31,7 @@ from corpus.models import QARecord
 log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).parent.parent
-DEFAULT_CORPUS = REPO_ROOT / "corpus" / "mini_corpus.jsonl"
+DEFAULT_CORPUS = REPO_ROOT / "corpus" / "corpus.jsonl"
 DEFAULT_INDEX_DIR = REPO_ROOT / "harness" / "index"
 EMBED_MODEL_NAME = "BAAI/bge-large-en-v1.5"
 EMBED_DIM = 1024  # BGE-large-en output dimension
