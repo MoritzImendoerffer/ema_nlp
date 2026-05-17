@@ -15,13 +15,14 @@ from pathlib import Path
 
 import anthropic
 
+from harness.providers import get_llm_model
 from harness.retrieve import RetrievalResult
 
 log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 _RUBRIC_PATH = REPO_ROOT / "harness" / "prompts" / "relevance_rubric_sme.md"
-_DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+_DEFAULT_MODEL = get_llm_model()
 _DEFAULT_MAX_CHUNKS = 5
 
 

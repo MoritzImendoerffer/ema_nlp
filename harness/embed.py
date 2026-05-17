@@ -22,11 +22,10 @@ from pathlib import Path
 import faiss
 from llama_index.core import StorageContext, VectorStoreIndex, load_index_from_storage
 from llama_index.core.schema import TextNode
-from llama_index.core.settings import Settings
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.faiss import FaissVectorStore
 
 from corpus.models import QARecord
+from harness.providers import configure_embed_model as _providers_configure
 
 log = logging.getLogger(__name__)
 
@@ -37,9 +36,8 @@ EMBED_MODEL_NAME = "BAAI/bge-large-en-v1.5"
 EMBED_DIM = 1024  # BGE-large-en output dimension
 
 
-def _configure_embed_model(model_name: str = EMBED_MODEL_NAME) -> None:
-    Settings.embed_model = HuggingFaceEmbedding(model_name=model_name)
-    Settings.llm = None  # retrieval-only; no LLM needed
+def _configure_embed_model(model_name: str | None = None) -> None:
+    _providers_configure(model_name)
 
 
 def _load_records(corpus_path: Path) -> list[QARecord]:

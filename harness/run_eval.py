@@ -69,19 +69,16 @@ def run(config_path: Path) -> dict:
     log.info("=== Run %s [%s] ===", run_id, timestamp)
 
     # ---------- Build / reload index ----------
-    from llama_index.core.settings import Settings
-    from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-
     from harness.embed import build_index
+    from harness.providers import configure_embed_model, get_llm_model
 
     idx_cfg = cfg["index"]
     corpus_path = _resolve(idx_cfg["corpus"])
     index_dir = _resolve(idx_cfg["index_dir"])
-    embed_model_name = idx_cfg.get("embed_model", "BAAI/bge-large-en-v1.5")
+    embed_model_name: str | None = idx_cfg.get("embed_model")
     force_rebuild = idx_cfg.get("force_rebuild", False)
 
-    Settings.embed_model = HuggingFaceEmbedding(model_name=embed_model_name)
-    Settings.llm = None
+    configure_embed_model(embed_model_name)
 
     if force_rebuild or not (index_dir / "docstore.json").exists():
         log.info("Building index from %s", corpus_path)
@@ -100,7 +97,7 @@ def run(config_path: Path) -> dict:
     _query_exp_cfg: dict = abl_cfg.get("query_expansion", {})
     _topic_cfg: dict = abl_cfg.get("topic_filter", {})
     _reranker_name: str | None = abl_cfg.get("reranker", None)
-    _reranker_model: str = abl_cfg.get("reranker_model", "claude-haiku-4-5-20251001")
+    _reranker_model: str = abl_cfg.get("reranker_model") or get_llm_model()
     _reranker_max_chunks: int = abl_cfg.get("reranker_max_chunks", 5)
 
     _expander = None
@@ -167,7 +164,7 @@ def run(config_path: Path) -> dict:
     judge_cfg = cfg.get("judge", {})
     if judge_cfg.get("enabled", False):
         from harness.judge import Judge
-        judge = Judge(model=judge_cfg.get("model", "claude-haiku-4-5-20251001"))
+        judge = Judge(model=judge_cfg.get("model") or get_llm_model())
         log.info("Running LLM judge …")
         with benchmark_path.open(encoding="utf-8") as fh:
             bench_items = [json.loads(line) for line in fh]

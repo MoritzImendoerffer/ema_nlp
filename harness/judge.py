@@ -26,11 +26,12 @@ from typing import TypedDict
 
 import anthropic
 
+from harness.providers import get_llm_model
+
 log = logging.getLogger(__name__)
 
 JUDGES_DIR = Path(__file__).parent / "judges"
-# Use a fast/cheap model for batch evaluation — different from the generator.
-DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_JUDGE_MODEL = get_llm_model()
 _MAX_TOKENS = 256
 
 
