@@ -1,0 +1,31 @@
+# Model tier definitions for Ablation C (3x3 prompting matrix).
+# Each tier is used across all three prompting modes: zero-shot, SME few-shot, self-generated CoT.
+#
+# Tier IDs are stable — update model_id here to change the version without touching call sites.
+
+tiers:
+  mid:
+    tier_id: mid
+    description: "Mid-tier: fast, cheap — used for ablation baseline"
+    provider: anthropic
+    model_id: claude-haiku-4-5-20251001
+    max_tokens: 1024
+    temperature: 0.0
+
+  frontier:
+    tier_id: frontier
+    description: "Frontier reasoning — best quality reference"
+    provider: anthropic
+    model_id: claude-opus-4-7
+    max_tokens: 2048
+    temperature: 0.0
+
+  olmo:
+    tier_id: olmo
+    description: "OLMo 3 32B Think — open-weight, contamination-auditable via OLMoTrace"
+    provider: together_ai
+    model_id: allenai/OLMo-2-1124-32B-Instruct
+    max_tokens: 2048
+    temperature: 0.0
+    # Requires TOGETHER_API_KEY in ~/.myenvs/ema_nlp.env
+    # Together AI base URL: https://api.together.xyz/v1
