@@ -144,9 +144,15 @@ cfg.setdefault("extraKnownMarketplaces", {}).setdefault("local", {
     "source": {"source": "directory", "path": f"{toolkit}/plugins"}
 })
 
-# Enable core local plugins
+# Enable core local plugins and official marketplace plugins
 plugins = cfg.setdefault("enabledPlugins", {})
-for p in ["system@local", "workflow@local", "memory@local", "development@local", "transition@local"]:
+for p in [
+    "system@local", "workflow@local", "memory@local",
+    "development@local", "transition@local",
+    "mongodb@claude-plugins-official",
+    "github@claude-plugins-official",
+    "session-report@claude-plugins-official",
+]:
     plugins.setdefault(p, True)
 
 with open(path, "w") as f:
