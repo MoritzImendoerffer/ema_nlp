@@ -1,13 +1,14 @@
 """
-Create all 35 GitHub issues for the EMA RAG Benchmark project using PyGithub.
+Create GitHub issues for the EMA RAG Benchmark project using PyGithub.
 
 Usage:
     GITHUB_TOKEN=ghp_xxx python3 scripts/create_github_issues.py
 
 Get a token at: GitHub → Settings → Developer settings → Personal access tokens → Fine-grained
-Required scopes: Issues (read/write), Metadata (read)
+Required permissions: Issues (read/write), Metadata (read)
 
-Run once from repo root. Safe to re-run — existing issues are detected and skipped.
+Run once from repo root. Safe to re-run — existing issues (matched by title) are skipped.
+For updates to existing issues, use scripts/sync_github_issues.py instead.
 """
 
 import os
@@ -21,845 +22,453 @@ except ImportError:
     sys.exit(1)
 
 REPO_NAME = "MoritzImendoerffer/ema_nlp"
+PLAN = "https://github.com/MoritzImendoerffer/ema_nlp/blob/main/.claude/work/2026-05-10_02_implementation-plan/implementation-plan.md"
 
 # ---------------------------------------------------------------------------
 # Labels
 # ---------------------------------------------------------------------------
 
 LABELS = [
-    ("phase/0",   "0075ca", "Phase 0: Scoping"),
-    ("phase/1",   "0052cc", "Phase 1: Corpus extraction"),
-    ("phase/1.5", "003d99", "Phase 1.5: Contamination check"),
-    ("phase/2",   "7057ff", "Phase 2: Benchmark construction"),
-    ("phase/3",   "b60205", "Phase 3: Baseline RAG"),
-    ("phase/4A",  "e4e669", "Phase 4A: Ablation A - evidence filtering"),
-    ("phase/4B",  "d93f0b", "Phase 4B: Ablation B - process rewards"),
-    ("phase/4C",  "0e8a16", "Phase 4C: Ablation C - prompting matrix"),
-    ("phase/5",   "c5def5", "Phase 5: Writeup and release"),
-    ("owner:claude",        "bfd4f2", "Claude implements"),
-    ("owner:sme",           "fef2c0", "You (SME) must do this"),
-    ("owner:collaborative", "d4edda", "Both: Claude scaffolds, SME decides"),
-    ("blocked",             "e4e4e4", "Waiting on another task"),
+    ("phase/0",           "0075ca", "Phase 0: Scoping"),
+    ("phase/1",           "0052cc", "Phase 1: Corpus extraction"),
+    ("phase/1.5",         "003d99", "Phase 1.5: Contamination check"),
+    ("phase/2",           "7057ff", "Phase 2: Benchmark construction"),
+    ("phase/3",           "b60205", "Phase 3: Baseline RAG"),
+    ("phase/4A",          "e4e669", "Phase 4A: Ablation A - evidence filtering"),
+    ("phase/4B",          "d93f0b", "Phase 4B: Ablation B - process rewards"),
+    ("phase/4C",          "0e8a16", "Phase 4C: Ablation C - prompting matrix"),
+    ("phase/5",           "c5def5", "Phase 5: Writeup and release"),
+    ("owner:claude",      "bfd4f2", "Claude implements"),
+    ("owner:sme",         "fef2c0", "You (SME) must do this"),
+    ("owner:collab",      "d4edda", "Both: Claude scaffolds, SME decides"),
+    ("blocked",           "e4e4e4", "Waiting on another task"),
+    ("infra",             "f9d0c4", "Infrastructure / machine setup"),
 ]
+
+
+def _b(owner, phase, effort, summary, deps="—", sme_action=None, status=None):
+    """Return a compact issue body."""
+    lines = [f"**Owner:** {owner} · **Phase:** {phase} · **Effort:** {effort}"]
+    if status:
+        lines[0] += f" · **{status}**"
+    lines += ["", summary, "", f"**Depends on:** {deps}", "", f"→ [Full spec]({PLAN})"]
+    if sme_action:
+        lines.insert(4, f"**Your action:** {sme_action}")
+        lines.insert(5, "")
+    return "\n".join(lines)
+
 
 # ---------------------------------------------------------------------------
 # Issues — (title, labels, body)
 # ---------------------------------------------------------------------------
 
 ISSUES = [
+    # ── Infrastructure ────────────────────────────────────────────────────
+    (
+        "[INFRA] Create ~/.myenvs/ema_nlp.env with all required credentials",
+        ["infra"],
+        """\
+**Owner:** You · **Status:** per-machine setup task
+
+Create `~/.myenvs/ema_nlp.env` (never committed). Required before any script that hits an external service.
+
+| Variable | Purpose |
+|----------|---------|
+| `MONGO_URI` | MongoDB — default `mongodb://localhost:27017/` |
+| `ANTHROPIC_API_KEY` | Claude API (needed from Phase 3 onward) |
+| `GITHUB_TOKEN` | Issues API — fine-grained, Issues read/write + Metadata read |
+
+```bash
+mkdir -p ~/.myenvs
+cat > ~/.myenvs/ema_nlp.env << 'EOF'
+MONGO_URI=mongodb://localhost:27017/
+ANTHROPIC_API_KEY=sk-ant-...
+GITHUB_TOKEN=ghp_...
+EOF
+chmod 600 ~/.myenvs/ema_nlp.env
+```
+
+Close this issue once the file exists and `python3 -c "import config"` runs without error.""",
+    ),
+
     # ── Phase 0 ──────────────────────────────────────────────────────────
     (
         "[TASK-001] MongoDB Q&A inventory query",
         ["phase/0", "owner:claude"],
-        """\
-## Summary
-Query `ema_scraper.web_items` for accordion Q&A pages and Q&A-pattern PDF URLs. Output a reproducible inventory CSV.
-
-## Status
-✅ **COMPLETED** — 165 sources found (64 HTML, 101 PDFs). 1,506 estimated Q&A pairs. GO signal met.
-
-## Owner
-Claude
-
-## Acceptance criteria
-- [x] Script `scripts/phase0_inventory.py` queries MongoDB for accordion pages and Q&A PDF URLs
-- [x] Output: `scripts/phase0_inventory.csv` with columns: `url, type, topic_path, q_count_estimate, last_updated, revision_number`
-- [x] Counts printed: total sources, html vs pdf split, overlap with human-regulatory URL tree
-- [x] Reproducible from a fresh MongoDB connection
-
-## Estimated effort
-2 hours (Claude)""",
+        _b("Claude", "0", "2h",
+           "✅ 165 sources found (64 HTML, 101 PDFs). 1,506 estimated Q&A pairs. GO signal met.",
+           status="Completed"),
     ),
     (
         "[TASK-002] Topic stratification + cross-ref chain completeness",
         ["phase/0", "owner:claude"],
-        """\
-## Summary
-Group Q&A sources by topic_path. Verify that cross-reference chains are completable within the corpus.
-
-## Status
-✅ **COMPLETED** — 11 clusters. Largest: Research & Dev (492 Q&A). Chain completeness: 43.6%.
-
-## Owner
-Claude
-
-## Acceptance criteria
-- [x] Identifies ≥3 distinct topic clusters from URL-derived topic_path grouping
-- [x] Reports Q&A count per cluster; flags clusters with <5 Q&As as thin
-- [x] Extracts cross-reference pattern counts from HTML sources
-- [x] Computes chain completeness %
-- [x] Output: `scripts/phase0_topic_report.md`
-
-## Estimated effort
-3 hours (Claude)""",
+        _b("Claude", "0", "3h",
+           "✅ 11 clusters. Research & Dev largest (492 Q&As). Chain completeness 43.6%. 2 thin PDF-only clusters.",
+           status="Completed"),
     ),
     (
         "[TASK-003] Go/no-go decision notebook",
-        ["phase/0", "owner:collaborative"],
-        """\
-## Summary
-Claude generates notebook with plots. **You fill in the Decision cell before Phase 1 can begin.**
-
-## Status
-⏳ **AWAITING SME** — notebook at `scripts/phase0_scope_decision.ipynb` ready for your decision.
-
-## Owner
-Collaborative (Claude generates; you decide)
-
-## Your action
-1. Open `scripts/phase0_scope_decision.ipynb`
-2. Run all cells
-3. Fill the **✏️ DECISION** cell with GO/NO-GO + rationale
-4. Commit: `git add scripts/phase0_scope_decision.ipynb && git commit -m 'TASK-003: Phase 0 go/no-go decision — GO'`
-
-## Gate
-⚠️ Nothing in Phase 1 begins until this is committed with a GO decision.
-
-## Estimated effort
-2 hours (Claude) + your decision""",
+        ["phase/0", "owner:collab"],
+        _b("Collaborative", "0", "2h",
+           '✅ Decision: GO — "The project scope is clear. The clusters are representative and the chain completeness is ok."',
+           status="Completed"),
     ),
+
     # ── Phase 1 ──────────────────────────────────────────────────────────
     (
         "[TASK-004] Project setup — pyproject.toml, directory structure, schema docs",
-        ["phase/1", "owner:claude", "blocked"],
-        """\
-## Summary
-Lay the project foundation: dependencies, directory tree, and schema documentation.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-003 (GO decision required)
-
-## Acceptance criteria
-- [ ] `pyproject.toml` with pinned deps: pymupdf4llm, pymongo, rank-bm25, faiss-cpu, sentence-transformers, anthropic, pytest, ruff, mypy
-- [ ] Directory tree: corpus/, benchmark/, harness/configs/, harness/judges/, harness/prompts/, results/, ablations/A|B|C/, docs/
-- [ ] `corpus/SCHEMA.md` documents Q&A record schema
-- [ ] `benchmark/SCHEMA.md` documents benchmark item schema
-- [ ] pytest/ruff/mypy all pass on empty stubs
-
-## Estimated effort
-2 hours (Claude)""",
+        ["phase/1", "owner:claude"],
+        _b("Claude", "1", "2h",
+           "✅ All dirs created. pytest/ruff/mypy pass. Deps pinned at latest stable.",
+           status="Completed"),
     ),
     (
         "[TASK-005] HTML accordion extractor",
-        ["phase/1", "owner:claude", "blocked"],
-        """\
-## Summary
-Extract Q&A pairs from EMA HTML accordion pages into corpus.jsonl format.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-004
-
-## Acceptance criteria
-- [ ] `corpus/extractors/html_extractor.py` splits accordion items into Q/A pairs
-- [ ] Flags items where heading isn't question-form
-- [ ] Builds `topic_path` from URL segments; assigns `extraction_confidence`
-- [ ] Output matches `corpus/SCHEMA.md`
-- [ ] Tests: ≥3 real accordion fixtures; ≥90% Q&A capture rate on known pages
-- [ ] ruff + mypy clean
-
-## Estimated effort
-3 hours (Claude)""",
+        ["phase/1", "owner:claude"],
+        _b("Claude", "1", "3h",
+           "✅ 10 tests pass. 100% capture rate on 3 fixtures (33 items). Confidence logic on ?-endings and interrogative words.",
+           status="Completed"),
     ),
     (
         "[TASK-006] PDF Q&A extractor",
-        ["phase/1", "owner:claude", "blocked"],
-        """\
-## Summary
-Extract numbered Q&A pairs from EMA PDFs, including revision history and cross-references.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-004
-
-## Acceptance criteria
-- [ ] `corpus/extractors/pdf_extractor.py` uses PyMuPDF4LLM
-- [ ] Regex-based Q segmentation on numbered headings
-- [ ] Revision history table parsed → `revision` field
-- [ ] `cross_refs` extracted from 'see Q&A N' patterns
-- [ ] Tests: nitrosamine Q&A PDF fixture; Q22 has correct cross_refs; revision parsed correctly
-- [ ] ruff + mypy clean
-
-## Estimated effort
-4 hours (Claude)""",
+        ["phase/1", "owner:claude"],
+        _b("Claude", "1", "4h",
+           "✅ 14 tests pass. Benzyl alcohol PDF: 5 Q&As, cross-refs resolved, revision parsed correctly.",
+           status="Completed"),
     ),
     (
-        "[TASK-007] Deduplication + landing page filter + corpus writer",
+        "[TASK-007A] build_corpus.py — pure dedup/filter/write logic (no MongoDB)",
         ["phase/1", "owner:claude", "blocked"],
-        """\
-## Summary
-Orchestrate extraction → dedup → filter → output. Resolve HTML/PDF duplicates.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-005, TASK-006
-
-## Acceptance criteria
-- [ ] `corpus/build_corpus.py` orchestrates: extract → dedup → filter → write
-- [ ] Hash-based dedup on normalised question text; prefers PDF version
-- [ ] Landing pages filtered out; filter log written
-- [ ] Stable `qa_id` = hash(source_url + normalised_question)
-- [ ] Tests: dedup correctly drops HTML when PDF exists
-
-## Estimated effort
-2 hours (Claude)""",
+        _b("Claude", "1", "2h",
+           "Source-agnostic orchestrator: `build_corpus(records: Iterable[QARecord], output_path) → CorpusStats`. "
+           "Hash dedup (PDF preferred), landing-page filter, JSONL write, dedup/filter logs. No pymongo import.",
+           deps="TASK-005, TASK-006"),
+    ),
+    (
+        "[TASK-007B] Mini-corpus HTTP fetcher — ~100 real Q&As without MongoDB",
+        ["phase/1", "owner:claude", "blocked"],
+        _b("Claude", "1", "1h",
+           "Fetch 10 EMA Q&A pages from `phase0_inventory.csv` via httpx → `corpus/mini_corpus.jsonl`. "
+           "Dev fixture for Phases 3+ when MongoDB is unavailable. Not a substitute for the full corpus.",
+           deps="TASK-007A"),
+    ),
+    (
+        "[TASK-007] MongoDB adaptor — feeds build_corpus from ema_scraper.web_items",
+        ["phase/1", "owner:claude", "blocked"],
+        _b("Claude", "1", "2h",
+           "`corpus/sources/mongo_source.py`: iterator over `web_items` → yields QARecord objects into `build_corpus()` → `corpus/corpus.jsonl`. "
+           "Blocked until MongoDB is available.",
+           deps="TASK-007A + MongoDB available"),
     ),
     (
         "[TASK-008] Corpus manifest — corpus.jsonl + corpus_stats.md",
         ["phase/1", "owner:claude", "blocked"],
-        """\
-## Summary
-Write the final corpus artifact. Deliverable 1 — usable by others independently of the benchmark.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-007
-
-## Acceptance criteria
-- [ ] `corpus/corpus.jsonl` written; validates against `corpus/SCHEMA.md`
-- [ ] `corpus/corpus_stats.md`: counts by topic_path, source_type, revision date distribution
-- [ ] Success criterion: ≥200 Q&A records, ≥3 topic paths
-- [ ] If <200 records: SCOPE-RISK warning and halt
-
-## Estimated effort
-2 hours (Claude)""",
+        _b("Claude", "1", "2h",
+           "Write `corpus/corpus.jsonl`. Validate schema. Generate `corpus_stats.md`. "
+           "Gate: ≥200 Q&A records across ≥3 topic paths, or script halts with SCOPE-RISK.",
+           deps="TASK-007"),
     ),
+
     # ── Phase 1.5 ─────────────────────────────────────────────────────────
     (
         "[TASK-009] Training data contamination check — Dolma 3 / Common Corpus",
         ["phase/1.5", "owner:claude", "blocked"],
-        """\
-## Summary
-Verify whether EMA source documents appear in public training corpora.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-008
-
-## Acceptance criteria
-- [ ] `docs/training_data_verification.md` written
-- [ ] 5-10 distinctive sentences per source doc searched in Dolma 3 + Common Corpus
-- [ ] Per-doc status: present / absent / partial
-- [ ] OLMo 3 usability as clean reference documented
-
-## Estimated effort
-3 hours (Claude)""",
+        _b("Claude", "1.5", "3h",
+           "Search 5-10 distinctive sentences per source doc in Dolma 3 + Common Corpus. "
+           "Per-doc status (present/absent/partial) → `docs/training_data_verification.md`. "
+           "Gates benchmark construction (TASK-010–013).",
+           deps="TASK-008"),
     ),
+
     # ── Phase 2 ──────────────────────────────────────────────────────────
     (
         "[TASK-010] T1 Lookup benchmark questions — candidates + SME review",
-        ["phase/2", "owner:collaborative", "blocked"],
-        """\
-## Summary
-Claude generates 30 T1 candidates with paraphrases. **You select 20 and validate gold answers.**
-
-## Owner
-Collaborative (Claude generates; you validate)
-
-## Dependencies
-Blocked by: TASK-008
-
-## Your task
-Review `benchmark/candidates/t1_candidates.jsonl`, accept 20 items, verify gold_answer accuracy.
-
-## Acceptance criteria
-- [ ] Claude generates `benchmark/candidates/t1_candidates.jsonl` with 30 candidates + 2 paraphrases each
-- [ ] You select 20 and validate gold_answer accuracy
-- [ ] 20 final T1 items appended to `benchmark/benchmark.jsonl`
-
-## Estimated effort
-3 hours total""",
+        ["phase/2", "owner:collab", "blocked"],
+        _b("Collaborative", "2", "3h",
+           "Claude generates 30 T1 candidates + 2 paraphrases each. You select 20 and validate gold answers.",
+           deps="TASK-008, TASK-009",
+           sme_action="Review `benchmark/candidates/t1_candidates.jsonl`, mark 20 items `accepted=true`."),
     ),
     (
         "[TASK-011] T2 Scoping benchmark questions — author",
         ["phase/2", "owner:sme", "blocked"],
-        """\
-## Summary
-**You author 10 T2 questions** pairing a correct Q&A with topically-adjacent distractors.
-
-## Owner
-You (SME) — Claude validates schema and adds paraphrases
-
-## Dependencies
-Blocked by: TASK-008
-
-## Your task
-Write 10 questions in `benchmark/candidates/t2_authored.md`. Each maps to 1 correct Q&A + 2 distractors that share keywords but address a different procedural step or scope.
-
-## Acceptance criteria
-- [ ] 10 T2 questions authored
-- [ ] Each: 1 correct Q&A + 2 distractor Q&As
-- [ ] Claude converts to JSONL, validates schema
-- [ ] 10 T2 items in `benchmark/benchmark.jsonl`
-
-## Estimated effort
-4 hours (your domain knowledge)""",
+        _b("You (SME)", "2", "4h",
+           "Author 10 T2 questions: each pairs 1 correct Q&A with 2 topically-adjacent distractors. "
+           "Claude converts to JSONL and adds paraphrases.",
+           deps="TASK-008, TASK-009",
+           sme_action="Draft in `benchmark/candidates/t2_authored.md`."),
     ),
     (
         "[TASK-012] T3 Multi-hop benchmark questions — chain composition",
-        ["phase/2", "owner:collaborative", "blocked"],
-        """\
-## Summary
-Claude identifies valid cross-ref chains. **You compose questions requiring chain traversal.**
-
-## Owner
-Collaborative (Claude identifies chains; you compose questions)
-
-## Dependencies
-Blocked by: TASK-008, TASK-002
-
-## Acceptance criteria
-- [ ] Claude enumerates in-corpus cross-ref chains of length ≥2
-- [ ] Claude produces `benchmark/candidates/t3_chain_map.md`
-- [ ] You compose 10 questions requiring full chain traversal
-- [ ] Claude validates all hops are in corpus
-- [ ] 10 T3 items in `benchmark/benchmark.jsonl`
-
-## Estimated effort
-3 hours total""",
+        ["phase/2", "owner:collab", "blocked"],
+        _b("Collaborative", "2", "3h",
+           "Claude enumerates in-corpus cross-ref chains of length ≥2 → `t3_chain_map.md`. "
+           "You compose 10 questions requiring full chain traversal.",
+           deps="TASK-008, TASK-009, TASK-002",
+           sme_action="Compose questions from `benchmark/candidates/t3_chain_map.md`."),
     ),
     (
         "[TASK-013] T4 Synthesis benchmark questions — hand-curate",
         ["phase/2", "owner:sme", "blocked"],
-        """\
-## Summary
-**You hand-curate ≥5 synthesis questions** combining Q&As from different source documents.
-
-## Owner
-You (SME)
-
-## Dependencies
-Blocked by: TASK-008
-
-## Your task
-Include ≥2 counterfactual questions (e.g., combining published Q&As in ways the documents don't). These are contamination-resistant by construction.
-
-## Acceptance criteria
-- [ ] ≥5 T4 questions spanning ≥2 distinct source_urls
-- [ ] ≥2 composite/counterfactual items
-- [ ] Claude validates and adds paraphrases
-- [ ] ≥5 T4 items in `benchmark/benchmark.jsonl`
-
-## Estimated effort
-3 hours (your domain knowledge)""",
+        _b("You (SME)", "2", "3h",
+           "Hand-curate ≥5 synthesis questions combining Q&As from ≥2 source documents. "
+           "Include ≥2 composite/counterfactual items for contamination resistance.",
+           deps="TASK-008, TASK-009",
+           sme_action="Write items; include `gold_qa_ids` spanning ≥2 distinct source_urls."),
     ),
     (
         "[TASK-014] Benchmark JSONL finalisation + validation script",
         ["phase/2", "owner:claude", "blocked"],
-        """\
-## Summary
-Final validation gate ensuring benchmark.jsonl is complete, schema-valid, and correctly stratified.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-010, TASK-011, TASK-012, TASK-013
-
-## Acceptance criteria
-- [ ] `benchmark/validate_benchmark.py`: no duplicate bench_ids; all gold_qa_ids in corpus; T1=20, T2=10, T3=10, T4≥5
-- [ ] `benchmark/STATS.md`: stratification report, topic distribution
-- [ ] Script exits non-zero on any validation failure
-
-## Estimated effort
-2 hours (Claude)""",
+        _b("Claude", "2", "2h",
+           "`benchmark/validate_benchmark.py`: checks no duplicate bench_ids, all gold_qa_ids in corpus, "
+           "paraphrases present, distribution T1=20/T2=10/T3=10/T4≥5.",
+           deps="TASK-010, TASK-011, TASK-012, TASK-013"),
     ),
     (
         "[TASK-015] Closed-book contamination screen",
         ["phase/2", "owner:claude", "blocked"],
-        """\
-## Summary
-Measure how much each model already knows without retrieval. Sets `zero_shot_known` flags.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-014
-
-## Acceptance criteria
-- [ ] `harness/contamination_screen.py` runs all benchmark items with no retrieval
-- [ ] Captures: model answer, matches_gold, zero_shot_known flag per model per item
-- [ ] Slot-guessing test on 10-item subsample
-- [ ] `contamination_summary.md`: aggregate zero_shot_known rate per model
-
-## Estimated effort
-3 hours (Claude)""",
+        _b("Claude", "2", "3h",
+           "Run all benchmark items through configured models with no retrieval. "
+           "PASS/FAIL gate: if zero_shot_known > 40% on T1 for any model, those items flagged REMOVE.",
+           deps="TASK-014"),
     ),
+
     # ── Phase 3 ──────────────────────────────────────────────────────────
     (
         "[TASK-016] Embedding pipeline + FAISS vector store",
         ["phase/3", "owner:claude", "blocked"],
-        """\
-## Summary
-Embed the corpus with BGE-large-en and build a FAISS index for dense retrieval.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-008 (can start in parallel with Phase 2)
-
-## Acceptance criteria
-- [ ] `harness/embed.py` embeds Q&A records with BGE-large-en
-- [ ] FAISS flat index saved to `harness/index/corpus.faiss`
-- [ ] Dense retrieval returns top-k (qa_id, score) in <100ms for k=10
-- [ ] Unit test: known question retrieves its own Q&A in top-1
-
-## Estimated effort
-3 hours (Claude)""",
+        _b("Claude", "3", "3-4h",
+           "LlamaIndex `DocumentSummaryIndex` + BGE-large-en + FAISS flat index. "
+           "`NodeRelationship.RELATED` for cross-refs. Index persisted to `harness/index/`. "
+           "Re-index from `corpus.jsonl` after TASK-008 for production.",
+           deps="TASK-007B (dev) / TASK-008 (production)"),
+    ),
+    (
+        "[TASK-016.5] IDMP ontology concept tagging — node metadata",
+        ["phase/3", "owner:claude", "blocked"],
+        _b("Claude", "3", "2h",
+           "Parse IDMP RDF → ~50-100 regulatory concepts. Tag each Q&A node with `metadata['concepts']`. "
+           "Write `harness/ontology/concepts.yaml`. `filter_by_concept()` retriever. Graceful fallback if RDF absent.",
+           deps="TASK-016"),
     ),
     (
         "[TASK-017] BM25 hybrid retrieval",
         ["phase/3", "owner:claude", "blocked"],
-        """\
-## Summary
-Add BM25 keyword retrieval and RRF hybrid fusion for the A0+ baseline.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-016
-
-## Acceptance criteria
-- [ ] `harness/retrieve.py`: dense-only (A0), BM25-only, hybrid RRF (A0+) via config flag
-- [ ] BM25 uses rank-bm25 on tokenised Q&A text
-- [ ] Test: hybrid outperforms dense-only on exact-match query (e.g., '26.5 ng/day')
-
-## Estimated effort
-2 hours (Claude)""",
+        _b("Claude", "3", "2h",
+           "LlamaIndex `BM25Retriever` + `QueryFusionRetriever` (RRF). "
+           "Mode selectable via config: dense-only (A0), BM25-only, hybrid (A0+).",
+           deps="TASK-016"),
     ),
     (
         "[TASK-018] Evaluation harness — Recall@k, Precision@k, Citation Accuracy",
         ["phase/3", "owner:claude", "blocked"],
-        """\
-## Summary
-Retrieval metrics broken down by question type (T1–T4).
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-017
-
-## Acceptance criteria
-- [ ] `harness/eval_retrieval.py`: Recall@k, Precision@k, Citation Accuracy per item
-- [ ] All metrics broken down by T1/T2/T3/T4
-- [ ] Grouped bar chart PNG output
-- [ ] Unit tests with synthetic gold qa_ids
-
-## Estimated effort
-3 hours (Claude)""",
+        _b("Claude", "3", "3h",
+           "`harness/eval_retrieval.py`: all three metrics per item, broken down by T1–T4. Grouped bar chart PNG.",
+           deps="TASK-017"),
     ),
     (
         "[TASK-019] LLM judge — Faithfulness + Correctness",
         ["phase/3", "owner:claude", "blocked"],
-        """\
-## Summary
-Automated answer quality evaluation using a judge model different from the generator.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-018
-
-## Acceptance criteria
-- [ ] `harness/judges/faithfulness.md` and `correctness.md`: judge prompts as files
-- [ ] `harness/judge.py`: judge model returns score 0-1 + one-line rationale
-- [ ] Agreement validation: >0.7 correlation with hand-graded 20% sample
-
-## Estimated effort
-3 hours (Claude)""",
+        _b("Claude", "3", "3h",
+           "Judge prompts as files (`harness/judges/`). Separate judge model from generator. "
+           "Score 0–1 + one-line rationale. Agreement validation on 20% hand-graded sample.",
+           deps="TASK-018"),
     ),
     (
         "[TASK-020] Config-as-code + results logging infrastructure",
         ["phase/3", "owner:claude", "blocked"],
-        """\
-## Summary
-Single evaluation entry point driven by YAML. Ablations become config-file changes.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-018, TASK-019
-
-## Acceptance criteria
-- [ ] `harness/run_eval.py`: all parameters via YAML config
-- [ ] Each run creates `results/<run_id>/` with config copy + raw JSONL + metrics + plots
-- [ ] `run_id` = datetime + config hash
-- [ ] Example configs: `harness/configs/baseline_a0.yaml`, `baseline_a0plus.yaml`
-
-## Estimated effort
-2 hours (Claude)""",
+        _b("Claude", "3", "3h",
+           "Single `run_eval.py` entry point, YAML-driven. Arize Phoenix launched at startup. "
+           "Results in `results/<run_id>/` with config copy, JSONL outputs, metrics, plots, traces.",
+           deps="TASK-018, TASK-019"),
     ),
     (
         "[TASK-021] Baseline run (A0 + A0+) + results report",
         ["phase/3", "owner:claude", "blocked"],
-        """\
-## Summary
-The fixed reference point. All ablations are measured against this.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-015, TASK-020
-
-## Acceptance criteria
-- [ ] A0 (dense) and A0+ (hybrid) run end-to-end on full benchmark
-- [ ] `results/baseline/baseline_report.md`: all 5 metrics × T1-T4, lift computed
-- [ ] Contamination sensitivity: results with/without zero_shot_known items
-- [ ] Report committed — this is now the fixed reference
-
-## Estimated effort
-2 hours (Claude)""",
+        _b("Claude", "3", "2h",
+           "Full A0 (dense-only) and A0+ (hybrid) runs. `results/baseline/baseline_report.md`: "
+           "all 5 metrics × T1–T4, open-book vs closed-book, lift. Fixed reference for all ablations.",
+           deps="TASK-015, TASK-020"),
     ),
+
     # ── Phase 4A ─────────────────────────────────────────────────────────
     (
         "[TASK-022] SME acronym dictionary — author",
         ["phase/4A", "owner:sme", "blocked"],
-        """\
-## Summary
-**You write the acronym/synonym dictionary** used for A1 query expansion.
-
-## Owner
-You (SME)
-
-## Dependencies
-Blocked by: TASK-021
-
-## Your task
-Write `ablations/A_evidence_filter/acronym_dict.yaml`.
-Example entry:
-```yaml
-- canonical: "Acceptable Intake"
-  acronym: "AI"
-  synonyms: ["acceptable daily intake", "safe intake"]
-  context_disambiguation:
-    - "toxicology/impurity context — NOT artificial intelligence"
-```
-
-## Acceptance criteria
-- [ ] ≥30 entries covering: AI (Acceptable Intake), MAH, CAPA, ICH Q3A/M7/Q9, GMP, CEP, ASMF, TTC, LoQ, ppm/ppb
-- [ ] `context_disambiguation` present for all collision-risk entries (AI, MA)
-
-## Estimated effort
-4 hours (your domain knowledge)""",
+        _b("You (SME)", "4A", "4h",
+           "≥30 entries covering AI=Acceptable Intake, MAH, ICH Q3A/M7/Q9, GMP, CEP, ASMF, TTC, LoQ, ppm/ppb, etc. "
+           "Claude integrates into A1 query expansion.",
+           deps="TASK-008",
+           sme_action="Write `ablations/A_evidence_filter/acronym_dict.yaml`. Can be authored any time after corpus."),
     ),
     (
         "[TASK-023] A1 query expansion + A2 topic-path filter",
         ["phase/4A", "owner:claude", "blocked"],
-        """\
-## Summary
-Implement the two cheapest retrieval-layer interventions.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-022
-
-## Acceptance criteria
-- [ ] `harness/ablations/a1_query_expansion.py`: expands queries using acronym_dict.yaml
-- [ ] `harness/ablations/a2_topic_filter.py`: filters retrieval to matching topic_path
-- [ ] Both integrated as config flags in `run_eval.py`
-- [ ] Test: 'What is the AI for nitrosamines?' expands to include 'Acceptable Intake'
-
-## Estimated effort
-2 hours (Claude)""",
+        _b("Claude", "4A", "2h",
+           "`a1_query_expansion.py` expands queries using acronym dict. "
+           "`a2_topic_filter.py`: two modes — topic_path keyword filter or IDMP concept metadata filter.",
+           deps="TASK-022, TASK-016.5"),
     ),
     (
         "[TASK-024] SME relevance rubric — author",
         ["phase/4A", "owner:sme", "blocked"],
-        """\
-## Summary
-**You write the relevance rubric** used by the A3 LLM reranker.
-
-## Owner
-You (SME)
-
-## Dependencies
-Blocked by: TASK-021
-
-## Your task
-Write `harness/prompts/relevance_rubric_sme.md` (~200 words). Define what makes an EMA Q&A relevant:
-- Procedure/obligation match
-- Scope alignment (MAH vs applicant, CAP vs NAP, biological vs chemical)
-- Non-relevant patterns: same keywords, wrong procedural step
-
-## Acceptance criteria
-- [ ] `harness/prompts/relevance_rubric_sme.md` written, ~200 words, version tagged v1
-
-## Estimated effort
-2 hours""",
+        _b("You (SME)", "4A", "2h",
+           "~200-word rubric defining relevant vs non-relevant for EMA Q&A reranking "
+           "(scope alignment, threshold specificity, MAH vs applicant, CAP vs NAP).",
+           deps="TASK-008",
+           sme_action="Write `harness/prompts/relevance_rubric_sme.md`. Can be authored any time after corpus."),
     ),
     (
         "[TASK-025] A3/A4 LLM reranker (SME rubric vs generic)",
         ["phase/4A", "owner:claude", "blocked"],
-        """\
-## Summary
-Implement LLM reranker in two variants: with SME rubric (A3) and generic prompt (A4).
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-024
-
-## Acceptance criteria
-- [ ] `harness/ablations/a3_reranker.py`: uses `relevance_rubric_sme.md`
-- [ ] `harness/ablations/a4_reranker.py`: generic 'is this relevant?' prompt
-- [ ] Both use Haiku-tier model; cost-budget enforced (≤40q × 5 chunks)
-
-## Estimated effort
-3 hours (Claude)""",
+        _b("Claude", "4A", "3h",
+           "`a3_reranker.py` uses SME rubric; `a4_reranker.py` uses generic 'is this relevant?' prompt. "
+           "Both Haiku-tier, cost-capped at ≤40 questions × 5 chunks.",
+           deps="TASK-024"),
     ),
     (
         "[TASK-026] Run Ablation A variants A0–A5 + analysis report",
         ["phase/4A", "owner:claude", "blocked"],
-        """\
-## Summary
-Run all 6 variants. Identify best retriever configuration to carry into Ablations B and C.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-023, TASK-025
-
-## Acceptance criteria
-- [ ] All 6 variants run; results in `results/ablation_a/`
-- [ ] A3 vs A4 comparison explicitly reported
-- [ ] `ablations/A_evidence_filter/FINDINGS.md`: pre-registered predictions vs actual
-
-## Estimated effort
-3 hours (Claude)""",
+        _b("Claude", "4A", "3h",
+           "All 6 variants (A0, A0+, A1, A2, A3, A4, A5). A3 vs A4 comparison explicit. "
+           "`ablations/A_evidence_filter/FINDINGS.md` with pre-registered predictions vs actual.",
+           deps="TASK-023, TASK-025"),
     ),
+
     # ── Phase 4B ─────────────────────────────────────────────────────────
     (
         "[TASK-027] ReAct agent + tools (search, follow_cross_refs, filter_by_topic, answer)",
         ["phase/4B", "owner:claude", "blocked"],
-        """\
-## Summary
-The Ablation B agent. Multi-hop retrieval via tool calls using best Ablation A retriever.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-020, TASK-026
-
-## Acceptance criteria
-- [ ] `harness/agents/react_agent.py`: ReAct loop with four tools
-- [ ] Trajectories logged as JSONL: step, thought, action, observation
-- [ ] Terminates on answer() or max_steps
-
-## Estimated effort
-4 hours (Claude)""",
+        _b("Claude", "4B", "3h",
+           "LlamaIndex `ReActAgent` with 4 `FunctionTool` wrappers. `follow_cross_refs` uses "
+           "`NodeRelationship.RELATED` — O(1) lookup. Trajectories captured by Phoenix automatically.",
+           deps="TASK-020, TASK-026"),
+    ),
+    (
+        "[TASK-027.5] Query cache — FAISS index over past query embeddings",
+        ["phase/4B", "owner:claude", "blocked"],
+        _b("Claude", "4B", "2h",
+           "Secondary FAISS index over past query embeddings → `harness/index/query_cache.faiss`. "
+           "JSON sidecar maps vector id → {run_id, question, answer_summary, rating, cited_qa_ids}. "
+           "Similarity threshold configurable (default 0.88). Benchmark configs always set `cache: false`.",
+           deps="TASK-020, TASK-016"),
+    ),
+    (
+        "[TASK-027.6] Semantic cache CLI — similarity lookup + user confirmation",
+        ["phase/4B", "owner:claude", "blocked"],
+        _b("Claude", "4B", "1h",
+           "Before each interactive agent run: call `query_cache.get_similar()`, present matches. "
+           "User options: use cached / use as few-shot context / run fresh. Skipped for benchmark runs.",
+           deps="TASK-027.5"),
+    ),
+    (
+        "[TASK-027.7] Runtime few-shot injection — top-k rated trajectories in agent prompt",
+        ["phase/4B", "owner:claude", "blocked"],
+        _b("Claude", "4B", "2h",
+           "Fetch top-k similar trajectories rated ≥4/5 from query cache + Phoenix API. "
+           "Inject as few-shot block into ReActAgent system prompt. Logged as Phoenix trace metadata.",
+           deps="TASK-027.5, TASK-027, TASK-027.8"),
+    ),
+    (
+        "[TASK-027.8] CLI rating UI + Phoenix annotation posting",
+        ["phase/4B", "owner:claude", "blocked"],
+        _b("Claude", "4B", "1h",
+           "After each agent run: prompt for 1–5 rating + optional note + per-step labels. "
+           "Post to Phoenix annotation API. Update query cache sidecar. Always skippable.",
+           deps="TASK-027"),
+    ),
+    (
+        "[TASK-027.9] JSONL export from Phoenix rated traces",
+        ["phase/4B", "owner:claude", "blocked"],
+        _b("Claude", "4B", "1h",
+           "`export_rated_traces(min_rating, output_path)` → JSONL. Feeds TASK-029 labeling workflow. "
+           "Filterable by rating, date range, model, retriever. Committable as reproducibility artifact.",
+           deps="TASK-027.8"),
     ),
     (
         "[TASK-028] B1 sanity check — 5 questions + trajectory review",
-        ["phase/4B", "owner:collaborative", "blocked"],
-        """\
-## Summary
-Gate before SME labeling. **You review 5 trajectories and decide on B3 labeling.**
-
-## Owner
-Collaborative (Claude runs; you review)
-
-## Dependencies
-Blocked by: TASK-027
-
-## Your task
-Review trajectories in `ablations/B_process_rewards/sanity_check_trajectories/`. Document decision in `SANITY_CHECK.md`.
-- **GO:** proceed to TASK-029 (labeling)
-- **NO-GO:** skip TASK-029; proceed to B4 only
-
-## Estimated effort
-2 hours total""",
+        ["phase/4B", "owner:collab", "blocked"],
+        _b("Collaborative", "4B", "2h",
+           "Claude runs B1 on 5 questions (1 T1, 1 T2, 2 T3, 1 T4). "
+           "You review trajectories for coherence, tool selection, no runaway loops. "
+           "Go/no-go for B3 labeling documented in `ablations/B_process_rewards/SANITY_CHECK.md`.",
+           deps="TASK-027",
+           sme_action="Review trajectories; record GO/NO-GO in SANITY_CHECK.md."),
     ),
     (
         "[TASK-029] SME trajectory labeling (conditional — only if B1 passes)",
         ["phase/4B", "owner:sme", "blocked"],
-        """\
-## Summary
-**Only if TASK-028 = GO.** Label ≥50 trajectory steps as good/suboptimal/wrong.
-
-## Owner
-You (SME) — conditional on TASK-028 outcome
-
-## Dependencies
-Blocked by: TASK-028 (GO only)
-
-## Acceptance criteria
-- [ ] ≥50 steps labeled in `ablations/B_process_rewards/trajectory_labels.jsonl`
-- [ ] Each label has a one-line rationale
-- [ ] First 10 labels reviewed for internal consistency
-
-## Estimated effort
-4 hours (your domain knowledge)""",
+        _b("You (SME)", "4B", "4h",
+           "Label ≥50 trajectory steps as good_step / suboptimal_step / wrong_step + one-line reason. "
+           "Skipped entirely if TASK-028 records NO-GO.",
+           deps="TASK-028 (GO only)",
+           sme_action="Run B1 on held-out subset; label steps in `ablations/B_process_rewards/trajectory_labels.jsonl`."),
     ),
     (
         "[TASK-030] Run Ablation B variants B0–B4 + analysis report",
         ["phase/4B", "owner:claude", "blocked"],
-        """\
-## Summary
-Run all applicable B variants. Key question: does process-reward supervision help on T3?
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-029 (or TASK-028 if B3 skipped)
-
-## Acceptance criteria
-- [ ] All applicable variants run
-- [ ] B2 vs B3 comparison explicit (LLM-judge vs SME labels)
-- [ ] `ablations/B_process_rewards/FINDINGS.md`
-
-## Estimated effort
-3 hours (Claude)""",
+        _b("Claude", "4B", "3h",
+           "Read SANITY_CHECK.md to determine which variants apply. "
+           "If B3 GO: run B0/B1/B2/B3/B4. If NO-GO: skip B3. "
+           "`ablations/B_process_rewards/FINDINGS.md` with pre-registered predictions vs actual.",
+           deps="TASK-028, TASK-029 (if GO)"),
     ),
+
     # ── Phase 4C ─────────────────────────────────────────────────────────
     (
         "[TASK-031] SME few-shot exemplars — author",
         ["phase/4C", "owner:sme", "blocked"],
-        """\
-## Summary
-**You write 3-5 Q&A solving traces** for the Ablation C SME few-shot condition.
-
-## Owner
-You (SME)
-
-## Dependencies
-Blocked by: TASK-021
-
-## Your task
-Write `harness/prompts/few_shot_examples.md`. Each example:
-```
-Question: [question]
-Retrieved: [3-5 Q&As — use held-out Q&As NOT in benchmark.jsonl]
-Reasoning: [SME-style reasoning: which Q&A to trust, disambiguation, cross-refs]
-Answer: [gold-quality answer with qa_id citations]
-```
-Cover: 1 T1, 1 T2, 1-2 T3.
-
-## Acceptance criteria
-- [ ] 3-5 examples covering T1/T2/T3
-- [ ] All example Q&As are held-out from benchmark
-
-## Estimated effort
-3 hours""",
+        _b("You (SME)", "4C", "3h",
+           "3–5 Q&A solving traces covering T1/T2/T3. Must use held-out Q&As not in benchmark. "
+           "Same examples used across all three model tiers.",
+           deps="TASK-021",
+           sme_action="Write `harness/prompts/few_shot_examples.md`."),
     ),
     (
         "[TASK-032] OLMo 3 API + three model tiers setup",
         ["phase/4C", "owner:claude", "blocked"],
-        """\
-## Summary
-Wire up the three model tiers: mid-tier, frontier reasoning, and OLMo 3.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-020
-
-## Acceptance criteria
-- [ ] `harness/models.py`: unified interface for Haiku 4.5, Opus 4.x, OLMo 3 (Together AI)
-- [ ] All three smoke-tested with a single call
-- [ ] Model versions pinned in `harness/configs/models.yaml`
-
-## Estimated effort
-2 hours (Claude)""",
+        _b("Claude", "4C", "2h",
+           "`harness/models.py`: unified interface for Haiku 4.5, Opus 4.x, OLMo 3 (Together AI). "
+           "All three smoke-tested. Model versions pinned in `harness/configs/models.yaml`.",
+           deps="TASK-020"),
     ),
     (
         "[TASK-033] 3×3 grid runs (Ablation C) + analysis report",
         ["phase/4C", "owner:claude", "blocked"],
-        """\
-## Summary
-Run all 9 cells of the prompting strategy × model tier grid.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-031, TASK-032
-
-## Acceptance criteria
-- [ ] All 9 cells run: 3 models × {zero-shot, SME few-shot, self-generated CoT}
-- [ ] Δ(few-shot − zero-shot) chart across all model tiers
-- [ ] OlmoTrace on 5 OLMo 3 answers for contamination verification
-- [ ] `ablations/C_prompting_matrix/FINDINGS.md`
-
-## Estimated effort
-4 hours (Claude)""",
+        _b("Claude", "4C", "4h",
+           "All 9 cells: 3 models × {zero-shot, SME few-shot, self-generated CoT}. "
+           "Δ(few-shot − zero-shot) chart. OlmoTrace on 5 OLMo 3 answers. "
+           "`ablations/C_prompting_matrix/FINDINGS.md`.",
+           deps="TASK-031, TASK-032"),
     ),
+
     # ── Phase 5 ──────────────────────────────────────────────────────────
     (
         "[TASK-034] Blog post draft",
-        ["phase/5", "owner:collaborative", "blocked"],
-        """\
-## Summary
-Claude drafts from BLOG_OUTLINE.md. **You revise the final post.**
-
-## Owner
-Collaborative (Claude drafts; you revise)
-
-## Dependencies
-Blocked by: TASK-026, TASK-030, TASK-033
-
-## Acceptance criteria
-- [ ] `docs/blog_post.md` follows `project_roadmap/BLOG_OUTLINE.md`
-- [ ] All three ablation findings reported
-- [ ] Contamination caveats section present
-- [ ] You have reviewed and approved final draft (~2000-2500 words)
-
-## Estimated effort
-4 hours total""",
+        ["phase/5", "owner:collab", "blocked"],
+        _b("Collaborative", "5", "4h",
+           "Claude drafts from `BLOG_OUTLINE.md`. You revise. ~2000–2500 words. "
+           "All three ablation findings + contamination caveats section.",
+           deps="TASK-026, TASK-030, TASK-033",
+           sme_action="Review and approve final draft."),
     ),
     (
         "[TASK-035] README, final repo structure, and release",
         ["phase/5", "owner:claude", "blocked"],
-        """\
-## Summary
-Final deliverable: a repo someone else can clone and run in 30 minutes.
-
-## Owner
-Claude
-
-## Dependencies
-Blocked by: TASK-034
-
-## Acceptance criteria
-- [ ] README.md follows `project_roadmap/README_OUTLINE.md`
-- [ ] Fresh-clone quickstart works in ≤30 minutes
-- [ ] Honest limitations section
-- [ ] CC-BY-4.0 (data) + MIT (code) licensing documented
-
-## Estimated effort
-3 hours (Claude)""",
+        _b("Claude", "5", "3h",
+           "README follows `README_OUTLINE.md`. Fresh-clone quickstart ≤30 min. "
+           "Honest limitations. CC-BY-4.0 (data) + MIT (code) licensing.",
+           deps="TASK-034"),
     ),
 ]
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 def ensure_labels(repo) -> None:
-    existing = {l.name for l in repo.get_labels()}
+    existing = {lbl.name for lbl in repo.get_labels()}
     for name, color, description in LABELS:
         if name not in existing:
             repo.create_label(name=name, color=color, description=description)
@@ -887,7 +496,7 @@ def create_issues(repo) -> None:
         issue = repo.create_issue(title=title, body=body, labels=labels)
         print(f"  Created #{issue.number}: {title}")
         created += 1
-        time.sleep(0.5)  # gentle rate limiting
+        time.sleep(0.5)
 
     print(f"\nDone — {created} created, {skipped} skipped.")
 
@@ -905,7 +514,8 @@ def main() -> None:
         print("  GITHUB_TOKEN=ghp_xxx python3 scripts/create_github_issues.py")
         sys.exit(1)
 
-    g = Github(token)
+    from github import Auth
+    g = Github(auth=Auth.Token(token))
     try:
         repo = g.get_repo(REPO_NAME)
         print(f"Connected to: {repo.full_name}")
@@ -916,7 +526,7 @@ def main() -> None:
     print("\nEnsuring labels exist...")
     ensure_labels(repo)
 
-    print(f"\nCreating {len(ISSUES)} issues...")
+    print("\nCreating issues...")
     create_issues(repo)
 
     print(f"\nView issues at: https://github.com/{REPO_NAME}/issues")

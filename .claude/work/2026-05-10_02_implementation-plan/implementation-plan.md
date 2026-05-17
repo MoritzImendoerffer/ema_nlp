@@ -147,6 +147,33 @@ Claude generates `scripts/phase0_scope_decision.ipynb` with plots. **You fill in
 
 ---
 
+## Offline work plan (2026-05-17, no MongoDB)
+
+MongoDB is temporarily unavailable. The tasks below can be completed now; they either have no DB dependency or replace it with a direct HTTP fetch. TASK-007 (MongoDB adaptor) and TASK-008 (full corpus) remain blocked until the DB is back.
+
+### Critical path (offline)
+```
+TASK-007A  →  TASK-007B  →  TASK-016  →  TASK-017
+(dedup logic)  (mini-corpus)  (embed+FAISS)  (BM25+hybrid)
+```
+
+### TASK-007A · build_corpus.py pure logic · Claude · 2h · **available now**
+Source-agnostic orchestrator: `build_corpus(records: Iterable[QARecord], output_path) → CorpusStats`. Hash dedup (prefers PDF), landing-page filter, JSONL write, dedup/filter logs. No pymongo import. Tests on fixture data only.
+
+### TASK-007B · Mini-corpus HTTP fetcher · Claude · 1h · **depends on TASK-007A**
+`scripts/fetch_mini_corpus.py` downloads 10 curated EMA Q&A pages from `phase0_inventory.csv` via httpx (1s polite delay). Runs html_extractor, feeds build_corpus → writes `corpus/mini_corpus.jsonl`. Target: ≥80 Q&As across ≥3 topic paths. Idempotent. mini_corpus.jsonl gitignored.
+
+### TASK-007 · MongoDB adaptor · Claude · 2h · **blocked (needs DB)**
+`corpus/sources/mongo_source.py`: thin iterator that fetches web_items documents and yields QARecord objects. Wires into build_corpus → corpus/corpus.jsonl. Gated until MongoDB is available.
+
+### TASK-016 · LlamaIndex embed.py + FAISS · Claude · 3–4h · **depends on TASK-007B**
+Same as original spec but driven from `mini_corpus.jsonl` (not full corpus.jsonl). Re-index from corpus.jsonl after TASK-008. See Phase 3 for full acceptance criteria.
+
+### TASK-017 · BM25 + hybrid RRF · Claude · 2h · **depends on TASK-016**
+Same as original spec. Testable against mini-corpus index.
+
+---
+
 ## Phase 1 — Corpus (≈1 week evenings)
 
 ### TASK-004 · Project setup · Claude · 2h
@@ -164,10 +191,20 @@ PyMuPDF4LLM + regex on numbered headings. Revision history parsing. cross_refs f
 
 **Depends on:** TASK-004
 
-### TASK-007 · Deduplication + landing page filter · Claude · 2h
-Hash-based dedup (prefers PDF). Landing page filter. Dedup log.
+### TASK-007A · build_corpus.py pure logic · Claude · 2h
+Source-agnostic core. See "Offline work plan" section above.
 
 **Depends on:** TASK-005, TASK-006
+
+### TASK-007B · Mini-corpus HTTP fetcher · Claude · 1h
+Direct HTTP fetch of 10 EMA pages → mini_corpus.jsonl. Dev fixture for Phases 3+.
+
+**Depends on:** TASK-007A
+
+### TASK-007 · MongoDB adaptor · Claude · 2h · BLOCKED
+Thin iterator over ema_scraper.web_items; yields QARecords into build_corpus.
+
+**Depends on:** TASK-007A; blocked until MongoDB available
 
 ### TASK-008 · Corpus manifest · Claude · 2h
 Writes `corpus.jsonl`. Validates schema. Generates `corpus_stats.md`. **Must hit ≥200 records across ≥3 topic paths or script halts with SCOPE-RISK.**
@@ -181,7 +218,8 @@ Writes `corpus.jsonl`. Validates schema. Generates `corpus_stats.md`. **Must hit
 ### TASK-009 · Dolma 3 / Common Corpus verification · Claude · 3h
 5-10 sentences per source doc searched in Dolma 3 + Common Corpus. Per-doc status (present/absent/partial) written to `docs/training_data_verification.md`.
 
-**Depends on:** TASK-008
+**Depends on:** TASK-008  
+**Gate:** TASK-010–013 do not start until this completes — contamination status informs which questions are safe to include.
 
 ---
 
@@ -190,22 +228,24 @@ Writes `corpus.jsonl`. Validates schema. Generates `corpus_stats.md`. **Must hit
 ### TASK-010 · T1 Lookup questions · Collaborative · 3h
 Claude generates 30 candidates + 2 paraphrases each. **You select 20, validate gold_answer accuracy.** Final items → `benchmark.jsonl`.
 
-**Depends on:** TASK-008
+**Depends on:** TASK-008, TASK-009
 
 ### TASK-011 · T2 Scoping questions · SME-led · 4h
 **You author 10 scoping questions** pairing topically-adjacent Q&As. Claude validates schema and adds paraphrases.
 
-**Depends on:** TASK-008
+**Depends on:** TASK-008, TASK-009
 
 ### TASK-012 · T3 Multi-hop questions · Collaborative · 3h
 Claude enumerates valid cross_ref chains and produces `t3_chain_map.md`. **You compose 10 questions** that require traversing those chains. Claude validates.
 
-**Depends on:** TASK-008, TASK-002
+**Note:** T3 target is 10 questions, contingent on sufficient complete chains in corpus. If TASK-008 shows fewer than 10 complete chains across ≥2 topic clusters, reduce target to what the data supports and document in `corpus_stats.md`.
+
+**Depends on:** TASK-008, TASK-009, TASK-002
 
 ### TASK-013 · T4 Synthesis questions · SME-led · 3h
 **You hand-curate ≥5 synthesis questions** combining ≥2 Q&As from different docs. Include ≥2 composite/counterfactual items for contamination resistance.
 
-**Depends on:** TASK-008
+**Depends on:** TASK-008, TASK-009
 
 ### TASK-014 · Benchmark finalisation + validation script · Claude · 2h
 `benchmark/validate_benchmark.py` checks: no duplicate bench_ids, all gold_qa_ids in corpus, paraphrases present, T1=20/T2=10/T3=10/T4≥5.
@@ -224,7 +264,7 @@ Runs all models closed-book on full benchmark. Slot-guessing test on 10-item sub
 ### TASK-016 · Embedding pipeline + FAISS vector store · Claude · 3h
 BGE-large-en embeddings. FAISS flat index. Dense retrieval returning (qa_id, score) in <100ms.
 
-**Depends on:** TASK-008 (can start in parallel with Phase 2)
+**Depends on:** TASK-007B (mini-corpus sufficient for dev/test). Full re-index from corpus.jsonl after TASK-008.
 
 ### TASK-017 · BM25 hybrid retrieval · Claude · 2h
 rank-bm25 on Q&A text. RRF fusion for A0+ (hybrid). Both modes configurable.
@@ -258,15 +298,17 @@ Full run. `results/baseline/baseline_report.md` with all 5 metrics × T1-T4, ope
 ### TASK-022 · SME acronym dictionary · SME · 4h
 **You write `ablations/A_evidence_filter/acronym_dict.yaml`** with ≥30 entries. Must include AI=Acceptable Intake disambiguation. Claude integrates into query expansion.
 
-**Depends on:** TASK-021 (baseline gives motivation for which terms matter)
+**Depends on:** TASK-008 (can be authored any time after corpus — EMA vocabulary is known independently of benchmark results; baseline helpful but not a hard requirement)
 
 ### TASK-023 · A1 query expansion + A2 topic-path filter · Claude · 2h
-**Depends on:** TASK-022
+A2 topic filter has two modes: (a) topic_path keyword filter, (b) IDMP concept metadata filter via `filter_by_concept()` from TASK-016.5.
+
+**Depends on:** TASK-022, TASK-016.5
 
 ### TASK-024 · SME relevance rubric · SME · 2h
 **You write `harness/prompts/relevance_rubric_sme.md`** (~200 words). Defines relevant vs non-relevant for EMA Q&A reranking.
 
-**Depends on:** TASK-021
+**Depends on:** TASK-008 (can be authored any time after corpus — rubric is domain knowledge; baseline helpful but not a hard requirement)
 
 ### TASK-025 · A3/A4 LLM reranker · Claude · 3h
 **Depends on:** TASK-024
@@ -283,6 +325,16 @@ All 6 variants run. A3 vs A4 comparison. `FINDINGS.md` written.
 ### TASK-027 · ReAct agent + 4 tools · Claude · 4h
 **Depends on:** TASK-020, TASK-026 (uses A's best retriever)
 
+### TASK-027.8 · CLI rating UI + Phoenix annotation posting · Claude · 1h
+After each agent run, prompt for 1–5 rating + optional per-step labels. Post to Phoenix annotation API. Update query cache sidecar.
+
+**Depends on:** TASK-027
+
+### TASK-027.7 · Runtime few-shot injection · Claude · 2h
+Fetch top-k rated trajectories (≥4/5) for similar past queries from query cache; inject into agent system prompt as few-shot block. Requires rated interactions to exist.
+
+**Depends on:** TASK-027.5, TASK-027, TASK-027.8 (ratings must exist before injection logic has anything to retrieve)
+
 ### TASK-028 · B1 sanity check · Collaborative · 2h
 Claude runs B1 on 5 questions. **You review trajectories** and decide: proceed to B3 labeling or drop to B4 tool descriptions.
 
@@ -294,7 +346,9 @@ Claude runs B1 on 5 questions. **You review trajectories** and decide: proceed t
 **Depends on:** TASK-028
 
 ### TASK-030 · Run Ablation B variants + analysis · Claude · 3h
-**Depends on:** TASK-029
+Read `ablations/B_process_rewards/SANITY_CHECK.md` first to determine which variants apply. If B3 was skipped, run B0/B1/B2/B4 only.
+
+**Depends on:** TASK-028 (always), TASK-029 (if not skipped)
 
 ---
 
