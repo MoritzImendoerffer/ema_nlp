@@ -1,0 +1,101 @@
+concepts:
+- medicinal product batch identifier for immediate packaging
+- active ingredient reference substance basis of strength
+- medicinal product batch identifier for outer packaging
+- active ingredient entire substance basis of strength
+- active ingredient active moiety basis of strength
+- physiological condition population characteristic
+- undesirable effect as 'symptom/condition/effect'
+- contraindication as 'disease/symptom/procedure'
+- marketing authorisation application classifier
+- marketing authorisation application identifier
+- combined pharmaceutical dose form classifier
+- investigational medicinal product identifier
+- manufacturing authorisation reference number
+- marketing authorisation procedure identifier
+- pharmaceutical product characteristic status
+- active ingredient without basis of strength
+- iupac international chemical identifier key
+- race or ethnicity population characteristic
+- pharmaceutical product characteristic code
+- indication as 'disease/symptom/procedure'
+- marketing authorisation holder identifier
+- reference source document classification
+- iupac international chemical identifier
+- medicinal product manufacturing process
+- symptom/condition/effect classification
+- jurisdictional marketing authorisation
+- medicinal product monitoring indicator
+- pharmaceutical product characteristic
+- pharmaceutical product identifier set
+- unit of measure identification scheme
+- medicinal product master file holder
+- physical medicinal product container
+- reference source document identifier
+- manufacturing or business operation
+- marketing authorisation application
+- medicinal product header identifier
+- pharmaceutical product batch number
+- condition to restore authorization
+- structural repeat unit amount type
+- combined pharmaceutical dose form
+- investigational medicinal product
+- marketing authorisation procedure
+- medicinal product cross-reference
+- other product characteristic code
+- pharmaceutical product identifier
+- change request organisation type
+- continuous manufacturing process
+- gender population characteristic
+- geographic area for action taken
+- isotopic substitution classifier
+- material component specification
+- package description code segment
+- substance classification subtype
+- medical device batch identifier
+- medicinal product header record
+- organism fraction material type
+- pharmacopoeial grade classifier
+- physical pharmaceutical product
+- special precautions for storage
+- substance classification system
+- discrete manufacturing process
+- marketing authorisation holder
+- marketing authorisation number
+- marketing procedure classifier
+- medicinal product code segment
+- molecular structure identifier
+- polymer starting material type
+- reference source document type
+- structural modification method
+- structural representation type
+- structurally diverse substance
+- age population characteristic
+- degree of polymerization code
+- material component classifier
+- medicinal product master file
+- medicinal product name locale
+- molecular fragment identifier
+- orientation of polymerization
+- substance classification type
+- administrable dose form code
+- authorised medicinal product
+- clinical trial authorisation
+- iso 11240 lexicon code entry
+- manufacturing operation type
+- marketing status reason code
+- medicinal product identifier
+- other product characteristic
+- pharmaceutical product batch
+- physical modification method
+- route of administration code
+- structural modification type
+- batch manufacturing process
+- manufacturing authorisation
+- medical device nomenclature
+- medicinal product container
+- medicines regulatory agency
+- molecular formula by moiety
+- reference source identifier
+- specified substance group 1
+- specified substance group 2
