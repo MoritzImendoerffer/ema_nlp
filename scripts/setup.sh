@@ -104,9 +104,6 @@ eval "$INSTALL_CMD"
 ok "Python deps installed."
 
 # ── 7. claude-code-toolkit plugins ───────────────────────────────────────────
-# .claude/settings.json expects this repo at a specific path.
-# On a new machine the plugins simply won't load if this repo is absent;
-# Claude Code won't crash — you just lose the custom skills.
 EXPECTED_TOOLKIT_PATH="$HOME/github_repos/claude-code-toolkit"
 TOOLKIT_REPO="https://github.com/MoritzImendoerffer/claude-code-toolkit"
 
@@ -127,7 +124,62 @@ else
     fi
 fi
 
-# ── 8. ~/.myenvs/ema_nlp.env ─────────────────────────────────────────────────
+# Register the local marketplace and enable plugins in ~/.claude/settings.json
+# Uses Python (already verified above) so we don't require jq.
+GLOBAL_SETTINGS="$HOME/.claude/settings.json"
+mkdir -p "$HOME/.claude"
+"$PYTHON" - <<PYEOF
+import json, os, sys
+
+path = os.path.expanduser("$GLOBAL_SETTINGS")
+toolkit = os.path.expanduser("$EXPECTED_TOOLKIT_PATH")
+
+cfg = {}
+if os.path.exists(path):
+    with open(path) as f:
+        cfg = json.load(f)
+
+# Register local marketplace
+cfg.setdefault("extraKnownMarketplaces", {}).setdefault("local", {
+    "source": {"source": "directory", "path": f"{toolkit}/plugins"}
+})
+
+# Enable core local plugins
+plugins = cfg.setdefault("enabledPlugins", {})
+for p in ["system@local", "workflow@local", "memory@local", "development@local", "transition@local"]:
+    plugins.setdefault(p, True)
+
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+print(f"  configured {path}")
+PYEOF
+ok "~/.claude/settings.json updated with local marketplace."
+
+# ── 8. MCP servers ────────────────────────────────────────────────────────────
+# context7 and serena run on-demand via npx/uvx — just register them.
+echo ""
+echo "Registering MCP servers..."
+
+register_mcp() {
+    local name="$1"; shift
+    if claude mcp list 2>/dev/null | grep -q "^${name}:"; then
+        ok "MCP: ${name} already registered"
+    else
+        if claude mcp add "$@" 2>/dev/null; then
+            ok "MCP: ${name} registered"
+        else
+            warn "MCP: failed to register ${name} — run manually: claude mcp add $*"
+        fi
+    fi
+}
+
+register_mcp "context7"  context7  -- npx -y @upstash/context7-mcp
+register_mcp "serena"    serena    -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server
+
+warn "MCP: Gmail / Google Drive / Google Calendar require browser authentication."
+warn "      Run 'claude' and authenticate those connectors on first use."
+
+# ── 9. ~/.myenvs/ema_nlp.env ─────────────────────────────────────────────────
 ENV_FILE="$HOME/.myenvs/ema_nlp.env"
 echo ""
 if [ -f "$ENV_FILE" ]; then
