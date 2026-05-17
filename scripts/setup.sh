@@ -58,32 +58,32 @@ done
 [ -n "$PYTHON" ] || err "Python 3.11+ not found. Install it and re-run."
 ok "Python $($PYTHON --version)"
 
-# ── 3. pip / uv + virtualenv ──────────────────────────────────────────────────
-VENV_DIR="${REPO_ROOT}/.venv"
-
-if command -v uv &>/dev/null; then
-    ok "uv $(uv --version | awk '{print $2}')"
-    if [ ! -d "$VENV_DIR" ]; then
-        echo "Creating virtual environment at $VENV_DIR ..."
-        uv venv "$VENV_DIR"
+# ── 3. uv (install if missing) ────────────────────────────────────────────────
+if ! command -v uv &>/dev/null; then
+    ask "uv not found. Install it now via the official installer? [Y/n]"
+    read -r REPLY
+    if [[ "${REPLY:-Y}" =~ ^[Yy]$ ]]; then
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="$HOME/.local/bin:$PATH"
+        command -v uv &>/dev/null || err "uv install succeeded but still not found — open a new shell and re-run."
+        ok "uv installed: $(uv --version)"
     else
-        ok "Virtual environment already exists at $VENV_DIR"
+        err "uv is required. Install it from https://docs.astral.sh/uv/getting-started/installation/ and re-run."
     fi
-    INSTALL_CMD="uv pip install --python \"${VENV_DIR}\" -e \"${REPO_ROOT}[dev]\""
-else
-    warn "uv not found, falling back to pip + venv."
-    command -v pip &>/dev/null || command -v pip3 &>/dev/null || \
-        err "Neither uv nor pip found. Install one of them."
-    if [ ! -d "$VENV_DIR" ]; then
-        echo "Creating virtual environment at $VENV_DIR ..."
-        "$PYTHON" -m venv "$VENV_DIR"
-    else
-        ok "Virtual environment already exists at $VENV_DIR"
-    fi
-    INSTALL_CMD="\"${VENV_DIR}/bin/pip\" install -e \"${REPO_ROOT}[dev]\""
 fi
+ok "uv $(uv --version | awk '{print $2}')"
 
-# ── 4. Claude Code ────────────────────────────────────────────────────────────
+# ── 4. virtualenv ─────────────────────────────────────────────────────────────
+VENV_DIR="${REPO_ROOT}/.venv"
+if [ ! -d "$VENV_DIR" ]; then
+    echo "Creating virtual environment at $VENV_DIR ..."
+    uv venv "$VENV_DIR"
+else
+    ok "Virtual environment already exists at $VENV_DIR"
+fi
+INSTALL_CMD="uv pip install --python \"${VENV_DIR}\" -e \"${REPO_ROOT}[dev]\""
+
+# ── 5. Claude Code ────────────────────────────────────────────────────────────
 if command -v claude &>/dev/null; then
     ok "Claude Code $(claude --version 2>/dev/null | head -1)"
 else
@@ -97,13 +97,13 @@ else
     fi
 fi
 
-# ── 5. Python deps ────────────────────────────────────────────────────────────
+# ── 6. Python deps ────────────────────────────────────────────────────────────
 echo ""
 echo "Installing Python project dependencies..."
 eval "$INSTALL_CMD"
 ok "Python deps installed."
 
-# ── 6. claude-code-toolkit plugins ───────────────────────────────────────────
+# ── 7. claude-code-toolkit plugins ───────────────────────────────────────────
 # .claude/settings.json expects this repo at a specific path.
 # On a new machine the plugins simply won't load if this repo is absent;
 # Claude Code won't crash — you just lose the custom skills.
@@ -127,7 +127,7 @@ else
     fi
 fi
 
-# ── 7. ~/.myenvs/ema_nlp.env ─────────────────────────────────────────────────
+# ── 8. ~/.myenvs/ema_nlp.env ─────────────────────────────────────────────────
 ENV_FILE="$HOME/.myenvs/ema_nlp.env"
 echo ""
 if [ -f "$ENV_FILE" ]; then
