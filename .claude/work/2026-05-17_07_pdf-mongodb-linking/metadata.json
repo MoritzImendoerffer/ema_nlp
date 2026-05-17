@@ -1,0 +1,8 @@
+{
+  "id": "2026-05-17_07_pdf-mongodb-linking",
+  "title": "PDF parsed cache → MongoDB linking strategy",
+  "status": "exploration",
+  "created_at": "2026-05-17",
+  "requirement_type": "investigation",
+  "phase": "Phase 1"
+}

@@ -1,0 +1,77 @@
+{
+  "status": "implementing",
+  "current_task": "PDF-002",
+  "tasks": [
+    {
+      "id": "PDF-001",
+      "title": "scripts/ingest_parsed_pdfs.py — upsert all parsed_pdf.pkl into MongoDB parsed_pdfs collection",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Script at scripts/ingest_parsed_pdfs.py; callable as: python scripts/ingest_parsed_pdfs.py [--dry-run] [--limit N]",
+        "Uses get_pdfs_from_cache() from ema_scraper to iterate (cache_path, url) pairs",
+        "Upserts into ema_scraper.parsed_pdfs with _id=url; fields: markdown, parsed_with, error, cache_path (str), ingested_at (ISO timestamp)",
+        "Batch size 500 bulk_write; tqdm progress bar; prints final stats (total/ingested/errors/skipped)",
+        "--dry-run: prints count of pkl files found, zero DB writes",
+        "ruff + mypy clean"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "PDF-002",
+      "title": "Run ingestion script and validate parsed_pdfs collection",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["PDF-001"],
+      "acceptance_criteria": [
+        "Script runs to completion without fatal errors",
+        "parsed_pdfs.countDocuments() is between 60000 and 70000",
+        "Sample of 5 documents shows non-empty markdown and error==\"\" for successful parses",
+        "Error rate (error != \"\") is documented in exploration.md",
+        "Collection size on disk is noted (mongosh db.stats())"
+      ],
+      "estimated_hours": 1,
+      "priority": "high"
+    },
+    {
+      "id": "PDF-003",
+      "title": "corpus/sources/mongo_source.py — MongoDB adaptor yielding QARecord (TASK-007)",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["PDF-002"],
+      "acceptance_criteria": [
+        "corpus/sources/__init__.py created",
+        "corpus/sources/mongo_source.py: records_from_mongodb(host, db, html_query=None, pdf_query=None) -> Iterator[QARecord]",
+        "HTML branch: streams web_items where content_type matches html, fetches response_body, calls html_extractor.extract_from_html()",
+        "PDF branch: streams parsed_pdfs where error==\"\", calls pdf_extractor.extract_from_markdown(doc['markdown'], doc['_id'])",
+        "Each branch logs per-doc extraction failures and continues (non-fatal)",
+        "ruff + mypy clean; no business logic — just adaptor glue"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "PDF-004",
+      "title": "Integration test + full corpus run producing corpus/corpus.jsonl",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": ["PDF-003"],
+      "acceptance_criteria": [
+        "tests/test_mongo_source.py: integration test (marked pytest.mark.integration) verifies >= 10 QARecords from live MongoDB",
+        "build_corpus.build_corpus(records_from_mongodb(...), corpus/corpus.jsonl) runs without error",
+        "corpus/corpus.jsonl exists with >= 200 records (or SCOPE-RISK printed if fewer)",
+        "HISTORY.md updated with this work unit's row"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    }
+  ],
+  "completed_tasks": ["PDF-001"],
+  "next_available": ["PDF-002"],
+  "blocked": {
+    "PDF-003": ["PDF-002"],
+    "PDF-004": ["PDF-003"]
+  }
+}
