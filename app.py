@@ -21,6 +21,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import anthropic
 import chainlit as cl
 import numpy as np
 import opentelemetry.context as otel_ctx
@@ -108,25 +109,16 @@ async def on_chat_start() -> None:
 
     cache = await asyncio.to_thread(_init_cache)
     cl.user_session.set("cache", cache)
+    cl.user_session.set("msg_counter", 0)
 
     await cl.Message(
         content="Ready. Ask any question about EMA human-regulatory guidance."
     ).send()
 
 
-# ── Message handler ───────────────────────────────────────────────────────────
+# ── Pipeline (called inside a root OTel span) ─────────────────────────────────
 
-@cl.on_message
-async def on_message(message: cl.Message) -> None:
-    index = cl.user_session.get("index")
-    if index is None:
-        await cl.Message(content="Index not loaded — please refresh.").send()
-        return
-
-    query = message.content.strip()
-    if not query:
-        return
-
+async def _run_pipeline(query: str, msg_num: int, index: Any) -> None:
     # ── Cache lookup ──────────────────────────────────────────────────────────
     from harness.query_cache import CacheEntry, QueryCache
 
@@ -222,11 +214,11 @@ async def on_message(message: cl.Message) -> None:
         q = src["question"]
         short_q = q[:120] + ("…" if len(q) > 120 else "")
         card = (
-            f"**{i}. {short_q}**\n\n"
+            f"**Q{msg_num}·{i}. {short_q}**\n\n"
             f"Score: `{src['score']:.3f}` · Topic: `{src['topic_path'] or '—'}`\n\n"
             f"Source: {link}"
         )
-        source_elements.append(cl.Text(name=f"Source {i}", content=card, display="side"))
+        source_elements.append(cl.Text(name=f"Q{msg_num} · Src {i}", content=card, display="side"))
 
     # ── Step 2: Synthesis ─────────────────────────────────────────────────────
     context_block = "\n\n---\n\n".join(
@@ -252,8 +244,6 @@ async def on_message(message: cl.Message) -> None:
         f"Reference excerpts from EMA regulatory documents:\n\n{context_block}\n\n"
         f"Question: {query}"
     )
-
-    import anthropic
 
     synthesis_span = _tracer.start_span("ema-app.synthesis")
     token = otel_ctx.attach(set_span_in_context(synthesis_span))
@@ -327,6 +317,36 @@ async def on_message(message: cl.Message) -> None:
         ]
     if actions:
         await cl.Message(content="Rate this response:", actions=actions).send()
+
+
+# ── Message handler ───────────────────────────────────────────────────────────
+
+@cl.on_message
+async def on_message(message: cl.Message) -> None:
+    index = cl.user_session.get("index")
+    if index is None:
+        await cl.Message(content="Index not loaded — please refresh.").send()
+        return
+
+    query = message.content.strip()
+    if not query:
+        return
+
+    msg_num = cl.user_session.get("msg_counter", 0) + 1
+    cl.user_session.set("msg_counter", msg_num)
+
+    # Root OTel span groups retrieval + synthesis into a single trace in Phoenix.
+    # try/finally ensures it is always closed, including early-return cache paths.
+    root_span = _tracer.start_span("ema-app.request")
+    root_span.set_attribute("query", query[:500])
+    root_span.set_attribute("msg_num", msg_num)
+    root_token = otel_ctx.attach(set_span_in_context(root_span))
+
+    try:
+        await _run_pipeline(query, msg_num, index)
+    finally:
+        root_span.end()
+        otel_ctx.detach(root_token)
 
 
 # ── Feedback callback ─────────────────────────────────────────────────────────
