@@ -265,7 +265,7 @@
       "title": "Training data contamination check \u2014 Dolma 3 / Common Corpus",
       "type": "testing",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-008"
       ],
