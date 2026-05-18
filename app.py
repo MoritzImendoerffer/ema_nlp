@@ -21,7 +21,6 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-import anthropic
 import chainlit as cl
 import numpy as np
 import opentelemetry.context as otel_ctx
@@ -39,25 +38,23 @@ SOURCES_SHOWN = 5
 
 log = logging.getLogger(__name__)
 
-# ── Phoenix / OpenInference instrumentation ───────────────────────────────────
+# ── Phoenix registration MUST come before any SDK imports (anthropic, llama_index)
+# so auto_instrument=True can patch them at import time, not after the fact.
 if not PHOENIX_DISABLED:
     try:
-        import phoenix.otel as phoenix_otel
-        from openinference.instrumentation.anthropic import AnthropicInstrumentor
-        from openinference.instrumentation.llama_index import LlamaIndexInstrumentor
-
-        phoenix_otel.register(
+        from phoenix.otel import register as _phoenix_register
+        _phoenix_register(
             project_name="ema-nlp",
+            auto_instrument=True,
             endpoint=f"{PHOENIX_URL}/v1/traces",
-            set_global_provider=True,
-            verbose=False,
         )
-        LlamaIndexInstrumentor().instrument()
-        AnthropicInstrumentor().instrument()
         log.info("Phoenix tracing → %s", PHOENIX_URL)
     except Exception as exc:
         log.warning("Phoenix setup failed (%s) — tracing disabled", exc)
         PHOENIX_DISABLED = True
+
+# SDK imports after registration so auto-instrumentation patches are in place
+import anthropic
 
 _tracer = otel_trace.get_tracer("ema-nlp.app")
 
