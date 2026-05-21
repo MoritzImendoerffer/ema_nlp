@@ -406,3 +406,114 @@ acronyms:
     - Committee on Paediatric Medicines
   topic_paths_where_relevant:
     - paediatrics
+
+# ── Referral procedures / committees ────────────────────────────────────────
+- acronym: PRAC
+  canonical: Pharmacovigilance Risk Assessment Committee
+  synonyms:
+    - Pharmacovigilance Risk Assessment Committee
+    - EMA pharmacovigilance committee
+  context_disambiguation:
+    - "leads assessment in Article 31 pharmacovigilance referrals — distinct from CHMP which leads Art30 and Art31 NPV referrals"
+  topic_paths_where_relevant:
+    - pharmacovigilance
+    - referral-procedures
+    - post-authorisation
+
+- acronym: QPPV
+  canonical: Qualified Person for Pharmacovigilance
+  synonyms:
+    - qualified person for pharmacovigilance
+    - pharmacovigilance contact person
+  context_disambiguation:
+    - "MAH's designated pharmacovigilance contact — default contact in Art31 PV referrals; different from regulatory contact point used in Art31 NPV"
+  topic_paths_where_relevant:
+    - pharmacovigilance
+    - referral-procedures
+
+- acronym: NCA
+  canonical: National Competent Authority
+  synonyms:
+    - national competent authority
+    - national medicines authority
+    - member state authority
+  topic_paths_where_relevant:
+    - marketing-authorisation
+    - referral-procedures
+    - compliance
+
+- acronym: CMDh
+  canonical: Co-ordination Group for Mutual Recognition and Decentralised Procedures – Human
+  synonyms:
+    - Co-ordination Group for Mutual Recognition
+    - CMDh
+    - coordination group
+  context_disambiguation:
+    - "coordinates nationally authorised product decisions after PRAC recommendation in Art31 PV referrals — parallel to CHMP for CAPs"
+  topic_paths_where_relevant:
+    - referral-procedures
+    - marketing-authorisation
+
+- acronym: EEA
+  canonical: European Economic Area
+  synonyms:
+    - European Economic Area
+    - EEA member states
+  context_disambiguation:
+    - "includes EU member states plus Iceland, Liechtenstein, and Norway — relevant for scope of referral procedures and traditional herbal use requirements"
+  topic_paths_where_relevant:
+    - marketing-authorisation
+    - referral-procedures
+    - herbal-medicinal-products
+
+- acronym: SmPC
+  canonical: Summary of Product Characteristics
+  synonyms:
+    - summary of product characteristics
+    - product information
+    - SPC
+  topic_paths_where_relevant:
+    - marketing-authorisation
+    - post-authorisation
+    - variations
+
+- acronym: eCTD
+  canonical: electronic Common Technical Document
+  synonyms:
+    - electronic common technical document
+    - electronic dossier
+    - eCTD sequence
+  topic_paths_where_relevant:
+    - marketing-authorisation
+    - variations
+    - post-authorisation
+
+- acronym: HMPC
+  canonical: Committee on Herbal Medicinal Products
+  synonyms:
+    - Committee on Herbal Medicinal Products
+    - EMA herbal committee
+  topic_paths_where_relevant:
+    - herbal-medicinal-products
+
+- acronym: COMP
+  canonical: Committee for Orphan Medicinal Products
+  synonyms:
+    - Committee for Orphan Medicinal Products
+    - EMA orphan committee
+  context_disambiguation:
+    - "reviews orphan designation maintenance in extension applications — triggered when new indication added to orphan product"
+  topic_paths_where_relevant:
+    - orphan-medicines
+    - marketing-authorisation
+
+- acronym: WS
+  canonical: Worksharing (EMA procedure code)
+  synonyms:
+    - worksharing procedure
+    - worksharing variation
+  context_disambiguation:
+    - "EMA procedure code 'WS' used in worksharing procedure numbers (e.g. EMEA/H/C/xxxx/WS/0003) — not to be confused with general 'worksharing' concept"
+  topic_paths_where_relevant:
+    - variations
+    - worksharing

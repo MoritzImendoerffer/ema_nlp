@@ -1,0 +1,33 @@
+# A4 — Hybrid retrieval + generic LLM reranker (A3 control)
+# Same architecture as A3 but uses a generic relevance prompt.
+# A3 vs A4 isolates the value of the SME-authored rubric.
+run_id: ablation_a_a4
+description: "A4: hybrid RRF + LLM reranker (generic prompt, A3 control)"
+
+retrieval:
+  mode: hybrid
+  k: 10
+
+ablation:
+  reranker: generic                      # uses built-in generic prompt
+  reranker_model: claude-haiku-4-5-20251001
+  reranker_max_chunks: 5
+
+index:
+  corpus: ~/Nextcloud/Datasets/ema_nlp/corpus/corpus.jsonl
+  index_dir: ~/Nextcloud/Datasets/ema_nlp/index
+  embed_model: BAAI/bge-large-en-v1.5
+  force_rebuild: false
+
+benchmark:
+  path: benchmark/benchmark.jsonl
+
+judge:
+  enabled: false
+  model: claude-haiku-4-5-20251001
+  sample_fraction: 1.0
+
+cache: false   # interactive cache disabled for batch eval runs
+
+results:
+  base_dir: results

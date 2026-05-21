@@ -163,6 +163,59 @@ def run(config_path: Path) -> dict:
             json.dumps(retrieval_results, indent=2), encoding="utf-8"
         )
 
+    # ---------- Answer generation (Ablation C) ----------
+    ans_gen_cfg = cfg.get("answer_generation", {})
+    generated_answers: dict[str, str] = {}  # bench_id → answer text
+    if ans_gen_cfg.get("enabled", False):
+        from harness.answer_gen import generate_answer
+        from harness.models import TIER_MID
+        ag_strategy = ans_gen_cfg.get("strategy", "zero_shot")
+        ag_tier = ans_gen_cfg.get("tier_id", TIER_MID)
+        log.info("Answer generation enabled: strategy=%s tier=%s", ag_strategy, ag_tier)
+
+        # Build corpus map qa_id → {text, source_title, source_url}
+        ag_corpus_map: dict[str, dict] = {}
+        try:
+            with corpus_path.open(encoding="utf-8") as fh:
+                for line in fh:
+                    r = json.loads(line)
+                    ag_corpus_map[r["qa_id"]] = {
+                        "qa_id": r["qa_id"],
+                        "text": f"Q: {r['question']}\n\nA: {r['answer']}",
+                        "source_title": r.get("source_title", ""),
+                        "source_url": r.get("source_url", ""),
+                    }
+        except FileNotFoundError:
+            log.warning("Corpus not found for answer generation; answers will be empty")
+
+        with benchmark_path.open(encoding="utf-8") as fh:
+            ag_items = [json.loads(line) for line in fh]
+
+        ag_out_path = out_dir / "generated_answers.jsonl"
+        with ag_out_path.open("w", encoding="utf-8") as ag_out:
+            for item in ag_items:
+                retrieved = retrieve_fn(item["question"])
+                docs = []
+                for qa_id, score, meta in retrieved[:10]:
+                    doc = ag_corpus_map.get(qa_id, {})
+                    if doc:
+                        docs.append({**doc, "score": score})
+                try:
+                    gen = generate_answer(
+                        item["question"],
+                        docs,
+                        strategy=ag_strategy,
+                        tier_id=ag_tier,
+                    )
+                    generated_answers[item["bench_id"]] = gen["answer_text"]
+                    row = {"bench_id": item["bench_id"], "type": item["type"], **gen}
+                except Exception as exc:
+                    log.warning("Answer generation failed for %s: %s", item["bench_id"], exc)
+                    generated_answers[item["bench_id"]] = "No answer generated."
+                    row = {"bench_id": item["bench_id"], "type": item["type"], "error": str(exc)}
+                ag_out.write(json.dumps(row, ensure_ascii=False) + "\n")
+        log.info("Generated answers written to %s", ag_out_path)
+
     # ---------- LLM judge (optional) ----------
     judge_scores: list[dict] = []
     judge_cfg = cfg.get("judge", {})
@@ -173,7 +226,7 @@ def run(config_path: Path) -> dict:
         with benchmark_path.open(encoding="utf-8") as fh:
             bench_items = [json.loads(line) for line in fh]
 
-        # Load mini-corpus for context (map qa_id → answer text)
+        # Load corpus for context
         corpus_map: dict[str, str] = {}
         try:
             with corpus_path.open(encoding="utf-8") as fh:
@@ -185,14 +238,15 @@ def run(config_path: Path) -> dict:
 
         for item in bench_items:
             retrieved = retrieve_fn(item["question"])
-            # Build answer from top-1 retrieved context (retrieval-only evaluation)
-            if retrieved:
+            # Use LLM-generated answer if available (Ablation C), else top-1 retrieved
+            if item["bench_id"] in generated_answers:
+                answer = generated_answers[item["bench_id"]]
+            elif retrieved:
                 _qa_id, _score, _meta = retrieved[0]
                 answer = corpus_map.get(_qa_id, "No answer found.")
-                context_passages = [corpus_map[r[0]] for r in retrieved[:3] if r[0] in corpus_map]
             else:
                 answer = "No answer found."
-                context_passages = []
+            context_passages = [corpus_map[r[0]] for r in retrieved[:3] if r[0] in corpus_map]
 
             scores = judge.score_item(
                 question=item["question"],
