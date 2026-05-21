@@ -1,6 +1,6 @@
 {
   "status": "implementing",
-  "current_task": "TASK-021",
+  "current_task": "TASK-029",
   "active_phase": "3",
   "tasks": [
     {
@@ -287,7 +287,7 @@
       "type": "feature",
       "owner": "collaborative",
       "owner_note": "Claude generates 30 candidates; User selects and validates 20",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-008",
         "TASK-009"
@@ -310,7 +310,7 @@
       "type": "sme-artifact",
       "owner": "sme",
       "owner_note": "User authors; Claude validates schema and generates paraphrases",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-008",
         "TASK-009"
@@ -333,7 +333,7 @@
       "type": "feature",
       "owner": "collaborative",
       "owner_note": "Claude identifies valid chains; User composes the questions",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-008",
         "TASK-009",
@@ -357,7 +357,7 @@
       "type": "sme-artifact",
       "owner": "sme",
       "owner_note": "User hand-curates; Claude assists with paraphrases and schema",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-008",
         "TASK-009"
@@ -378,7 +378,7 @@
       "title": "Benchmark JSONL finalisation + validation script",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-010",
         "TASK-011",
@@ -401,7 +401,7 @@
       "title": "Closed-book contamination screen",
       "type": "testing",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-014"
       ],
@@ -584,7 +584,7 @@
       "title": "Baseline run (A0 + A0+) and results report",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-015",
         "TASK-020"
@@ -606,7 +606,7 @@
       "type": "sme-artifact",
       "owner": "sme",
       "owner_note": "User authors YAML; Claude integrates into A1 query expansion",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-008"
       ],
@@ -627,7 +627,7 @@
       "title": "A1 query expansion + A2 topic-path filter implementation",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-022",
         "TASK-016.5"
@@ -650,7 +650,7 @@
       "type": "sme-artifact",
       "owner": "sme",
       "owner_note": "User writes ~200-word rubric for A3 LLM reranker",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-008"
       ],
@@ -671,7 +671,7 @@
       "title": "A3/A4 LLM reranker (SME rubric vs generic)",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-024"
       ],
@@ -692,7 +692,7 @@
       "title": "Run Ablation A variants A0\u2013A5 + analysis report",
       "type": "testing",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-023",
         "TASK-025"
@@ -705,7 +705,8 @@
       ],
       "estimated_hours": 3,
       "priority": "high",
-      "github_issue": null
+      "github_issue": null,
+      "completed_at": "2026-05-21"
     },
     {
       "id": "TASK-027",
@@ -713,7 +714,7 @@
       "title": "LlamaIndex ReActAgent + tools (search, follow_cross_refs, filter_by_topic, answer)",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-020",
         "TASK-026"
@@ -729,7 +730,11 @@
       ],
       "estimated_hours": 3,
       "priority": "high",
-      "github_issue": null
+      "github_issue": null,
+      "completed_at": "2026-05-21",
+      "outputs": [
+        "harness/agents/react_agent.py"
+      ]
     },
     {
       "id": "TASK-027.5",
@@ -789,7 +794,9 @@
       "title": "Runtime few-shot injection \u2014 top-k rated trajectories injected into agent prompt",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-05-21",
+      "outputs": ["harness/fewshot_inject.py"],
       "dependencies": [
         "TASK-027.5",
         "TASK-027",
@@ -814,7 +821,9 @@
       "title": "CLI rating UI + Phoenix annotation posting",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-05-21",
+      "outputs": ["harness/rating.py"],
       "dependencies": [
         "TASK-027"
       ],
@@ -835,7 +844,9 @@
       "title": "JSONL export from Phoenix rated traces \u2014 feeds TASK-029 + reproducibility",
       "type": "feature",
       "owner": "claude",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-05-21",
+      "outputs": ["harness/export_traces.py"],
       "dependencies": [
         "TASK-027.8"
       ],
@@ -858,7 +869,7 @@
       "type": "testing",
       "owner": "collaborative",
       "owner_note": "Claude runs B1 on 5 questions; User reviews trajectory quality and makes go/no-go call on B3 SME labeling",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-027"
       ],
@@ -870,7 +881,12 @@
       ],
       "estimated_hours": 2,
       "priority": "high",
-      "github_issue": null
+      "github_issue": null,
+      "completed_at": "2026-05-21",
+      "outputs": [
+        "ablations/B_process_rewards/SANITY_CHECK.md",
+        "ablations/B_process_rewards/b1_trajectories.jsonl"
+      ]
     },
     {
       "id": "TASK-029",
@@ -923,7 +939,7 @@
       "type": "sme-artifact",
       "owner": "sme",
       "owner_note": "User writes 3-5 Q&A solving traces; held-out from benchmark",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-021"
       ],
