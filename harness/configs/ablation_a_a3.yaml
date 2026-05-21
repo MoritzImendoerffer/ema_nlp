@@ -9,7 +9,7 @@ retrieval:
 
 ablation:
   reranker: sme                          # uses harness/prompts/relevance_rubric_sme.md
-  reranker_model: claude-haiku-4-5-20251001
+  reranker_model: claude-sonnet-4-6
   reranker_max_chunks: 5                 # score top-5 chunks, re-order, append rest
 
 index:
@@ -22,8 +22,8 @@ benchmark:
   path: benchmark/benchmark.jsonl
 
 judge:
-  enabled: false
-  model: claude-haiku-4-5-20251001
+  enabled: true
+  model: claude-sonnet-4-6
   sample_fraction: 1.0
 
 cache: false   # interactive cache disabled for batch eval runs

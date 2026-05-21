@@ -10,7 +10,7 @@ retrieval:
 
 ablation:
   reranker: generic                      # uses built-in generic prompt
-  reranker_model: claude-haiku-4-5-20251001
+  reranker_model: claude-sonnet-4-6
   reranker_max_chunks: 5
 
 index:
@@ -23,8 +23,8 @@ benchmark:
   path: benchmark/benchmark.jsonl
 
 judge:
-  enabled: false
-  model: claude-haiku-4-5-20251001
+  enabled: true
+  model: claude-sonnet-4-6
   sample_fraction: 1.0
 
 cache: false   # interactive cache disabled for batch eval runs

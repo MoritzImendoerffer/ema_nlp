@@ -15,7 +15,7 @@ index:
   index_dir: ~/Nextcloud/Datasets/ema_nlp/index
 judge:
   enabled: true
-  model: claude-haiku-4-5-20251001
+  model: claude-sonnet-4-6
   sample_fraction: 1.0
 results:
   base_dir: results

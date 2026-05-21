@@ -166,6 +166,7 @@ def run(config_path: Path) -> dict:
     # ---------- Answer generation (Ablation C) ----------
     ans_gen_cfg = cfg.get("answer_generation", {})
     generated_answers: dict[str, str] = {}  # bench_id → answer text
+    retrieved_cache: dict[str, list] = {}   # bench_id → retrieve_fn output (avoid double call)
     if ans_gen_cfg.get("enabled", False):
         from harness.answer_gen import generate_answer
         from harness.models import TIER_MID
@@ -195,6 +196,7 @@ def run(config_path: Path) -> dict:
         with ag_out_path.open("w", encoding="utf-8") as ag_out:
             for item in ag_items:
                 retrieved = retrieve_fn(item["question"])
+                retrieved_cache[item["bench_id"]] = retrieved
                 docs = []
                 for qa_id, score, meta in retrieved[:10]:
                     doc = ag_corpus_map.get(qa_id, {})
@@ -215,6 +217,14 @@ def run(config_path: Path) -> dict:
                     row = {"bench_id": item["bench_id"], "type": item["type"], "error": str(exc)}
                 ag_out.write(json.dumps(row, ensure_ascii=False) + "\n")
         log.info("Generated answers written to %s", ag_out_path)
+
+        failure_count = sum(1 for v in generated_answers.values() if v == "No answer generated.")
+        if generated_answers and failure_count / len(generated_answers) > 0.5:
+            log.warning(
+                "HIGH ANSWER FAILURE RATE: %d/%d items returned 'No answer generated.' "
+                "— check ANTHROPIC_API_KEY and model config",
+                failure_count, len(generated_answers),
+            )
 
     # ---------- LLM judge (optional) ----------
     judge_scores: list[dict] = []
@@ -237,7 +247,7 @@ def run(config_path: Path) -> dict:
             pass
 
         for item in bench_items:
-            retrieved = retrieve_fn(item["question"])
+            retrieved = retrieved_cache.get(item["bench_id"]) or retrieve_fn(item["question"])
             # Use LLM-generated answer if available (Ablation C), else top-1 retrieved
             if item["bench_id"] in generated_answers:
                 answer = generated_answers[item["bench_id"]]
@@ -246,7 +256,7 @@ def run(config_path: Path) -> dict:
                 answer = corpus_map.get(_qa_id, "No answer found.")
             else:
                 answer = "No answer found."
-            context_passages = [corpus_map[r[0]] for r in retrieved[:3] if r[0] in corpus_map]
+            context_passages = [corpus_map[r[0]] for r in retrieved[:10] if r[0] in corpus_map]
 
             scores = judge.score_item(
                 question=item["question"],
@@ -306,10 +316,25 @@ def _write_summary(
 
     if judge_scores:
         lines += ["", "## LLM judge scores", ""]
-        faith_avg = sum(x["faithfulness"]["score"] for x in judge_scores) / len(judge_scores)
-        corr_avg = sum(x["correctness"]["score"] for x in judge_scores) / len(judge_scores)
-        lines.append(f"- Faithfulness (avg): **{faith_avg:.2f}** / 5")
-        lines.append(f"- Correctness (avg): **{corr_avg:.2f}** / 5")
+        lines += [
+            "| Type | n | Faithfulness | Correctness |",
+            "|------|---|-------------|-------------|",
+        ]
+        by_type: dict[str, list] = {}
+        for s in judge_scores:
+            by_type.setdefault(s.get("type", "?"), []).append(s)
+        for t in ("T1", "T2", "T3", "T4"):
+            rows = by_type.get(t, [])
+            if not rows:
+                continue
+            n = len(rows)
+            faith = sum(x["faithfulness"]["score"] for x in rows) / n
+            corr = sum(x["correctness"]["score"] for x in rows) / n
+            lines.append(f"| {t} | {n} | {faith:.2f}/5 | {corr:.2f}/5 |")
+        n_all = len(judge_scores)
+        faith_all = sum(x["faithfulness"]["score"] for x in judge_scores) / n_all
+        corr_all = sum(x["correctness"]["score"] for x in judge_scores) / n_all
+        lines.append(f"| **overall** | {n_all} | **{faith_all:.2f}/5** | **{corr_all:.2f}/5** |")
 
     (out_dir / "run_summary.md").write_text("\n".join(lines), encoding="utf-8")
 

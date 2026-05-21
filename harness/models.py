@@ -73,6 +73,7 @@ def call_model(
     *,
     config: ModelConfig | None = None,
     model_id_override: str | None = None,
+    max_tokens: int | None = None,
 ) -> str:
     """
     Call the LLM for the given tier and return the response text.
@@ -83,6 +84,7 @@ def call_model(
         system:           Optional system prompt.
         config:           Pre-loaded ModelConfig; overrides tier_id if given.
         model_id_override: Override the model_id from the config (for one-off calls).
+        max_tokens:       Override max_tokens from the ModelConfig (for one-off calls).
 
     Returns:
         Response text string.
@@ -93,11 +95,12 @@ def call_model(
     """
     cfg = config or load_tier(tier_id)
     model_id = model_id_override or cfg.model_id
+    effective_max_tokens = max_tokens if max_tokens is not None else cfg.max_tokens
 
     if cfg.provider == "anthropic":
-        return _call_anthropic(prompt, system, model_id, cfg.max_tokens, cfg.temperature)
+        return _call_anthropic(prompt, system, model_id, effective_max_tokens, cfg.temperature)
     elif cfg.provider == "together_ai":
-        return _call_together(prompt, system, model_id, cfg.max_tokens, cfg.temperature)
+        return _call_together(prompt, system, model_id, effective_max_tokens, cfg.temperature)
     else:
         raise ValueError(f"Unknown provider '{cfg.provider}'")
 

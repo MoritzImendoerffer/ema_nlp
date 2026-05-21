@@ -5,9 +5,12 @@ Two prompts live in harness/judges/:
     faithfulness.md  — is the answer supported by the retrieved context?
     correctness.md   — does the answer match the gold answer?
 
-The judge uses a *different* model than the answer generator (by default
-claude-haiku-4-5-20251001 for low cost during batch evaluation). Both prompts
-return {"score": 1-5, "reason": "..."}.
+The judge model should be at Sonnet capability or above.  Haiku cannot
+reliably distinguish strong from weak answers on complex regulatory content
+and gives nonsensical scores to non-answers (faithfulness=5 for
+"No answer generated.").  Use claude-sonnet-4-6 as the default.
+
+Both prompts return {"score": 1-5, "reason": "..."}.
 
 Usage:
     from harness.judge import Judge
@@ -26,13 +29,11 @@ from typing import TypedDict
 
 import anthropic
 
-from harness.providers import get_llm_model
-
 log = logging.getLogger(__name__)
 
 JUDGES_DIR = Path(__file__).parent / "judges"
-DEFAULT_JUDGE_MODEL = get_llm_model()
-_MAX_TOKENS = 256
+DEFAULT_JUDGE_MODEL = "claude-sonnet-4-6"
+_MAX_TOKENS = 512
 
 
 class JudgeScore(TypedDict):
@@ -83,6 +84,18 @@ class Judge:
         )
         return msg.content[0].text  # type: ignore[index]
 
+    @staticmethod
+    def _is_non_answer(answer: str) -> bool:
+        """Return True if the answer string is a generation-failure sentinel."""
+        stripped = answer.strip().lower()
+        return stripped in {
+            "no answer generated.",
+            "no answer generated",
+            "no answer found.",
+            "no answer found",
+            "",
+        }
+
     def faithfulness(
         self,
         question: str,
@@ -90,6 +103,8 @@ class Judge:
         context_passages: list[str],
     ) -> JudgeScore:
         """Score how faithfully *answer* is grounded in *context_passages* (1–5)."""
+        if self._is_non_answer(answer):
+            return JudgeScore(score=0, reason="answer_generation_failed")
         context = "\n\n---\n\n".join(context_passages) if context_passages else "(no context)"
         prompt = _render_prompt(
             self._faithfulness_tmpl,
@@ -107,6 +122,8 @@ class Judge:
         gold_answer: str,
     ) -> JudgeScore:
         """Score how correct *answer* is relative to *gold_answer* (1–5)."""
+        if self._is_non_answer(answer):
+            return JudgeScore(score=0, reason="answer_generation_failed")
         prompt = _render_prompt(
             self._correctness_tmpl,
             question=question,

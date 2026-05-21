@@ -19,10 +19,7 @@ import logging
 import re
 from pathlib import Path
 
-import anthropic
-
-from harness.providers import get_llm_model
-from harness.models import load_tier, call_model, TIER_MID, TIER_FRONTIER, TIER_OLMO
+from harness.models import TIER_MID, call_model
 
 log = logging.getLogger(__name__)
 
@@ -67,7 +64,9 @@ def _extract_answer_text(raw: str, strategy: str) -> str:
         # Strip "Answer:" prefix if present
         if raw.startswith("Answer:"):
             raw = raw[len("Answer:"):].strip()
-    return raw.strip()
+    result = raw.strip()
+    # Guard: if CoT consumed the full response with no trailing answer, return sentinel
+    return result if result else "No answer generated."
 
 
 def generate_answer(
