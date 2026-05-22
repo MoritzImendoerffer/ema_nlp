@@ -146,6 +146,12 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 
 ## Infrastructure
 
+### Eval results on Nextcloud, not in the repo
+**Decided:** 2026-05-23  
+**What:** `results/` is a symlink to `~/Nextcloud/Datasets/ema_nlp/results/`. The symlink is in `.gitignore`. All `harness/configs/*.yaml` files specify `base_dir: ~/Nextcloud/Datasets/ema_nlp/results` so `run_eval.py` writes there via tilde expansion.  
+**Why:** Eval runs produce JSON/JSONL/PNG artefacts that should not inflate the repo. All data lives on Nextcloud (synced between machines) while the symlink keeps the `results/` path alias working in dev.  
+**Ref:** [`docs/SETUP.md`](docs/SETUP.md) §7
+
 ### Credentials in `~/.myenvs/ema_nlp.env`, never in the repo
 **Decided:** 2026-05-15  
 **What:** All secrets (`ANTHROPIC_API_KEY`, MongoDB sync settings) live in `~/.myenvs/ema_nlp.env` on each machine, loaded at import time via `python-dotenv` with `override=False`. No `.env` file in the repo, no `.env.example`.  

@@ -35,4 +35,4 @@ judge:
 cache: false
 
 results:
-  base_dir: results
+  base_dir: ~/Nextcloud/Datasets/ema_nlp/results

@@ -315,3 +315,45 @@ Output: `~/Nextcloud/Datasets/ema_nlp/annotations/YYYY-MM-DD.jsonl`
 
 See `harness/hitl/export_annotations.py` for `--strategy` and
 `--dry-run` flags.
+
+---
+
+## 7. Eval results directory
+
+Eval results are **not stored in the repo**. They live in Nextcloud and are
+accessed via a symlink:
+
+```
+~/Nextcloud/Datasets/ema_nlp/results/   ← actual data
+ema_nlp/results                          ← symlink → above path
+```
+
+The symlink is listed in `.gitignore` so it is transparent to git.
+
+### On a new machine
+
+```bash
+mkdir -p ~/Nextcloud/Datasets/ema_nlp/results
+ln -s ~/Nextcloud/Datasets/ema_nlp/results /path/to/ema_nlp/results
+```
+
+All `harness/configs/*.yaml` files use `base_dir: ~/Nextcloud/Datasets/ema_nlp/results`
+so `run_eval.py` writes there directly via the tilde-expanded path (no symlink
+dependency at write time).
+
+### Directory layout on Nextcloud
+
+```
+~/Nextcloud/Datasets/ema_nlp/
+├── corpus/              ← corpus.jsonl + filter/dedup logs
+├── index/               ← FAISS + docstore (rebuilt on each machine)
+├── results/             ← one sub-directory per eval run
+│   ├── baseline_a0plus/
+│   │   ├── config.yaml
+│   │   ├── retrieval.json
+│   │   ├── results.json
+│   │   ├── metrics.png
+│   │   └── run_summary.md
+│   └── ...
+└── annotations/         ← Phoenix HITL export JSONL files
+```

@@ -214,3 +214,6 @@ corpus/corpus_dedup_log.jsonl
 corpus/corpus_filter_log.jsonl
 harness/index/*
 !harness/index/.gitkeep
+
+# Eval results — symlink to ~/Nextcloud/Datasets/ema_nlp/results/; never store in-repo
+results

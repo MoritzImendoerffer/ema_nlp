@@ -1,6 +1,6 @@
 {
   "status": "implementing",
-  "current_task": "REFACT-019",
+  "current_task": "REFACT-021",
   "tasks": [
     {
       "id": "REFACT-001",
@@ -447,7 +447,7 @@
       "id": "REFACT-019",
       "title": "Move results/ to Nextcloud; add repo symlink",
       "type": "foundation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-004"
       ],
@@ -600,10 +600,11 @@
     "REFACT-016",
     "REFACT-017",
     "REFACT-018",
-    "REFACT-020"
+    "REFACT-020",
+    "REFACT-019"
   ],
   "next_available": [
-    "REFACT-019"
+    "REFACT-021"
   ],
   "week_summary": {
     "week_1": [
