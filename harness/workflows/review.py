@@ -54,7 +54,7 @@ async def run_review_step(
             docs=ev.docs,
         )
 
-    context_passages = [d.page_content for d in ev.docs] if ev.docs else []
+    context_passages = [d.text for d in ev.docs] if ev.docs else []
     try:
         js = Judge().faithfulness(ev.question, ev.answer_text, context_passages)
         score = float(js["score"]) / 5.0
