@@ -26,12 +26,10 @@ use the workflow LLM; Judge has its own model (DEFAULT_JUDGE_MODEL).
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from llama_index.core.workflow import Context, StopEvent, Workflow, step
+from llama_index.core.workflow import Context, StopEvent, step
 
 from harness.workflows.events import GeneratedEvent, ReviewedEvent
-from harness.workflows.utils import format_docs
 
 log = logging.getLogger(__name__)
 

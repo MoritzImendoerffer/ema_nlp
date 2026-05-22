@@ -337,7 +337,7 @@ def retrieve_with_config(
     Retrieve Q&A nodes using the strategy specified in *config*.
 
     This is the single retrieval entry point used by run_eval.py, app.py, and
-    harness/chains/retriever.py — replacing three separate ad-hoc code paths.
+    harness/workflows/ — a single code path replacing former per-strategy ad-hoc retrieval.
 
     Args:
         config:      RetrievalConfig (built from YAML ``retrieval:`` section).
@@ -396,8 +396,8 @@ def make_raw_retriever(
     """
     Return a callable ``fn(query) -> list[RetrievalResult]`` configured for *config*.
 
-    Used by run_eval.py which needs a function signature (not a LangChain object)
-    so ablation wrappers (A1/A2/A3) can be layered on top.
+    Used by run_eval.py which needs a plain function signature so ablation
+    wrappers (A1/A2/A3) can be layered on top.
     """
     def _fn(query: str) -> list[RetrievalResult]:
         return retrieve_with_config(config, index, query, hier_index=hier_index, embed_model=embed_model)

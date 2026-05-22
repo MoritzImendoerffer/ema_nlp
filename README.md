@@ -33,9 +33,9 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 - 20×T1 Lookup, 10×T2 Scoping, 10×T3 Multi-hop, 5×T4 Synthesis
 - Covers 7 EMA source documents; 62% of items include specific numeric thresholds for contamination resistance
 
-**Phase 3 — harness substantially complete.** LangGraph pipeline layer operational:
-- 9 registered chain strategies (simple RAG, CRAG, ReAct, pipeline factory variants)
-- LangSmith dataset upload and batch evaluation wired to `harness/run_langsmith_eval.py`
+**Phase 3 — harness substantially complete.** LlamaIndex Workflow pipeline operational:
+- 9 registered workflow strategies (simple RAG, CRAG, ReAct, CRAG+summarize, CRAG+review, ReAct+review)
+- All orchestration, agent loops, and prompt chains run as LlamaIndex `Workflow` / `FunctionAgent` steps
 - Ablation A (retrieval variants) and Ablation C (prompting matrix) eval runs in `results/`
 
 See `.claude/work/` for all work unit logs.
@@ -45,8 +45,7 @@ See `.claude/work/` for all work unit logs.
 | Layer | Choice |
 |-------|--------|
 | Retrieval framework | LlamaIndex (`VectorStoreIndex`, `BM25Retriever`, RRF fusion) |
-| Agent/chain framework | LangChain + LangGraph (ReAct, CRAG, pipeline factory, 9 strategies) |
-| Experiment tracking | LangSmith (dataset upload, batch evaluation, chain comparison) |
+| Agent/chain framework | LlamaIndex Workflows (`Workflow`, `FunctionAgent`, `AgentWorkflow`) |
 | Embeddings | BGE-large-en via sentence-transformers (local, no API key) |
 | Vector store | FAISS flat-L2 (document index + query cache) |
 | Tracing | Arize Phoenix + OpenInference (interactive chat UI, model-agnostic) |

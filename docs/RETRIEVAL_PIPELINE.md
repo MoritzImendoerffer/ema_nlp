@@ -294,51 +294,9 @@ retrieval:
 
 Falls back to flat dense retrieval if `hier_index` is not provided or `child_qa_ids` is empty.
 
-### `agentic` — delegated to LangGraph agent
+### `agentic` — delegated to LlamaIndex `FunctionAgent`
 
-Not handled by `retrieve_with_config`. Pass to `harness.chains.registry.get_chain()` instead.
-
----
-
-## `EMARetriever` — LangChain bridge (`harness/chains/retriever.py`)
-
-`EMARetriever` is a LangChain `BaseRetriever` that wraps the LlamaIndex retrieval stack
-so it can be used inside LCEL chains, LangGraph nodes, and LangSmith experiments without
-knowing about LlamaIndex internals.
-
-```python
-from harness.chains.retriever import EMARetriever, make_retriever
-from harness.retrieve import RetrievalConfig
-
-# Simple construction:
-retriever = EMARetriever(index=index, mode="hybrid", k=10)
-
-# Config-driven (preferred for eval scripts):
-cfg = RetrievalConfig(strategy="recursive", mode="hybrid", k=10)
-retriever = make_retriever(cfg, index)
-
-# Standard LangChain usage:
-docs = retriever.invoke("What is the AI limit for NDMA?")
-```
-
-Each returned `Document` carries the full node metadata
-(`qa_id`, `score`, `topic_path`, `cross_refs`, `source_url`, etc.)
-so downstream agents can follow cross-references and filter by topic.
-
-### Agent helper methods
-
-Two extra methods for use in LangGraph tool nodes:
-
-```python
-# Follow cross-reference edges from a given Q&A node:
-docs = retriever.get_cross_refs("some-qa-id")
-
-# Filter last search results by topic path substring:
-narrowed = retriever.filter_by_topic(docs, "genotoxic")
-```
-
-These are the implementations behind the `follow_cross_refs` and `filter_by_topic`
-tools exposed by the ReAct agent in `harness/chains/agents/react.py`.
+Not handled by `retrieve_with_config`. Pass to `harness.workflows.registry.get_workflow("react")` instead.
 
 ---
 
@@ -347,24 +305,22 @@ tools exposed by the ReAct agent in `harness/chains/agents/react.py`.
 ```python
 # At session start — runs in a thread pool to avoid blocking the async event loop
 index = await asyncio.to_thread(_load_index_sync)
+pipeline = await asyncio.to_thread(_build_session_workflow, index)  # WorkflowRunner
 
-# Per message
-results, span_id = await asyncio.to_thread(_do_retrieval)
-# → retrieve(index, query, mode="hybrid", k=10)
-# → top 5 results fetched from docstore for source cards
-# → top 5 answers passed as context block to Claude streaming synthesis
+# Per message — single WorkflowRunner.ainvoke() call
+result = await pipeline.ainvoke({"question": query, "few_shot_context": few_shot_block})
+# → result["answer_text"], result["docs"], result["cited_qa_ids"]
 ```
 
 LlamaIndex spans are automatically captured by `LlamaIndexInstrumentor` into Phoenix
-traces. The app additionally captures a manual OTel span ID for the retrieval step so
-that 👍/👎 button clicks can annotate the correct trace.
+traces. 👍/👎 button clicks annotate the root span stored in `cl.user_session`.
 
 ---
 
 ## What LlamaIndex does and does NOT do here
 
-LlamaIndex is a **retrieval-only** layer. All orchestration, prompt chains, agent loops,
-and LLM-mediated steps run through LangChain/LangGraph (`harness/chains/`).
+LlamaIndex handles both **retrieval and orchestration**. All strategies are implemented
+as `Workflow` or `FunctionAgent`/`AgentWorkflow` steps in `harness/workflows/`.
 
 | Capability | Status | Implementation |
 |------------|--------|----------------|
@@ -374,10 +330,12 @@ and LLM-mediated steps run through LangChain/LangGraph (`harness/chains/`).
 | Cross-ref traversal | **Used** | `follow_cross_refs()` via `metadata["cross_refs"]` |
 | Index persistence / reload | **Used** | `StorageContext.persist_dir` + `load_index_from_storage()` |
 | Auto-instrumentation | **Used** | `LlamaIndexInstrumentor` → Arize Phoenix OTLP |
-| LLM synthesis via `as_query_engine()` | Not used | Claude called directly via LangChain `ChatAnthropic` |
+| Workflow orchestration | **Used** | `Workflow` + typed `Event` subclasses (`harness/workflows/`) |
+| ReAct agent | **Used** | `FunctionAgent` + `AgentWorkflow` in `harness/workflows/react.py` |
+| LLM calls | **Used** | LlamaIndex `Anthropic` LLM via `harness/llms.py` |
+| LLM synthesis via `as_query_engine()` | Not used | Claude called directly via LlamaIndex `Anthropic` LLM |
 | `DocumentSummaryIndex` | Not used | Page-level parent nodes built manually in `embed_hierarchical.py` |
-| LlamaIndex `ReActAgent` | Not used | LangGraph ReAct agent in `harness/chains/agents/react.py` |
 | `QueryFusionRetriever` | Not used | Requires OpenAI install; RRF implemented directly in `_rrf_fuse()` |
 | Node post-processors / rerankers | Not used | A3/A4 rerankers implemented with Anthropic SDK directly |
 | `NodeRelationship.RELATED` | Not used | Cross-refs stored as plain metadata list; lookup via docstore key |
-| Streaming retriever | Not used | Retrieval is synchronous; streaming is on the LangChain synthesis side |
+| Streaming retriever | Not used | Retrieval is synchronous; synthesis streams inside the Workflow step |

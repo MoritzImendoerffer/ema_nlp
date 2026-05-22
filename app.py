@@ -125,7 +125,7 @@ async def on_chat_start() -> None:
     ).send()
 
 
-# ── Pipeline (one turn, uses compiled LangGraph with MemorySaver) ─────────────
+# ── Pipeline (one turn, stateless WorkflowRunner) ────────────────────────────
 
 async def _run_pipeline(query: str, msg_num: int) -> None:
     from harness.query_cache import CacheEntry, QueryCache
@@ -182,7 +182,7 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
             elif choice == "context":
                 few_shot_entry = cache_hits[0][0]
 
-    # ── LangGraph pipeline invocation with MemorySaver + thread_id ────────────
+    # ── LlamaIndex Workflow invocation ───────────────────────────────────────
     few_shot_block = ""
     if few_shot_entry is not None:
         few_shot_block = (
@@ -283,6 +283,7 @@ async def on_rate(action: cl.Action) -> None:
     if not PHOENIX_DISABLED and run_id:
         try:
             from phoenix.client import Client as PhoenixClient
+
             from harness.rating import _find_recent_root_span_id
 
             client = PhoenixClient(base_url=PHOENIX_URL)

@@ -137,28 +137,6 @@ All are optional — the defaults match the project's current configuration.
 2. `EMA_*` env vars in `~/.myenvs/ema_nlp.env` — machine default
 3. Code constant in `harness/providers.py` — fallback (`claude-haiku-4-5-20251001` / `BAAI/bge-large-en-v1.5`)
 
-### LangSmith experiment tracking
-
-The `harness/chains/` module uses LangSmith for batch experiment tracking and
-dataset-based evaluation (separate from Arize Phoenix, which handles the
-interactive chat UI).
-
-```bash
-# ── LangSmith (https://smith.langchain.com) ───────────────────────────────────
-# Get your key at https://smith.langchain.com → Settings → API Keys
-LANGSMITH_API_KEY=lsv2_...
-
-# Enable automatic tracing for all LangChain/LangGraph calls
-LANGCHAIN_TRACING_V2=true
-
-# Project name in LangSmith dashboard (creates the project if it doesn't exist)
-LANGCHAIN_PROJECT=ema-nlp
-```
-
-Without these variables set, `harness/chains/` still works — chains run
-normally but traces are not sent to LangSmith. The `run_langsmith_eval.py`
-CLI requires `LANGSMITH_API_KEY` to upload datasets and experiments.
-
 **Example: lighter setup for a laptop with limited RAM**
 
 ```bash

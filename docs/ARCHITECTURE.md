@@ -22,13 +22,12 @@ corpus/corpus.jsonl                   ← 26,251 normalised Q&A records (version
 harness/index/                        ← FAISS vector index + docstore (local, not in Git)
 harness/index/hierarchical/           ← page-level parent index (optional, for hierarchical strategy)
     │
-    ├── harness/chains/retriever.py   ← EMARetriever: LangChain bridge to FAISS+BM25
+    ├── harness/workflows/registry.py ← get_workflow(name) — 9 strategies
     │       │
-    │       └── harness/chains/registry.py ← 9 chain strategies (LCEL, CRAG, ReAct, pipeline factory)
+    │       └── harness/workflows/{simple_rag,crag,react,composites}.py
     │
-    ├── app.py  (Chainlit chat UI)    ← LangGraph pipeline → Claude synthesis → Phoenix traces
-    ├── harness/run_eval.py           ← retrieval + judge eval → results/<run_id>/
-    └── harness/run_langsmith_eval.py ← LangSmith batch experiment → smith.langchain.com
+    ├── app.py  (Chainlit chat UI)    ← LlamaIndex Workflow pipeline → Claude synthesis → Phoenix traces
+    └── harness/run_eval.py           ← retrieval + judge eval → results/<run_id>/
 ```
 
 ---
@@ -274,7 +273,7 @@ Four strategies, orthogonal to mode:
 | `flat` | Standard top-k retrieval (default) | Baseline, ablation A runs |
 | `recursive` | Flat retrieval + automatic `cross_refs` expansion (N hops) | T3 multi-hop questions |
 | `hierarchical` | Page-level parent → Q&A child drill-down (requires hierarchical index) | When page-level scoping improves precision |
-| `agentic` | Delegated to a LangGraph ReAct/CRAG agent via the chain registry | Complex multi-step queries |
+| `agentic` | Delegated to a LlamaIndex `FunctionAgent` ReAct workflow via the workflow registry | Complex multi-step queries |
 
 Configure via YAML:
 
@@ -294,73 +293,61 @@ The chat UI uses `flat` + `hybrid` by default (`PipelineConfig()` defaults). Abl
 
 ---
 
-## 5. LangGraph chain layer — `harness/chains/`
+## 5. LlamaIndex Workflow layer — `harness/workflows/`
 
-The `harness/chains/` package provides a LangChain + LangGraph layer **on top of** the
-LlamaIndex retrieval stack. LlamaIndex remains the retrieval engine; LangChain/LangGraph
-handle orchestration, prompt chains, agent loops, and LangSmith tracing.
+The `harness/workflows/` package provides a LlamaIndex-native orchestration layer
+**on top of** the retrieval stack. Every strategy is implemented as a typed,
+event-driven `Workflow` (or `FunctionAgent`/`AgentWorkflow` for the ReAct strategy).
+LlamaIndex is used for both retrieval and orchestration — LangChain and LangGraph
+are no longer in the stack.
 
 ### Architecture
 
 ```
-harness/chains/
-├── retriever.py        EMARetriever — LangChain BaseRetriever wrapping LlamaIndex
-├── llms.py             get_langchain_llm("mid"|"frontier"|"olmo") — ChatAnthropic / ChatOpenAI
-├── simple_rag.py       LCEL chains: retrieve → format → prompt → LLM → parse
-├── pipeline_state.py   PipelineState TypedDict — shared state schema for all graph nodes
-├── pipeline.py         build_pipeline(PipelineConfig) — LangGraph factory
-├── registry.py         get_chain(name) — 9 registered strategies, single entry point
-├── agents/
-│   ├── react.py        build_react_agent() — LangGraph ReAct with 4 EMA tools
-│   └── crag.py         build_crag() — Corrective RAG LangGraph workflow
-├── nodes/
-│   ├── retrieval.py    retrieval node (wraps EMARetriever)
-│   ├── generation.py   generation node (zero_shot / few_shot / cot_self)
-│   ├── grade.py        document sufficiency grader (CRAG relevance check)
-│   ├── rewrite.py      query rewriter (CRAG loop)
-│   ├── summarization.py  document condenser
-│   └── review.py       faithfulness reviewer (post-generation)
-└── evaluators.py       LangSmith evaluator wrappers (faithfulness, correctness)
+harness/workflows/
+├── registry.py         get_workflow(name, index, llm) — 9 strategies, single entry point
+├── events.py           typed Event subclasses (RetrievedEvent, GradeEvent, …)
+├── utils.py            WorkflowRunner, Doc, build_rag_messages, format_docs, …
+├── simple_rag.py       SimpleRAGWorkflow — retrieve → generate (zero/few/cot)
+├── crag.py             CRAGWorkflow — retrieve → grade ⇄ rewrite → generate
+├── summarize_rag.py    SummarizeRAGWorkflow — retrieve → summarize → generate
+├── react.py            _ReactRunner — FunctionAgent + AgentWorkflow (4 EMA tools)
+├── composites.py       CRAGSummarizeWorkflow, CRAGReviewWorkflow, ReactReviewWorkflow
+└── review.py           run_review_step() + ReviewMixin — faithfulness check via Judge
+harness/llms.py         get_llm("mid"|"frontier"|"olmo") — LlamaIndex LLM instances
 ```
 
-### Chain strategies
+### Workflow strategies
 
-All 9 strategies are registered in `CHAIN_REGISTRY` and accessible via
-`get_chain(name, tier_id=..., retriever=..., llm=...)`:
+All 9 strategies are registered in `WORKFLOW_REGISTRY` and accessible via
+`get_workflow(name, index=..., llm=..., tier_id=...)`:
 
 | Strategy | Architecture | Description |
 |----------|-------------|-------------|
-| `simple_rag_zero` | LCEL | retrieve → generate (zero-shot) |
-| `simple_rag_few` | LCEL | retrieve → generate (SME few-shot examples) |
-| `simple_rag_cot` | LCEL | retrieve → generate (chain-of-thought) |
-| `react` | LangGraph | ReAct agent with 4 tools: `ema_search`, `follow_cross_refs`, `filter_by_topic`, `format_answer` |
-| `crag` | LangGraph | retrieve → grade ⇄ rewrite → generate (Corrective RAG) |
-| `summarize_rag` | LangGraph | retrieve → summarize → generate |
-| `crag_summarize` | LangGraph | CRAG + summarization |
-| `crag_review` | LangGraph | CRAG + post-generation faithfulness review |
-| `react_review` | LangGraph | ReAct agent + single faithfulness score (no revision loop) |
-
-### `PipelineConfig` — composable pipeline flags
-
-`build_pipeline()` assembles a LangGraph `StateGraph` from `PipelineConfig` flags —
-no new graph code is needed for new strategies:
+| `simple_rag_zero` | `Workflow` | retrieve → generate (zero-shot) |
+| `simple_rag_few` | `Workflow` | retrieve → generate (SME few-shot examples) |
+| `simple_rag_cot` | `Workflow` | retrieve → generate (chain-of-thought) |
+| `react` | `FunctionAgent` + `AgentWorkflow` | ReAct agent with 4 tools: `ema_search`, `follow_cross_refs`, `filter_by_topic`, `get_qa_by_id` |
+| `crag` | `Workflow` | retrieve → grade ⇄ rewrite → generate (Corrective RAG) |
+| `summarize_rag` | `Workflow` | retrieve → summarize → generate |
+| `crag_summarize` | `Workflow` | CRAG loop → summarize → generate |
+| `crag_review` | `Workflow` | CRAG loop → generate → faithfulness review |
+| `react_review` | `Workflow` | ReAct agent + single faithfulness review pass |
 
 ```python
-from harness.chains.pipeline import PipelineConfig, build_pipeline
+from harness.workflows.registry import get_workflow, list_workflows
+from harness.llms import get_llm
+from harness.embed import build_index
 
-cfg = PipelineConfig(
-    use_grade=True,          # CRAG-style doc sufficiency check + rewrite loop
-    use_summarization=True,  # condense docs before generation
-    use_review=True,         # post-generation faithfulness review
-    prompt_strategy="cot_self",
-    k=12,
-)
-pipeline = build_pipeline(cfg, retriever=retriever, llm=llm)
-result = pipeline.invoke({"question": "What is the AI for NDMA?"})
+index  = build_index(corpus_path, index_dir)
+llm    = get_llm("frontier")
+runner = get_workflow("crag_review", index=index, llm=llm)
+result = runner.invoke({"question": "What is the AI for NDMA?"})
 ```
 
-The compiled graph uses `MemorySaver` when a `checkpointer=` is passed, enabling
-multi-turn session state in `app.py`.
+Every `runner` exposes `.invoke(inputs)` and `.ainvoke(inputs)` — the same
+interface regardless of whether the underlying strategy is a `Workflow` or
+a `FunctionAgent`.
 
 ### Model tiers (`harness/configs/models.yaml`)
 
@@ -371,34 +358,11 @@ multi-turn session state in `app.py`.
 | `olmo` | `allenai/OLMo-2-1124-32B-Instruct` | Together AI | Contamination-verifiable open-weight |
 
 ```python
-from harness.chains.llms import get_langchain_llm
-llm = get_langchain_llm("frontier")   # returns ChatAnthropic
+from harness.llms import get_llm
+llm = get_llm("frontier")   # returns LlamaIndex Anthropic LLM
 ```
 
 `olmo` requires `TOGETHER_API_KEY` in `~/.myenvs/ema_nlp.env`.
-
-### LangSmith experiment tracking
-
-`harness/run_langsmith_eval.py` runs a named chain over the LangSmith `ema-benchmark`
-dataset, evaluates with faithfulness + correctness judges, and reports a side-by-side
-comparison URL.
-
-```bash
-# Upload benchmark to LangSmith (one-time per dataset version)
-python3 -m harness.langsmith_dataset
-
-# Run a chain as a LangSmith experiment
-python3 -m harness.run_langsmith_eval \
-    --chain crag_review \
-    --tier frontier \
-    --dataset ema-benchmark
-```
-
-Results are also written to `results/<run_id>/` (same format as `run_eval.py`)
-for backward compatibility with existing analysis scripts.
-
-Requires `LANGSMITH_API_KEY`, `LANGCHAIN_TRACING_V2=true`, and `LANGCHAIN_PROJECT=ema-nlp`
-in `~/.myenvs/ema_nlp.env`.
 
 ---
 
@@ -422,10 +386,10 @@ PHOENIX_PORT=6007 CHAINLIT_PORT=8001 bash run_ui.sh
 
 On session start the chat UI:
 1. Loads the FAISS index from `harness/index/` (or builds it if missing)
-2. Builds a `PipelineConfig()` LangGraph pipeline with `MemorySaver` (per-session checkpointing)
+2. Builds a `WorkflowRunner` for the configured strategy (stateless per turn)
 
 On each message:
-1. The LangGraph pipeline runs hybrid retrieval (top-10 results via `EMARetriever`)
+1. The LlamaIndex Workflow runs hybrid retrieval (top-10 results) and synthesis
 2. Synthesises an answer via the configured Claude model
 3. Shows sources in a side panel
 4. Records 👍/👎 feedback to Phoenix as span annotations
@@ -447,11 +411,6 @@ On each message:
 
 Two evaluation entry points:
 
-| Script | Purpose | Tracing |
-|--------|---------|---------|
-| `harness/run_eval.py` | Retrieval metrics (Recall@k, Precision@k, Citation Accuracy) + optional LLM judge | Arize Phoenix |
-| `harness/run_langsmith_eval.py` | Full chain evaluation over LangSmith dataset | LangSmith |
-
 ### `harness/run_eval.py` — retrieval + judge eval
 
 Runs a full benchmark evaluation and writes results to `results/<run_id>/`.
@@ -459,23 +418,6 @@ Runs a full benchmark evaluation and writes results to `results/<run_id>/`.
 ```bash
 python -m harness.run_eval --config harness/configs/baseline_a0.yaml
 ```
-
-### `harness/run_langsmith_eval.py` — batch chain experiment
-
-Runs a named chain strategy over the `ema-benchmark` LangSmith dataset and writes
-results both to LangSmith and to `results/<run_id>/`.
-
-```bash
-# Upload benchmark first (idempotent):
-python3 -m harness.langsmith_dataset
-
-# Run experiment:
-python3 -m harness.run_langsmith_eval \
-    --chain crag_review --tier frontier --dataset ema-benchmark
-```
-
-Requires `LANGSMITH_API_KEY`, `LANGCHAIN_TRACING_V2=true`, `LANGCHAIN_PROJECT=ema-nlp`.
-The `--chain` argument accepts any name from `list_chains()` (see Section 5 above).
 
 ### Run configs (`harness/configs/`)
 
@@ -533,7 +475,7 @@ results/
 
 ```
 benchmark/benchmark.jsonl      # 45 evaluation questions (T1–T4), complete
-harness/chains/                # LangGraph chain layer (all strategies)
+harness/workflows/             # LlamaIndex Workflow strategies (9 registered)
 harness/configs/               # eval run configs
 harness/prompts/               # judge and reranker prompt files
 harness/index/.gitkeep         # placeholder to keep the empty index directory
@@ -583,8 +525,6 @@ results/                       # eval run outputs
 | `python -m harness.embed` | Build or rebuild the flat FAISS index |
 | `python -m harness.embed_hierarchical` | Build the hierarchical (page-level) FAISS index |
 | `python -m harness.run_eval` | Run a retrieval + judge benchmark evaluation |
-| `python -m harness.langsmith_dataset` | Upload benchmark to LangSmith (idempotent) |
-| `python -m harness.run_langsmith_eval` | Run a named chain as a LangSmith experiment |
 | `bash run_ui.sh` | Start Phoenix + Chainlit chat UI |
 
 ---

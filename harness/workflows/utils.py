@@ -34,7 +34,7 @@ _PROMPT_FILES: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-# Doc: lightweight LangChain-compatible document container
+# Doc: lightweight document container matching the app.py iteration interface
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -132,8 +132,8 @@ def build_rag_messages(
 class WorkflowRunner:
     """Thin wrapper providing synchronous invoke() and async ainvoke().
 
-    Wraps a LlamaIndex Workflow so it exposes the same interface as the
-    former LangGraph pipeline wrappers used by app.py and the registry.
+    Wraps a LlamaIndex Workflow so it exposes a uniform invoke/ainvoke
+    interface used by app.py and the workflow registry.
     """
 
     def __init__(self, workflow: Any) -> None:

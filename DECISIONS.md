@@ -45,20 +45,13 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Why:** Strong English retrieval performance, freely available, runs on CPU. Avoids an API embedding dependency.  
 **Note:** Not yet benchmarked against alternatives — document the choice and revisit if retrieval metrics in Phase 3 are disappointing.
 
-### LangChain + LangGraph for chain iteration (separate from LlamaIndex retrieval)
-**Decided:** 2026-05-17 (refined 2026-05-22)  
-**What:** LangChain + LangGraph are used for all prompt chains, agent loops, and pipeline orchestration. LlamaIndex remains the retrieval engine only. The two layers are connected via `EMARetriever` (`harness/chains/retriever.py`) — a LangChain `BaseRetriever` that wraps LlamaIndex's FAISS+BM25 stack.  
-**Why:** LangChain is better for prompt-chain-centric work; it has first-class LangSmith integration, a richer LCEL composition API, and a larger ecosystem of agent tooling. LlamaIndex is better as a retrieval-only layer — its `VectorStoreIndex`, docstore, and `BM25Retriever` are best-in-class for this purpose. Running them as separate layers avoids the impedance mismatch of forcing LlamaIndex's LLM-mediated query engines onto a project that needs direct LLM control.  
-**Architecture:** `harness/chains/registry.py` provides a single `get_chain(name)` entry point for 9 registered strategies (LCEL simple RAG, CRAG, ReAct, pipeline factory variants). `harness/chains/pipeline.py` builds composable LangGraph `StateGraph` pipelines from `PipelineConfig` flags without requiring new graph code per strategy.  
-**Not chosen:** Using LlamaIndex's `ReActAgent` and `DocumentSummaryIndex` for agentic work — these are planned for Phase 4 if LangGraph ablation results warrant a second agent architecture.  
-**Ref:** [`.claude/work/2026-05-22_langgraph-orchestration/`](.claude/work/2026-05-22_langgraph-orchestration/)
-
-### LangSmith for batch experiment tracking (separate from Arize Phoenix)
+### LlamaIndex Workflows for all orchestration (supersedes LangChain + LangGraph)
 **Decided:** 2026-05-22  
-**What:** LangSmith (`harness/langsmith_dataset.py`, `harness/run_langsmith_eval.py`) handles batch experiment tracking — uploading the benchmark as a named dataset, running chains against it, and providing a side-by-side comparison UI. Arize Phoenix continues to handle interactive session tracing and feedback annotation.  
-**Why:** The two systems serve different purposes. Phoenix is for real-time, per-session tracing and feedback collection during interactive use. LangSmith is for offline, reproducible batch evaluation across multiple chain strategies and model tiers — the comparison view makes it easy to see which ablation wins. They complement each other; running both adds no API key burden since both are free at the scales we use.  
-**Separation:** Phoenix traces are attached to interactive `app.py` sessions. LangSmith traces are attached to `run_langsmith_eval.py` batch runs. No overlap in scope.  
-**Ref:** [`harness/run_langsmith_eval.py`](harness/run_langsmith_eval.py)
+**What:** LlamaIndex Workflows (`harness/workflows/`) handle all prompt chains, agent loops, and pipeline orchestration. LangChain, LangGraph, and LangSmith are removed from the stack entirely.  
+**Why:** The LangChain bridge (`EMARetriever`) stripped node metadata, required global LlamaIndex state to be configured before any LangGraph node ran retrieval, and forced two divergent ReAct implementations. Using LlamaIndex Workflows end-to-end eliminates the bridge, keeps node metadata intact throughout the pipeline, and reduces dependency count.  
+**Architecture:** `harness/workflows/registry.py` provides a single `get_workflow(name, index, llm)` entry point for 9 registered strategies. Every strategy is a typed, event-driven `Workflow` (or `FunctionAgent`/`AgentWorkflow` for ReAct). All strategies expose `.invoke()` and `.ainvoke()` via `WorkflowRunner`.  
+**Not chosen:** Using LangGraph for orchestration — the impedance mismatch at the LlamaIndex/LangChain boundary outweighed the benefits of LangGraph's state machine semantics for this retrieval-centric project.  
+**Ref:** [`.claude/work/2026-05-22_10_llamaindex-langgraph-assessment/`](.claude/work/2026-05-22_10_llamaindex-langgraph-assessment/)
 
 ---
 

@@ -32,8 +32,8 @@ from llama_index.core.workflow import Context, Event, StartEvent, StopEvent, Wor
 
 from harness.retrieve import RetrievalConfig, retrieve_with_config
 from harness.workflows.events import (
-    GradeEvent,
     GeneratedEvent,
+    GradeEvent,
     InsufficientEvent,
     RetrievedEvent,
     SummarizedEvent,

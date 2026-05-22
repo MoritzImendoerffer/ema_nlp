@@ -36,11 +36,9 @@ import logging
 from typing import Any
 
 from llama_index.core.llms import ChatMessage, MessageRole
-from llama_index.core.workflow import Context, StartEvent, StopEvent, Workflow, step
+from llama_index.core.workflow import Context, Event, StartEvent, StopEvent, Workflow, step
 
 from harness.retrieve import RetrievalConfig, retrieve_with_config
-from llama_index.core.workflow import Event
-
 from harness.workflows.events import GradeEvent, InsufficientEvent, RetrievedEvent
 from harness.workflows.utils import (
     Doc,
