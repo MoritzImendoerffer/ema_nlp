@@ -29,7 +29,14 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 - Sources: 17,505 HTML accordion + 8,746 PDF records
 - 65,263 parsed PDFs ingested into MongoDB `parsed_pdfs` collection (10.5% parse-failure rate documented)
 
-Next phase: benchmark construction (Phase 2 — curating 30–50 evaluation questions).
+**Phase 2 — benchmark complete.** `benchmark/benchmark.jsonl` has 45 items:
+- 20×T1 Lookup, 10×T2 Scoping, 10×T3 Multi-hop, 5×T4 Synthesis
+- Covers 7 EMA source documents; 62% of items include specific numeric thresholds for contamination resistance
+
+**Phase 3 — harness substantially complete.** LangGraph pipeline layer operational:
+- 9 registered chain strategies (simple RAG, CRAG, ReAct, pipeline factory variants)
+- LangSmith dataset upload and batch evaluation wired to `harness/run_langsmith_eval.py`
+- Ablation A (retrieval variants) and Ablation C (prompting matrix) eval runs in `results/`
 
 See `.claude/work/` for all work unit logs.
 
@@ -37,13 +44,14 @@ See `.claude/work/` for all work unit logs.
 
 | Layer | Choice |
 |-------|--------|
-| RAG framework | LlamaIndex (`DocumentSummaryIndex`, `ReActAgent`) |
-| Embeddings | BGE-large-en via sentence-transformers |
-| Vector store | FAISS (document index + query cache) |
-| Keyword retrieval | rank-bm25 via LlamaIndex BM25Retriever |
-| Tracing | Arize Phoenix + OpenInference (model-agnostic) |
-| Feedback | Phoenix annotations + CLI rating UI |
-| LLM | Anthropic Claude (primary); OLMo 3 as contamination-verifiable reference |
+| Retrieval framework | LlamaIndex (`VectorStoreIndex`, `BM25Retriever`, RRF fusion) |
+| Agent/chain framework | LangChain + LangGraph (ReAct, CRAG, pipeline factory, 9 strategies) |
+| Experiment tracking | LangSmith (dataset upload, batch evaluation, chain comparison) |
+| Embeddings | BGE-large-en via sentence-transformers (local, no API key) |
+| Vector store | FAISS flat-L2 (document index + query cache) |
+| Tracing | Arize Phoenix + OpenInference (interactive chat UI, model-agnostic) |
+| Feedback | Phoenix annotations + Chainlit 👍/👎 |
+| LLM | Anthropic Claude (primary); OLMo 3 (contamination-verifiable reference) |
 | Data | MongoDB (raw scrape) → JSONL (corpus/benchmark) |
 
 ## Data sources

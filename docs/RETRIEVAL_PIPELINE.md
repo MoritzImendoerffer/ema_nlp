@@ -233,6 +233,115 @@ it is available for the planned ReActAgent ablation.
 
 ---
 
+## Retrieval strategies (`harness/retrieve.py` → `RetrievalConfig`)
+
+Retrieval strategies are orthogonal to modes (dense/bm25/hybrid) and are configured
+via `RetrievalConfig`:
+
+```python
+from harness.retrieve import RetrievalConfig
+
+cfg = RetrievalConfig(
+    strategy="recursive",  # flat | recursive | hierarchical | agentic
+    mode="hybrid",
+    k=10,
+    recursive=RecursiveConfig(max_hops=1),
+)
+results = retrieve_with_config(cfg, index, query)
+```
+
+### `flat` (default)
+
+Standard top-k retrieval using the selected mode. No post-processing.
+Used by all baseline and ablation A eval runs.
+
+### `recursive` — cross_ref expansion
+
+Flat retrieval followed by automatic expansion of `cross_refs` edges up to `max_hops`
+hops. Initial top-k results are returned at the front; expanded cross-reference nodes
+are appended after, deduplicated by `qa_id`.
+
+```python
+cfg = RetrievalConfig(strategy="recursive", mode="hybrid", k=10,
+                      recursive=RecursiveConfig(max_hops=1))
+```
+
+Use for T3 multi-hop questions where the answer requires traversing document cross-references.
+
+### `hierarchical` — page → Q&A drill-down
+
+Two-level retrieval requiring a separate hierarchical index
+(`harness/index/hierarchical/`) built by `harness.embed_hierarchical`:
+
+1. Retrieve top-`top_doc_k` parent (page-level) nodes from the hierarchical index
+2. Collect all child `qa_id` entries in those pages' `child_qa_ids` metadata
+3. Fetch child nodes from the flat docstore and re-score by dense similarity
+
+Build the parent index:
+```bash
+python -m harness.embed_hierarchical
+```
+
+Configure:
+```yaml
+retrieval:
+  strategy: hierarchical
+  k: 10
+  hierarchical:
+    top_doc_k: 5
+    summary_index_dir: harness/index/hierarchical
+```
+
+Falls back to flat dense retrieval if `hier_index` is not provided or `child_qa_ids` is empty.
+
+### `agentic` — delegated to LangGraph agent
+
+Not handled by `retrieve_with_config`. Pass to `harness.chains.registry.get_chain()` instead.
+
+---
+
+## `EMARetriever` — LangChain bridge (`harness/chains/retriever.py`)
+
+`EMARetriever` is a LangChain `BaseRetriever` that wraps the LlamaIndex retrieval stack
+so it can be used inside LCEL chains, LangGraph nodes, and LangSmith experiments without
+knowing about LlamaIndex internals.
+
+```python
+from harness.chains.retriever import EMARetriever, make_retriever
+from harness.retrieve import RetrievalConfig
+
+# Simple construction:
+retriever = EMARetriever(index=index, mode="hybrid", k=10)
+
+# Config-driven (preferred for eval scripts):
+cfg = RetrievalConfig(strategy="recursive", mode="hybrid", k=10)
+retriever = make_retriever(cfg, index)
+
+# Standard LangChain usage:
+docs = retriever.invoke("What is the AI limit for NDMA?")
+```
+
+Each returned `Document` carries the full node metadata
+(`qa_id`, `score`, `topic_path`, `cross_refs`, `source_url`, etc.)
+so downstream agents can follow cross-references and filter by topic.
+
+### Agent helper methods
+
+Two extra methods for use in LangGraph tool nodes:
+
+```python
+# Follow cross-reference edges from a given Q&A node:
+docs = retriever.get_cross_refs("some-qa-id")
+
+# Filter last search results by topic path substring:
+narrowed = retriever.filter_by_topic(docs, "genotoxic")
+```
+
+These are the implementations behind the `follow_cross_refs` and `filter_by_topic`
+tools exposed by the ReAct agent in `harness/chains/agents/react.py`.
+
+---
+
 ## Chat UI flow (`app.py`)
 
 ```python
@@ -252,14 +361,23 @@ that 👍/👎 button clicks can annotate the correct trace.
 
 ---
 
-## What LlamaIndex does NOT do here
+## What LlamaIndex does and does NOT do here
 
-| Capability | Status | Why not |
-|------------|--------|---------|
-| LLM synthesis via `index.as_query_engine()` | Not used | Claude called directly via `anthropic.AsyncAnthropic()` for full streaming control |
-| `DocumentSummaryIndex` | Not used yet | Planned for Phase 4 agentic ablation |
-| `ReActAgent` | Not used yet | Planned for ablation B (process-reward agent) |
-| `QueryFusionRetriever` | Not used | Requires OpenAI install; RRF implemented directly instead |
-| Node post-processors / rerankers | Not used | A3/A4 rerankers implemented directly with Anthropic SDK |
-| Chat memory / conversation history | Not used | Stateless Q&A; no multi-turn context |
-| Streaming retriever | Not used | Retrieval is fast enough synchronously; streaming is on the synthesis side |
+LlamaIndex is a **retrieval-only** layer. All orchestration, prompt chains, agent loops,
+and LLM-mediated steps run through LangChain/LangGraph (`harness/chains/`).
+
+| Capability | Status | Implementation |
+|------------|--------|----------------|
+| Vector similarity search | **Used** | `VectorStoreIndex.as_retriever()` → FAISS |
+| BM25 keyword retrieval | **Used** | `BM25Retriever.from_defaults(docstore=...)` |
+| Docstore key lookup | **Used** | `index.docstore.get_node(qa_id)` — O(1) by qa_id |
+| Cross-ref traversal | **Used** | `follow_cross_refs()` via `metadata["cross_refs"]` |
+| Index persistence / reload | **Used** | `StorageContext.persist_dir` + `load_index_from_storage()` |
+| Auto-instrumentation | **Used** | `LlamaIndexInstrumentor` → Arize Phoenix OTLP |
+| LLM synthesis via `as_query_engine()` | Not used | Claude called directly via LangChain `ChatAnthropic` |
+| `DocumentSummaryIndex` | Not used | Page-level parent nodes built manually in `embed_hierarchical.py` |
+| LlamaIndex `ReActAgent` | Not used | LangGraph ReAct agent in `harness/chains/agents/react.py` |
+| `QueryFusionRetriever` | Not used | Requires OpenAI install; RRF implemented directly in `_rrf_fuse()` |
+| Node post-processors / rerankers | Not used | A3/A4 rerankers implemented with Anthropic SDK directly |
+| `NodeRelationship.RELATED` | Not used | Cross-refs stored as plain metadata list; lookup via docstore key |
+| Streaming retriever | Not used | Retrieval is synchronous; streaming is on the LangChain synthesis side |

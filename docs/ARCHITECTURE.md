@@ -17,12 +17,18 @@ MongoDB  ema_scraper.parsed_pdfs      ← 65k parsed PDF markdown
     ▼
 corpus/corpus.jsonl                   ← 26,251 normalised Q&A records (versioned in Git)
     │
-    │  python -m harness.embed
+    │  python -m harness.embed[_hierarchical]
     ▼
 harness/index/                        ← FAISS vector index + docstore (local, not in Git)
+harness/index/hierarchical/           ← page-level parent index (optional, for hierarchical strategy)
     │
-    ├── app.py  (Chainlit chat UI)    ← hybrid retrieval → Claude synthesis → Phoenix traces
-    └── harness/run_eval.py           ← benchmark eval runs → results/<run_id>/
+    ├── harness/chains/retriever.py   ← EMARetriever: LangChain bridge to FAISS+BM25
+    │       │
+    │       └── harness/chains/registry.py ← 9 chain strategies (LCEL, CRAG, ReAct, pipeline factory)
+    │
+    ├── app.py  (Chainlit chat UI)    ← LangGraph pipeline → Claude synthesis → Phoenix traces
+    ├── harness/run_eval.py           ← retrieval + judge eval → results/<run_id>/
+    └── harness/run_langsmith_eval.py ← LangSmith batch experiment → smith.langchain.com
 ```
 
 ---
@@ -244,23 +250,159 @@ Then delete `harness/index/docstore.json` and run `python -m harness.embed`.
 
 ---
 
-## 4. Retrieval modes
+## 4. Retrieval modes and strategies
 
-See **[docs/RETRIEVAL_PIPELINE.md](RETRIEVAL_PIPELINE.md)** for a detailed walk-through of LlamaIndex internals, RRF fusion, and the ablation A pipeline.
+See **[docs/RETRIEVAL_PIPELINE.md](RETRIEVAL_PIPELINE.md)** for a detailed walk-through of LlamaIndex internals, RRF fusion, retrieval strategies, and the ablation A pipeline.
 
-`harness/retrieve.py` exposes three modes, all returning `(qa_id, score, metadata)` triples:
+### Retrieval modes (`harness/retrieve.py`)
+
+Three base modes, selectable per YAML config or API call.
+All return `list[(qa_id, score, metadata)]` ordered by descending relevance:
 
 | Mode | How it works | Best for |
 |------|-------------|---------|
-| `dense` (A0) | FAISS cosine/L2 similarity on BGE embeddings | Semantic similarity |
-| `bm25` | BM25 keyword ranking over docstore | Exact term matching |
-| `hybrid` (A0+) | Reciprocal Rank Fusion of dense + BM25 (RRF_K=60) | General use |
+| `dense` (A0) | FAISS flat-L2 similarity on BGE embeddings | Semantic similarity |
+| `bm25` | BM25 keyword ranking over docstore | Exact term matching, abbreviations, numeric values |
+| `hybrid` (A0+) | Reciprocal Rank Fusion of dense + BM25 (RRF_K=60) | General use (default) |
 
-The chat UI uses `hybrid` by default. Ablation configs can select any mode.
+### Retrieval strategies (`harness/retrieve.py` → `RetrievalConfig`)
+
+Four strategies, orthogonal to mode:
+
+| Strategy | Description | Use case |
+|----------|-------------|---------|
+| `flat` | Standard top-k retrieval (default) | Baseline, ablation A runs |
+| `recursive` | Flat retrieval + automatic `cross_refs` expansion (N hops) | T3 multi-hop questions |
+| `hierarchical` | Page-level parent → Q&A child drill-down (requires hierarchical index) | When page-level scoping improves precision |
+| `agentic` | Delegated to a LangGraph ReAct/CRAG agent via the chain registry | Complex multi-step queries |
+
+Configure via YAML:
+
+```yaml
+retrieval:
+  strategy: recursive      # flat | recursive | hierarchical | agentic
+  mode: hybrid             # dense | bm25 | hybrid
+  k: 10
+  recursive:
+    max_hops: 1
+  hierarchical:
+    top_doc_k: 5
+    summary_index_dir: harness/index/hierarchical
+```
+
+The chat UI uses `flat` + `hybrid` by default (`PipelineConfig()` defaults). Ablation configs select any combination.
 
 ---
 
-## 5. Chat UI — `app.py`
+## 5. LangGraph chain layer — `harness/chains/`
+
+The `harness/chains/` package provides a LangChain + LangGraph layer **on top of** the
+LlamaIndex retrieval stack. LlamaIndex remains the retrieval engine; LangChain/LangGraph
+handle orchestration, prompt chains, agent loops, and LangSmith tracing.
+
+### Architecture
+
+```
+harness/chains/
+├── retriever.py        EMARetriever — LangChain BaseRetriever wrapping LlamaIndex
+├── llms.py             get_langchain_llm("mid"|"frontier"|"olmo") — ChatAnthropic / ChatOpenAI
+├── simple_rag.py       LCEL chains: retrieve → format → prompt → LLM → parse
+├── pipeline_state.py   PipelineState TypedDict — shared state schema for all graph nodes
+├── pipeline.py         build_pipeline(PipelineConfig) — LangGraph factory
+├── registry.py         get_chain(name) — 9 registered strategies, single entry point
+├── agents/
+│   ├── react.py        build_react_agent() — LangGraph ReAct with 4 EMA tools
+│   └── crag.py         build_crag() — Corrective RAG LangGraph workflow
+├── nodes/
+│   ├── retrieval.py    retrieval node (wraps EMARetriever)
+│   ├── generation.py   generation node (zero_shot / few_shot / cot_self)
+│   ├── grade.py        document sufficiency grader (CRAG relevance check)
+│   ├── rewrite.py      query rewriter (CRAG loop)
+│   ├── summarization.py  document condenser
+│   └── review.py       faithfulness reviewer (post-generation)
+└── evaluators.py       LangSmith evaluator wrappers (faithfulness, correctness)
+```
+
+### Chain strategies
+
+All 9 strategies are registered in `CHAIN_REGISTRY` and accessible via
+`get_chain(name, tier_id=..., retriever=..., llm=...)`:
+
+| Strategy | Architecture | Description |
+|----------|-------------|-------------|
+| `simple_rag_zero` | LCEL | retrieve → generate (zero-shot) |
+| `simple_rag_few` | LCEL | retrieve → generate (SME few-shot examples) |
+| `simple_rag_cot` | LCEL | retrieve → generate (chain-of-thought) |
+| `react` | LangGraph | ReAct agent with 4 tools: `ema_search`, `follow_cross_refs`, `filter_by_topic`, `format_answer` |
+| `crag` | LangGraph | retrieve → grade ⇄ rewrite → generate (Corrective RAG) |
+| `summarize_rag` | LangGraph | retrieve → summarize → generate |
+| `crag_summarize` | LangGraph | CRAG + summarization |
+| `crag_review` | LangGraph | CRAG + post-generation faithfulness review |
+| `react_review` | LangGraph | ReAct agent + single faithfulness score (no revision loop) |
+
+### `PipelineConfig` — composable pipeline flags
+
+`build_pipeline()` assembles a LangGraph `StateGraph` from `PipelineConfig` flags —
+no new graph code is needed for new strategies:
+
+```python
+from harness.chains.pipeline import PipelineConfig, build_pipeline
+
+cfg = PipelineConfig(
+    use_grade=True,          # CRAG-style doc sufficiency check + rewrite loop
+    use_summarization=True,  # condense docs before generation
+    use_review=True,         # post-generation faithfulness review
+    prompt_strategy="cot_self",
+    k=12,
+)
+pipeline = build_pipeline(cfg, retriever=retriever, llm=llm)
+result = pipeline.invoke({"question": "What is the AI for NDMA?"})
+```
+
+The compiled graph uses `MemorySaver` when a `checkpointer=` is passed, enabling
+multi-turn session state in `app.py`.
+
+### Model tiers (`harness/configs/models.yaml`)
+
+| Tier | Model | Provider | Used for |
+|------|-------|----------|---------|
+| `mid` | `claude-haiku-4-5-20251001` | Anthropic | Fast/cheap baseline, rerankers, judge |
+| `frontier` | `claude-opus-4-7` | Anthropic | Highest quality reference |
+| `olmo` | `allenai/OLMo-2-1124-32B-Instruct` | Together AI | Contamination-verifiable open-weight |
+
+```python
+from harness.chains.llms import get_langchain_llm
+llm = get_langchain_llm("frontier")   # returns ChatAnthropic
+```
+
+`olmo` requires `TOGETHER_API_KEY` in `~/.myenvs/ema_nlp.env`.
+
+### LangSmith experiment tracking
+
+`harness/run_langsmith_eval.py` runs a named chain over the LangSmith `ema-benchmark`
+dataset, evaluates with faithfulness + correctness judges, and reports a side-by-side
+comparison URL.
+
+```bash
+# Upload benchmark to LangSmith (one-time per dataset version)
+python3 -m harness.langsmith_dataset
+
+# Run a chain as a LangSmith experiment
+python3 -m harness.run_langsmith_eval \
+    --chain crag_review \
+    --tier frontier \
+    --dataset ema-benchmark
+```
+
+Results are also written to `results/<run_id>/` (same format as `run_eval.py`)
+for backward compatibility with existing analysis scripts.
+
+Requires `LANGSMITH_API_KEY`, `LANGCHAIN_TRACING_V2=true`, and `LANGCHAIN_PROJECT=ema-nlp`
+in `~/.myenvs/ema_nlp.env`.
+
+---
+
+## 6. Chat UI — `app.py`
 
 ```bash
 # Full start (Phoenix tracing + Chainlit)
@@ -278,12 +420,15 @@ PHOENIX_PORT=6007 CHAINLIT_PORT=8001 bash run_ui.sh
 | Chat UI | http://localhost:8000 |
 | Phoenix trace viewer | http://localhost:6006 |
 
-On first message the chat UI:
+On session start the chat UI:
 1. Loads the FAISS index from `harness/index/` (or builds it if missing)
-2. Runs hybrid retrieval (top-10 results)
-3. Streams a Claude synthesis over the top-5 sources
-4. Shows sources in a side panel
-5. Records 👍/👎 feedback to Phoenix as span annotations
+2. Builds a `PipelineConfig()` LangGraph pipeline with `MemorySaver` (per-session checkpointing)
+
+On each message:
+1. The LangGraph pipeline runs hybrid retrieval (top-10 results via `EMARetriever`)
+2. Synthesises an answer via the configured Claude model
+3. Shows sources in a side panel
+4. Records 👍/👎 feedback to Phoenix as span annotations
 
 **Key env vars for the UI:**
 
@@ -298,13 +443,39 @@ On first message the chat UI:
 
 ---
 
-## 6. Eval harness — `harness/run_eval.py`
+## 7. Eval harness
+
+Two evaluation entry points:
+
+| Script | Purpose | Tracing |
+|--------|---------|---------|
+| `harness/run_eval.py` | Retrieval metrics (Recall@k, Precision@k, Citation Accuracy) + optional LLM judge | Arize Phoenix |
+| `harness/run_langsmith_eval.py` | Full chain evaluation over LangSmith dataset | LangSmith |
+
+### `harness/run_eval.py` — retrieval + judge eval
 
 Runs a full benchmark evaluation and writes results to `results/<run_id>/`.
 
 ```bash
 python -m harness.run_eval --config harness/configs/baseline_a0.yaml
 ```
+
+### `harness/run_langsmith_eval.py` — batch chain experiment
+
+Runs a named chain strategy over the `ema-benchmark` LangSmith dataset and writes
+results both to LangSmith and to `results/<run_id>/`.
+
+```bash
+# Upload benchmark first (idempotent):
+python3 -m harness.langsmith_dataset
+
+# Run experiment:
+python3 -m harness.run_langsmith_eval \
+    --chain crag_review --tier frontier --dataset ema-benchmark
+```
+
+Requires `LANGSMITH_API_KEY`, `LANGCHAIN_TRACING_V2=true`, `LANGCHAIN_PROJECT=ema-nlp`.
+The `--chain` argument accepts any name from `list_chains()` (see Section 5 above).
 
 ### Run configs (`harness/configs/`)
 
@@ -356,12 +527,13 @@ results/
 
 ---
 
-## 7. File storage layout
+## 8. File storage layout
 
 ### In Git (versioned)
 
 ```
-benchmark/benchmark.jsonl      # evaluation questions (30–50, in progress)
+benchmark/benchmark.jsonl      # 45 evaluation questions (T1–T4), complete
+harness/chains/                # LangGraph chain layer (all strategies)
 harness/configs/               # eval run configs
 harness/prompts/               # judge and reranker prompt files
 harness/index/.gitkeep         # placeholder to keep the empty index directory
@@ -398,7 +570,7 @@ results/                       # eval run outputs
 
 ---
 
-## 8. Scripts reference
+## 9. Scripts reference
 
 | Script | Purpose |
 |--------|---------|
@@ -408,13 +580,16 @@ results/                       # eval run outputs
 | `scripts/fetch_mini_corpus.py` | Rebuild `mini_corpus.jsonl` from MongoDB |
 | `scripts/tag_concepts.py` | Tag corpus records with IDMP concept labels |
 | `corpus/build_corpus.py` | Rebuild `corpus.jsonl` from MongoDB |
-| `python -m harness.embed` | Build or rebuild the FAISS index |
-| `python -m harness.run_eval` | Run a benchmark evaluation |
+| `python -m harness.embed` | Build or rebuild the flat FAISS index |
+| `python -m harness.embed_hierarchical` | Build the hierarchical (page-level) FAISS index |
+| `python -m harness.run_eval` | Run a retrieval + judge benchmark evaluation |
+| `python -m harness.langsmith_dataset` | Upload benchmark to LangSmith (idempotent) |
+| `python -m harness.run_langsmith_eval` | Run a named chain as a LangSmith experiment |
 | `bash run_ui.sh` | Start Phoenix + Chainlit chat UI |
 
 ---
 
-## 9. Common operations
+## 10. Common operations
 
 ### Rebuild everything from scratch on a new machine
 
