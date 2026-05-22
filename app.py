@@ -204,11 +204,11 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
     # ── Source sidebar elements ───────────────────────────────────────────────
     source_elements: list[cl.Text] = []
     for i, doc in enumerate(docs[:SOURCES_SHOWN], 1):
-        meta = doc.metadata if hasattr(doc, "metadata") else {}
+        meta = doc.metadata
         score = meta.get("score", 0.0)
         topic = meta.get("topic_path", "")
         url = meta.get("source_url", "")
-        text = doc.page_content if hasattr(doc, "page_content") else ""
+        text = doc.text
         q_part, _, _ = text.partition("\n\nA: ")
         short_q = q_part.removeprefix("Q: ")[:120] + ("…" if len(q_part) > 120 else "")
         link = f"[{url}]({url})" if url else "_no URL_"

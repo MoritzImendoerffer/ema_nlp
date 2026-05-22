@@ -7,7 +7,7 @@ Three prompt strategies supported:
     cot_self   — Medprompt-style CoT: model reasons inside <reasoning> tags
 
 The workflow accepts StartEvent(question, few_shot_context?) and returns:
-    {"answer_text": str, "docs": list[Doc], "prompt_strategy": str}
+    {"answer_text": str, "docs": list, "prompt_strategy": str}
 
 Usage::
 
@@ -32,7 +32,6 @@ from llama_index.core.workflow import Context, StartEvent, StopEvent, Workflow, 
 
 from harness.retrieve import RetrievalConfig, retrieve_with_config
 from harness.workflows.utils import (
-    Doc,
     WorkflowRunner,
     build_rag_messages,
     extract_answer,
@@ -81,7 +80,7 @@ class SimpleRAGWorkflow(Workflow):
         few_shot_context: str = ev.get("few_shot_context", "")
 
         results = retrieve_with_config(self._config, self._index, question)
-        docs: list[Doc] = results_to_docs(results, self._index)
+        docs = results_to_docs(results, self._index)
         context_str = format_docs(docs)
 
         messages = build_rag_messages(

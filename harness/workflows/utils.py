@@ -2,10 +2,9 @@
 Shared utilities for LlamaIndex workflow steps.
 
 Provides:
-  - Doc           lightweight document container (compatible with app.py's .metadata/.page_content API)
   - load_system_prompt()   read prompt from harness/prompts/
-  - results_to_docs()      convert RetrievalResult tuples to Doc objects
-  - format_docs()          render Doc list as a formatted context string
+  - results_to_docs()      convert RetrievalResult tuples to TextNode objects
+  - format_docs()          render TextNode list as a formatted context string
   - extract_answer()       strip CoT reasoning block from raw LLM output
   - build_rag_messages()   construct system+user ChatMessage list for RAG prompts
   - WorkflowRunner         thin sync/async wrapper for LlamaIndex Workflow instances
@@ -16,11 +15,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from llama_index.core.llms import ChatMessage, MessageRole
+from llama_index.core.schema import TextNode
 
 log = logging.getLogger(__name__)
 
@@ -31,21 +30,6 @@ _PROMPT_FILES: dict[str, str] = {
     "few_shot": "system_few_shot_sme.md",
     "cot_self": "system_cot_self.md",
 }
-
-
-# ---------------------------------------------------------------------------
-# Doc: lightweight document container matching the app.py iteration interface
-# ---------------------------------------------------------------------------
-
-@dataclass
-class Doc:
-    """Minimal document container with .page_content and .metadata attributes.
-
-    Matches the interface used by app.py when iterating retrieved documents,
-    so the Chainlit UI works without changes.
-    """
-    page_content: str
-    metadata: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -65,36 +49,39 @@ def load_system_prompt(strategy: str) -> str:
 # Retrieval result helpers
 # ---------------------------------------------------------------------------
 
-def results_to_docs(results: list, index: Any) -> list[Doc]:
-    """Convert (qa_id, score, metadata) triples to Doc objects."""
+def results_to_docs(results: list, index: Any) -> list:
+    """Convert (qa_id, score, metadata) triples to TextNode objects."""
     from harness.embed import get_node_by_id
 
-    docs: list[Doc] = []
+    nodes: list[TextNode] = []
     for qa_id, score, meta in results:
         node = get_node_by_id(index, qa_id)
-        page_content = node.text if node is not None else f"[qa_id: {qa_id}]"
-        docs.append(Doc(
-            page_content=page_content,
-            metadata={**meta, "qa_id": qa_id, "score": score},
-        ))
-    return docs
+        if node is not None:
+            merged = {**node.metadata, **meta, "qa_id": qa_id, "score": score}
+            nodes.append(TextNode(text=node.text, metadata=merged))
+        else:
+            nodes.append(TextNode(
+                text=f"[qa_id: {qa_id}]",
+                metadata={**meta, "qa_id": qa_id, "score": score},
+            ))
+    return nodes
 
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
 
-def format_docs(docs: list[Doc]) -> str:
-    if not docs:
+def format_docs(nodes: list) -> str:
+    if not nodes:
         return "No relevant documents retrieved."
     lines: list[str] = ["## Retrieved Q&A documents", ""]
-    for i, doc in enumerate(docs, 1):
-        meta = doc.metadata
+    for i, node in enumerate(nodes, 1):
+        meta = node.metadata
         qa_id = meta.get("qa_id", "unknown")
         source = meta.get("source_title") or meta.get("source_url") or "unknown source"
         score = meta.get("score", 0.0)
         lines.append(f"[{i}] qa_id: {qa_id} | source: {source} | relevance score: {score:.3f}")
-        lines.append(doc.page_content)
+        lines.append(node.text)
         lines.append("")
     return "\n".join(lines)
 

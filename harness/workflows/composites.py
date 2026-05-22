@@ -40,7 +40,6 @@ from harness.workflows.events import (
 )
 from harness.workflows.review import run_review_step
 from harness.workflows.utils import (
-    Doc,
     WorkflowRunner,
     build_rag_messages,
     extract_answer,
@@ -112,7 +111,7 @@ class CRAGSummarizeWorkflow(Workflow):
             few_shot_context = ev.few_shot_context
             rewrite_cycles = ev.rewrite_cycles
         results = retrieve_with_config(self._config, self._index, question)
-        docs: list[Doc] = results_to_docs(results, self._index)
+        docs = results_to_docs(results, self._index)
         return RetrievedEvent(
             question=question, few_shot_context=few_shot_context,
             docs=docs, rewrite_cycles=rewrite_cycles,
@@ -240,7 +239,7 @@ class CRAGReviewWorkflow(Workflow):
             few_shot_context = ev.few_shot_context
             rewrite_cycles = ev.rewrite_cycles
         results = retrieve_with_config(self._config, self._index, question)
-        docs: list[Doc] = results_to_docs(results, self._index)
+        docs = results_to_docs(results, self._index)
         return RetrievedEvent(
             question=question, few_shot_context=few_shot_context,
             docs=docs, rewrite_cycles=rewrite_cycles,
@@ -328,8 +327,8 @@ class ReactReviewWorkflow(Workflow):
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        from harness.workflows.react import build_react_workflow
-        self._react = build_react_workflow(
+        from harness.workflows.react_native import build_react_native
+        self._react = build_react_native(
             index=index,
             llm=llm,
             retrieval_config=retrieval_config,

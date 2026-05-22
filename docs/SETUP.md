@@ -240,3 +240,78 @@ The `--host` flag (and `--user`, `--port`) can be set in
   restoring the version you expect.
 - Corpus JSONL files (`corpus/corpus.jsonl`) and benchmark files are
   versioned in Git and do not need MongoDB sync.
+
+---
+
+## 6. Arize Phoenix — tracing and HITL annotation
+
+Phoenix is the trace store and HITL labelling UI. Every LLM call and
+retrieval step is captured as a span tree in Phoenix, which the SME
+uses to label answer quality and individual tool-call quality.
+
+### Phoenix hosting
+
+| Machine | Role | Access |
+|---------|------|--------|
+| Home PC | Always-on Phoenix server | `http://localhost:6006` locally |
+| Elitebook | Evaluation runner | `http://<tailscale-ip>:6006` (home PC via Tailscale) |
+
+Start Phoenix on the home PC once at boot:
+
+```bash
+python -c "import phoenix as px; px.launch_app()"
+# or as a background service — see phoenix docs
+```
+
+Set the Phoenix endpoint in `~/.myenvs/ema_nlp.env` on the Elitebook:
+
+```bash
+PHOENIX_COLLECTOR_ENDPOINT=http://<tailscale-ip>:6006
+```
+
+`harness/providers.py` reads this var and passes it to
+`LlamaIndexInstrumentor` at startup. If unset, it defaults to
+`http://localhost:6006`.
+
+### Phoenix annotation schemas
+
+Create these two annotation configs once in the Phoenix UI
+(*Settings → Annotations → New annotation*):
+
+**`step_quality`** — labels individual tool-call, thought, and observe spans:
+- Type: **Categorical**
+- Values: `good`, `suboptimal`, `wrong`
+- Use: attach to spans whose `span_kind` is `TOOL` or whose name starts
+  with `think` / `act` / `observe`
+
+**`answer_quality`** — labels the root span (final answer):
+- Type: **Continuous** (1–5 scale)
+- Also add a freeform **`reason`** string annotation on the same span
+- Use: attach to the top-level workflow span
+
+### Annotation queues (per strategy)
+
+Create one annotation queue per strategy you are actively labelling.
+In the Phoenix UI (*Datasets → Annotation Queues → New queue*):
+
+| Queue name | Filter |
+|------------|--------|
+| `recent_crag` | `attributes.workflow_name = "crag"` |
+| `recent_react` | `attributes.workflow_name = "react"` |
+
+Work through spans in each queue during an SME session; label both
+`step_quality` (per tool call) and `answer_quality` (root span).
+
+### Exporting annotations to Nextcloud
+
+After each labelling session, export the Phoenix annotations to the
+shared Nextcloud JSONL store so the few-shot injection system can use them:
+
+```bash
+python -m harness.hitl.export_annotations --since 2026-05-23
+```
+
+Output: `~/Nextcloud/Datasets/ema_nlp/annotations/YYYY-MM-DD.jsonl`
+
+See `harness/hitl/export_annotations.py` for `--strategy` and
+`--dry-run` flags.

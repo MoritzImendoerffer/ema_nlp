@@ -203,14 +203,16 @@ the filter matches nothing and the function falls back to a standard dense retri
 
 Each reranker:
 1. Takes the top `max_chunks` results from upstream
-2. Fetches full node text via `index.docstore.get_node(qa_id)` — O(1) lookup
-3. Calls Claude with the query + node text + scoring rubric
-4. Extracts the `0/1/2` score from the response text
-5. Re-sorts results by LLM score descending
-6. Returns the reranked list (original score preserved in metadata)
+2. Calls the LLM (`get_llm('reranker')` — configured in `models.yaml`) with the query + node text + scoring rubric
+3. Extracts the `0/1/2` score from the response text
+4. Re-sorts results by LLM score descending
+5. Returns the reranked list (original score preserved in metadata)
 
-The docstore lookup (step 2) is why the `index` object is passed to the reranker —
-it needs the full text, not just the metadata returned by the retriever.
+Two interfaces are available:
+- **`rerank(results, query, index)`** — tuple-based (`RetrievalResult` list); used by `run_eval.py`
+- **`SMERerankerPostprocessor` / `GenericRerankerPostprocessor`** — `BaseNodePostprocessor` subclasses that accept `list[NodeWithScore]` and produce a distinct Phoenix span per call
+
+The postprocessor interface (`_postprocess_nodes`) is the preferred path for new code as it integrates cleanly with LlamaIndex's tracing pipeline.
 
 ---
 
@@ -331,11 +333,11 @@ as `Workflow` or `FunctionAgent`/`AgentWorkflow` steps in `harness/workflows/`.
 | Index persistence / reload | **Used** | `StorageContext.persist_dir` + `load_index_from_storage()` |
 | Auto-instrumentation | **Used** | `LlamaIndexInstrumentor` → Arize Phoenix OTLP |
 | Workflow orchestration | **Used** | `Workflow` + typed `Event` subclasses (`harness/workflows/`) |
-| ReAct agent | **Used** | `FunctionAgent` + `AgentWorkflow` in `harness/workflows/react.py` |
+| ReAct agent | **Used** | `ReActNativeWorkflow` (per-step spans) in `react_native.py`; `FunctionAgent` legacy in `react.py` |
 | LLM calls | **Used** | LlamaIndex `Anthropic` LLM via `harness/llms.py` |
 | LLM synthesis via `as_query_engine()` | Not used | Claude called directly via LlamaIndex `Anthropic` LLM |
 | `DocumentSummaryIndex` | Not used | Page-level parent nodes built manually in `embed_hierarchical.py` |
 | `QueryFusionRetriever` | Not used | Requires OpenAI install; RRF implemented directly in `_rrf_fuse()` |
-| Node post-processors / rerankers | Not used | A3/A4 rerankers implemented with Anthropic SDK directly |
-| `NodeRelationship.RELATED` | Not used | Cross-refs stored as plain metadata list; lookup via docstore key |
+| Node post-processors / rerankers | **Used** | `SMERerankerPostprocessor` (A3) + `GenericRerankerPostprocessor` (A4) implement `BaseNodePostprocessor`; tuple-based `rerank()` also available |
+| `NodeRelationship.RELATED` | Not used | Cross-refs stored as plain `metadata["cross_refs"]` list (metadata edges, not graph DB); `follow_cross_refs()` does docstore lookup |
 | Streaming retriever | Not used | Retrieval is synchronous; synthesis streams inside the Workflow step |

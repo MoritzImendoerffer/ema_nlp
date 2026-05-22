@@ -63,6 +63,13 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Why:** The old `tier_id` conflated two concerns: which model to use AND what it's used for. Swapping the grader to a local model for offline runs required touching every call site. Roles decouple these: `roles.grader: local_qwen32` swaps only the grader with no code change.  
 **Default role mapping:** agent/grader/rewriter/reranker → `claude_haiku`; judge/reviewer → `claude_opus`.
 
+### Native ReAct workflow (`react_native.py`) as the default `react` strategy
+**Decided:** 2026-05-23  
+**What:** The registry key `react` now points to `ReActNativeWorkflow` (`harness/workflows/react_native.py`), a hand-written LlamaIndex `Workflow` where every agent action is a separate `@step`. The old `FunctionAgent`/`AgentWorkflow` implementation is registered as `react_legacy` and preserved for comparison.  
+**Why:** `FunctionAgent`/`AgentWorkflow` wraps the entire ReAct loop in a single span — Phoenix can label the final answer but not individual tool calls or thoughts. `ReActNativeWorkflow` splits each think/act/observe into its own `@step`, so Phoenix traces show per-step spans that the HITL annotation system can label independently (`step_quality: good/suboptimal/wrong`).  
+**Architecture:** Events: `ThoughtEvent`, `ActionEvent`, `ObservationEvent`, `FinishEvent` (all in `events.py`). Steps: `think` (StartEvent|ObservationEvent → ThoughtEvent|FinishEvent), `act` (ThoughtEvent → ActionEvent), `observe` (ActionEvent → ObservationEvent), `finish` (FinishEvent → StopEvent). Max iterations guard defaults to 5. Same 4 tools as `react_legacy`: `ema_search`, `follow_cross_refs`, `filter_by_topic`, `get_qa_by_id`.  
+**Not chosen:** Keeping `FunctionAgent` for tracing — it does not expose per-step events to Phoenix.
+
 ### `orchestration:` block as the answer-generation schema in eval configs
 **Decided:** 2026-05-23  
 **What:** Eval YAML configs use a top-level `orchestration:` block (with `strategy` and `tier_id` sub-keys) to specify which workflow strategy generates answers. The old `answer_generation:` block (with `enabled`, `strategy`, `tier_id`) is removed.  

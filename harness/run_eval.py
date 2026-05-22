@@ -181,7 +181,7 @@ def run(config_path: Path) -> dict:
     # ---------- Answer generation (orchestration via workflow registry) ----------
     orch_cfg: dict = cfg.get("orchestration", {})
     generated_answers: dict[str, str] = {}  # bench_id → answer text
-    docs_cache: dict[str, list] = {}        # bench_id → list[Doc]
+    docs_cache: dict[str, list] = {}        # bench_id → list[TextNode]
     if orch_cfg:
         from harness.llms import get_llm
         from harness.workflows.registry import get_workflow
@@ -246,11 +246,11 @@ def run(config_path: Path) -> dict:
             if item["bench_id"] in generated_answers:
                 answer = generated_answers[item["bench_id"]]
             elif docs:
-                answer = docs[0].page_content
+                answer = docs[0].text
             else:
                 answer = "No answer found."
 
-            context_passages = [doc.page_content for doc in docs[:10]]
+            context_passages = [doc.text for doc in docs[:10]]
             cited_qa_ids = [doc.metadata["qa_id"] for doc in docs[:10]]
 
             scores = judge.score_item(

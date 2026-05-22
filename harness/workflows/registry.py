@@ -1,5 +1,5 @@
 """
-Workflow registry — factory for all 9 EMA RAG strategies.
+Workflow registry — factory for all EMA RAG strategies.
 
 Adding a new strategy requires only:
 1. Implementing the workflow (returns WorkflowRunner or compatible object)
@@ -10,12 +10,13 @@ Strategy inventory::
     simple_rag_zero    retrieve → generate (zero-shot)
     simple_rag_few     retrieve → generate (few-shot SME examples)
     simple_rag_cot     retrieve → generate (chain-of-thought)
-    react              ReAct tool-calling agent (4 tools)
+    react              ReAct native — hand-written loop, one @step per action (Phoenix spans)
+    react_legacy       ReAct FunctionAgent — LlamaIndex AgentWorkflow (no per-step spans)
     crag               retrieve → grade ⇄ rewrite → generate
     summarize_rag      retrieve → summarize → generate
     crag_summarize     CRAG loop → summarize → generate
     crag_review        CRAG loop → generate → review
-    react_review       react → review (score only; no revision)
+    react_review       react (native) → review (score only; no revision)
 
 Usage::
 
@@ -67,6 +68,11 @@ def _build_simple_rag_cot(index: Any, llm: Any, **kw: Any) -> Any:
 
 
 def _build_react(index: Any, llm: Any, **kw: Any) -> Any:
+    from harness.workflows.react_native import build_react_native
+    return build_react_native(index=index, llm=llm, **kw)
+
+
+def _build_react_legacy(index: Any, llm: Any, **kw: Any) -> Any:
     from harness.workflows.react import build_react_workflow
     return build_react_workflow(index=index, llm=llm, **kw)
 
@@ -104,7 +110,8 @@ WORKFLOW_REGISTRY: dict[str, WorkflowBuilder] = {
     "simple_rag_zero":  _build_simple_rag_zero,
     "simple_rag_few":   _build_simple_rag_few,
     "simple_rag_cot":   _build_simple_rag_cot,
-    "react":            _build_react,
+    "react":            _build_react,           # native per-step workflow (Phoenix spans)
+    "react_legacy":     _build_react_legacy,    # FunctionAgent-based (no per-step spans)
     "crag":             _build_crag,
     "summarize_rag":    _build_summarize_rag,
     "crag_summarize":   _build_crag_summarize,

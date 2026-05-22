@@ -1,6 +1,6 @@
 {
   "status": "implementing",
-  "current_task": "REFACT-009",
+  "current_task": "REFACT-019",
   "tasks": [
     {
       "id": "REFACT-001",
@@ -211,7 +211,7 @@
       "id": "REFACT-009",
       "title": "Build harness/workflows/react_native.py \u2014 hand-written ReAct with per-step events",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-007"
       ],
@@ -236,7 +236,7 @@
       "id": "REFACT-010",
       "title": "Register react_native; rename legacy react entry in registry",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-009"
       ],
@@ -258,7 +258,7 @@
       "id": "REFACT-011",
       "title": "Document Phoenix annotation setup in docs/SETUP.md",
       "type": "documentation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-009"
       ],
@@ -280,7 +280,7 @@
       "id": "REFACT-012",
       "title": "Create harness/hitl/ package skeleton",
       "type": "foundation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-010"
       ],
@@ -300,7 +300,7 @@
       "id": "REFACT-013",
       "title": "Write harness/hitl/export_annotations.py \u2014 Phoenix \u2192 Nextcloud JSONL",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-012"
       ],
@@ -344,7 +344,7 @@
       "id": "REFACT-015",
       "title": "Cache BM25 retriever per session in app.py and run_eval.py",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-004"
       ],
@@ -367,7 +367,7 @@
       "id": "REFACT-016",
       "title": "Drop Doc dataclass; use TextNode end-to-end in workflows and app.py",
       "type": "foundation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-010"
       ],
@@ -399,7 +399,7 @@
       "id": "REFACT-017",
       "title": "Promote A3/A4 rerankers to LlamaIndex NodePostprocessor",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-016"
       ],
@@ -424,7 +424,7 @@
       "id": "REFACT-018",
       "title": "Move EMA acronym hint from react.py to acronym_dict.yaml",
       "type": "foundation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-010"
       ],
@@ -472,7 +472,7 @@
       "id": "REFACT-020",
       "title": "Fix README framing + RETRIEVAL_PIPELINE.md A3/A4 section",
       "type": "documentation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [],
       "week": 5,
       "priority": "low",
@@ -590,14 +590,20 @@
     "REFACT-005",
     "REFACT-006",
     "REFACT-007",
-    "REFACT-008"
+    "REFACT-008",
+    "REFACT-009",
+    "REFACT-010",
+    "REFACT-011",
+    "REFACT-012",
+    "REFACT-013",
+    "REFACT-015",
+    "REFACT-016",
+    "REFACT-017",
+    "REFACT-018",
+    "REFACT-020"
   ],
   "next_available": [
-    "REFACT-009",
-    "REFACT-011",
-    "REFACT-015",
-    "REFACT-019",
-    "REFACT-020"
+    "REFACT-019"
   ],
   "week_summary": {
     "week_1": [

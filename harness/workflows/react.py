@@ -17,7 +17,7 @@ Output::
 
     {
         "answer_text":    str,
-        "docs":           list[Doc],
+        "docs":           list,
         "trajectory":     list[dict],
         "cited_qa_ids":   list[str],
         "prompt_strategy": "react",
@@ -41,7 +41,7 @@ import logging
 from typing import Any
 
 from harness.retrieve import RetrievalConfig, retrieve_with_config
-from harness.workflows.utils import Doc, results_to_docs
+from harness.workflows.utils import results_to_docs
 
 log = logging.getLogger(__name__)
 
@@ -49,22 +49,20 @@ _SYSTEM_PROMPT = (
     "You are an expert on European Medicines Agency (EMA) human-regulatory procedures. "
     "Use the provided tools to find information and answer the question accurately.\n\n"
     "Always call ema_search before answering. When you have sufficient information, "
-    "provide a complete, well-reasoned answer.\n\n"
-    "IMPORTANT: 'AI' means Acceptable Intake (ng/day), not Artificial Intelligence, "
-    "in EMA Q&A documents."
+    "provide a complete, well-reasoned answer."
 )
 
 
-def _format_docs_for_agent(docs: list[Doc]) -> str:
-    if not docs:
+def _format_docs_for_agent(nodes: list) -> str:
+    if not nodes:
         return "No results found."
     lines: list[str] = []
-    for i, doc in enumerate(docs, 1):
-        meta = doc.metadata
+    for i, node in enumerate(nodes, 1):
+        meta = node.metadata
         qa_id = meta.get("qa_id", "?")
         score = meta.get("score", 0.0)
         lines.append(f"[{i}] qa_id={qa_id} score={score:.3f}")
-        lines.append(doc.page_content[:400])
+        lines.append(node.text[:400])
         lines.append("")
     return "\n".join(lines)
 
@@ -92,7 +90,7 @@ class _ReactRunner:
         question: str = inputs.get("question", "")
 
         # Per-invocation state — safe because each ainvoke creates new closures.
-        last_docs: list[Doc] = []
+        last_docs: list = []
         trajectory: list[dict] = []
         cited_qa_ids: list[str] = []
 
@@ -111,11 +109,7 @@ class _ReactRunner:
         def follow_cross_refs(qa_id: str) -> str:
             """Follow cross-references from a Q&A entry to related entries."""
             from harness.embed import follow_cross_refs as _follow
-            nodes = _follow(index, qa_id)
-            docs = [
-                Doc(page_content=n.text, metadata=dict(n.metadata))
-                for n in nodes
-            ]
+            docs = _follow(index, qa_id)
             last_docs.clear()
             last_docs.extend(docs)
             trajectory.append({"type": "tool_call", "tool": "follow_cross_refs", "qa_id": qa_id})

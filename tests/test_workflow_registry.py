@@ -16,10 +16,10 @@ class TestListWorkflows:
         names = list_workflows()
         assert names == sorted(names)
 
-    def test_contains_all_nine_strategies(self):
+    def test_contains_all_strategies(self):
         expected = {
             "simple_rag_zero", "simple_rag_few", "simple_rag_cot",
-            "react", "crag", "summarize_rag",
+            "react", "react_legacy", "crag", "summarize_rag",
             "crag_summarize", "crag_review", "react_review",
         }
         assert expected == set(list_workflows())

@@ -10,7 +10,7 @@ Events::
 
 Output::
 
-    {"answer_text": str, "docs": list[Doc], "summary": str, "prompt_strategy": str}
+    {"answer_text": str, "docs": list, "summary": str, "prompt_strategy": str}
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from llama_index.core.workflow import Context, StartEvent, StopEvent, Workflow, 
 from harness.retrieve import RetrievalConfig, retrieve_with_config
 from harness.workflows.events import RetrievedEvent, SummarizedEvent
 from harness.workflows.utils import (
-    Doc,
     WorkflowRunner,
     build_rag_messages,
     extract_answer,
@@ -73,7 +72,7 @@ class SummarizeRAGWorkflow(Workflow):
         few_shot_context: str = ev.get("few_shot_context", "")
 
         results = retrieve_with_config(self._config, self._index, question)
-        docs: list[Doc] = results_to_docs(results, self._index)
+        docs = results_to_docs(results, self._index)
 
         return RetrievedEvent(
             question=question,

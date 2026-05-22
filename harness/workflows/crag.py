@@ -53,7 +53,6 @@ from llama_index.core.workflow import Context, Event, StartEvent, StopEvent, Wor
 from harness.retrieve import RetrievalConfig, retrieve_with_config
 from harness.workflows.events import GradeEvent, InsufficientEvent, RetrievedEvent
 from harness.workflows.utils import (
-    Doc,
     WorkflowRunner,
     build_rag_messages,
     extract_answer,
@@ -171,7 +170,7 @@ class CRAGWorkflow(Workflow):
             rewrite_cycles = ev.rewrite_cycles
 
         results = retrieve_with_config(self._config, self._index, question)
-        docs: list[Doc] = results_to_docs(results, self._index)
+        docs = results_to_docs(results, self._index)
 
         return RetrievedEvent(
             question=question,

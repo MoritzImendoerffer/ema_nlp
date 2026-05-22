@@ -40,6 +40,10 @@ RetrievalResult = tuple[str, float, dict]
 
 _RRF_K = 60  # standard RRF constant
 
+# BM25 index build is O(n_docs * avg_doc_len) and takes ~1 s for 26k records.
+# Cache per (index identity, k) so each session builds it at most once.
+_bm25_cache: dict[tuple[int, int], BM25Retriever] = {}
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -127,11 +131,14 @@ def make_dense_retriever(index: VectorStoreIndex, k: int, embed_model=None):
 
 
 def make_bm25_retriever(index: VectorStoreIndex, k: int) -> BM25Retriever:
-    """Return a BM25Retriever built from the docstore of the VectorStoreIndex."""
-    return BM25Retriever.from_defaults(
-        docstore=index.docstore,
-        similarity_top_k=k,
-    )
+    """Return a BM25Retriever built from the docstore (cached per session)."""
+    key = (id(index), k)
+    if key not in _bm25_cache:
+        _bm25_cache[key] = BM25Retriever.from_defaults(
+            docstore=index.docstore,
+            similarity_top_k=k,
+        )
+    return _bm25_cache[key]
 
 
 def _rrf_fuse(

@@ -7,12 +7,20 @@ Identical architecture to a3_reranker.py but uses a generic
 A3 vs A4 comparison isolates the value of SME rubric authorship:
 - If A3 beats A4 → the rubric matters.
 - If they tie → generic reranking already captures most of the gain.
+
+Two interfaces:
+  rerank()                     — tuple-based (RetrievalResult list); used by run_eval.py
+  GenericRerankerPostprocessor — LlamaIndex BaseNodePostprocessor; produces Phoenix spans
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
+
+from llama_index.core.postprocessor.types import BaseNodePostprocessor
+from llama_index.core.schema import NodeWithScore, QueryBundle
+from pydantic import Field
 
 from harness.retrieve import RetrievalResult
 
@@ -88,3 +96,44 @@ def rerank(
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [r for _, r in scored] + remainder
+
+
+class GenericRerankerPostprocessor(BaseNodePostprocessor):
+    """LlamaIndex NodePostprocessor wrapping the A4 generic reranker.
+
+    Usage::
+
+        from harness.ablations.a4_reranker import GenericRerankerPostprocessor
+        postprocessor = GenericRerankerPostprocessor(max_chunks=5)
+        reranked = postprocessor.postprocess_nodes(nodes, query_str="NDMA limit")
+    """
+
+    max_chunks: int = Field(default=_DEFAULT_MAX_CHUNKS)
+
+    @classmethod
+    def class_name(cls) -> str:
+        return "GenericRerankerPostprocessor"
+
+    def _postprocess_nodes(
+        self,
+        nodes: list[NodeWithScore],
+        query_bundle: Optional[QueryBundle] = None,
+    ) -> list[NodeWithScore]:
+        if not nodes:
+            return nodes
+
+        query_str = query_bundle.query_str if query_bundle else ""
+        from harness.llms import get_llm
+        llm = get_llm("reranker")
+
+        to_score = nodes[:self.max_chunks]
+        remainder = nodes[self.max_chunks:]
+
+        scored: list[tuple[float, NodeWithScore]] = []
+        for nws in to_score:
+            llm_score = _score_chunk(llm, query_str, nws.node.text)
+            scored.append((llm_score, nws))
+            log.debug("A4 (postprocessor) score %s → %.0f", nws.node.node_id, llm_score)
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [nws for _, nws in scored] + remainder
