@@ -150,7 +150,12 @@ def run(config_path: Path) -> dict:
             from harness.ablations.a2_topic_filter import make_concept_retriever
             retriever = make_concept_retriever(index, query, k=k)
             from harness.retrieve import _results_from_nodes
-            results = _results_from_nodes(retriever.retrieve(expanded))
+            try:
+                results = _results_from_nodes(retriever.retrieve(expanded))
+            except (ValueError, NotImplementedError) as _exc:
+                log.warning(
+                    "A2 concept filter unavailable (%s) — falling back to base retrieval", _exc
+                )
 
         # A3/A4 — optional LLM reranker (model from 'reranker' role in models.yaml)
         if _reranker_name == "sme":
