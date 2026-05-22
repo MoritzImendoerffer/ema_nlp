@@ -547,3 +547,87 @@ class TestFewshotInjectNodeName:
         # Should not raise with node_name= kwarg
         result = get_fewshot_context(vec, cache, node_name="generate", min_examples=1)
         assert result is None
+
+
+# ===========================================================================
+# LG-007: MemorySaver multi-turn session state
+# ===========================================================================
+
+class TestMemorySaverMultiTurn:
+    def test_pipeline_compiled_with_checkpointer(self):
+        """build_pipeline() accepts a MemorySaver checkpointer without error."""
+        from harness.chains.pipeline import PipelineConfig, build_pipeline
+        from langgraph.checkpoint.memory import MemorySaver
+
+        p = build_pipeline(
+            PipelineConfig(),
+            retriever=_make_mock_retriever(),
+            llm=_make_str_llm("answer"),
+            checkpointer=MemorySaver(),
+        )
+        assert p is not None
+
+    def test_sequential_calls_with_same_thread_id_share_checkpoint(self):
+        """Two sequential graph.invoke() calls with the same thread_id share state."""
+        from harness.chains.pipeline import PipelineConfig, build_pipeline
+        from langgraph.checkpoint.memory import MemorySaver
+
+        checkpointer = MemorySaver()
+        pipeline = build_pipeline(
+            PipelineConfig(),
+            retriever=_make_mock_retriever(),
+            llm=_make_str_llm("the answer"),
+            checkpointer=checkpointer,
+        )
+
+        # config must be passed as config={"configurable": {...}} (LangGraph convention)
+        thread_config = {"configurable": {"thread_id": "session-abc"}}
+
+        r1 = pipeline.invoke({"question": "Q1"}, config=thread_config)
+        assert r1["answer_text"] == "the answer"
+
+        r2 = pipeline.invoke({"question": "Q2"}, config=thread_config)
+        assert r2["answer_text"] == "the answer"
+
+        # checkpoint saved for this thread
+        saved = checkpointer.get(thread_config)
+        assert saved is not None
+
+    def test_different_thread_ids_are_independent(self):
+        """Different thread_ids should not share checkpointed state."""
+        from harness.chains.pipeline import PipelineConfig, build_pipeline
+        from langgraph.checkpoint.memory import MemorySaver
+
+        checkpointer = MemorySaver()
+        pipeline = build_pipeline(
+            PipelineConfig(),
+            retriever=_make_mock_retriever(),
+            llm=_make_str_llm("answer"),
+            checkpointer=checkpointer,
+        )
+
+        cfg1 = {"configurable": {"thread_id": "thread-1"}}
+        cfg2 = {"configurable": {"thread_id": "thread-2"}}
+        r1 = pipeline.invoke({"question": "Q1"}, config=cfg1)
+        r2 = pipeline.invoke({"question": "Q2"}, config=cfg2)
+
+        assert r1["answer_text"]
+        assert r2["answer_text"]
+
+        # Both threads have separate checkpoints
+        cp1 = checkpointer.get(cfg1)
+        cp2 = checkpointer.get(cfg2)
+        assert cp1 is not None
+        assert cp2 is not None
+
+    def test_without_checkpointer_works_stateless(self):
+        """build_pipeline() without checkpointer works as before (no thread_id needed)."""
+        from harness.chains.pipeline import PipelineConfig, build_pipeline
+
+        pipeline = build_pipeline(
+            PipelineConfig(),
+            retriever=_make_mock_retriever(),
+            llm=_make_str_llm("stateless answer"),
+        )
+        result = pipeline.invoke({"question": "test"})
+        assert result["answer_text"] == "stateless answer"

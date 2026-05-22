@@ -140,7 +140,7 @@
       "id": "LG-007",
       "title": "LangGraph MemorySaver for interactive sessions in app.py",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["LG-004"],
       "acceptance_criteria": [
         "app.py creates a session_id (uuid4) at startup and prints it",
@@ -178,8 +178,8 @@
       ]
     }
   ],
-  "completed_tasks": ["LG-001", "LG-002", "LG-003", "LG-004", "LG-005", "LG-006"],
-  "next_available": ["LG-007", "LG-008"],
+  "completed_tasks": ["LG-001", "LG-002", "LG-003", "LG-004", "LG-005", "LG-006", "LG-007"],
+  "next_available": ["LG-008"],
   "parallel_opportunities": [],
   "critical_path": ["LG-001", "LG-004", "LG-005", "LG-006"],
   "total_estimated_hours": {

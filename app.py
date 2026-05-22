@@ -1,8 +1,12 @@
 """
 EMA Q&A Chat UI — Chainlit 2.11
 
-Browser chat with hybrid RAG retrieval, streaming Claude synthesis,
+Browser chat with hybrid RAG retrieval, LangGraph pipeline synthesis,
 Arize Phoenix trace integration, and per-step 👍/👎 feedback.
+
+Each chat session runs through a LangGraph pipeline compiled with
+MemorySaver, so the full pipeline state is checkpointed per turn.
+The session_id (uuid4) is printed at startup and stored per browser session.
 
 Usage:
     chainlit run app.py
@@ -23,10 +27,7 @@ from typing import Any
 
 import chainlit as cl
 import numpy as np
-import opentelemetry.context as otel_ctx
-import opentelemetry.trace as otel_trace
 from dotenv import load_dotenv
-from opentelemetry.trace import set_span_in_context
 
 load_dotenv(Path.home() / ".myenvs" / "ema_nlp.env", override=False)
 
@@ -53,13 +54,6 @@ if not PHOENIX_DISABLED:
         log.warning("Phoenix setup failed (%s) — tracing disabled", exc)
         PHOENIX_DISABLED = True
 
-# SDK imports after registration so auto-instrumentation patches are in place
-import anthropic
-
-_tracer = otel_trace.get_tracer("ema-nlp.app")
-
-_NULL_SPAN_ID = "0" * 16
-
 
 # ── Index loading (runs in a thread pool worker) ──────────────────────────────
 
@@ -85,6 +79,27 @@ def _embed_query_sync(query: str) -> np.ndarray | None:
         return None
 
 
+def _build_session_pipeline(index: Any) -> Any:
+    """Build a build_pipeline() instance with MemorySaver for a single browser session."""
+    from harness.chains.pipeline import PipelineConfig, build_pipeline
+    from harness.chains.retriever import EMARetriever
+    from langchain_anthropic import ChatAnthropic
+    from langgraph.checkpoint.memory import MemorySaver
+
+    retriever = EMARetriever(index=index, mode="hybrid", k=RETRIEVAL_K)
+    llm = ChatAnthropic(
+        model=CLAUDE_MODEL,
+        max_tokens=1024,
+        api_key=os.getenv("ANTHROPIC_API_KEY"),  # type: ignore[arg-type]
+    )
+    return build_pipeline(
+        PipelineConfig(),
+        retriever=retriever,
+        llm=llm,
+        checkpointer=MemorySaver(),
+    )
+
+
 # ── Chainlit lifecycle ────────────────────────────────────────────────────────
 
 @cl.on_chat_start
@@ -97,7 +112,15 @@ async def on_chat_start() -> None:
     except Exception as exc:
         await cl.Message(content=f"Index load failed: {exc}").send()
         raise
-    cl.user_session.set("index", index)
+
+    # Session identity — printed to server log and stored for MemorySaver thread_id
+    session_id = str(uuid.uuid4())
+    log.info("Session started: %s", session_id)
+    cl.user_session.set("session_id", session_id)
+
+    # Build LangGraph pipeline with MemorySaver (persists state across turns in this session)
+    pipeline = await asyncio.to_thread(_build_session_pipeline, index)
+    cl.user_session.set("pipeline", pipeline)
 
     # Initialise semantic cache — graceful if index dir doesn't exist yet
     def _init_cache():
@@ -113,17 +136,19 @@ async def on_chat_start() -> None:
     ).send()
 
 
-# ── Pipeline (called inside a root OTel span) ─────────────────────────────────
+# ── Pipeline (one turn, uses compiled LangGraph with MemorySaver) ─────────────
 
-async def _run_pipeline(query: str, msg_num: int, index: Any) -> None:
-    # ── Cache lookup ──────────────────────────────────────────────────────────
+async def _run_pipeline(query: str, msg_num: int) -> None:
     from harness.query_cache import CacheEntry, QueryCache
 
+    pipeline: Any = cl.user_session.get("pipeline")
+    session_id: str = cl.user_session.get("session_id", str(uuid.uuid4()))
     cache: QueryCache | None = cl.user_session.get("cache")
     query_vec = await asyncio.to_thread(_embed_query_sync, query)
 
-    few_shot_entry: CacheEntry | None = None  # populated if user picks "context" mode
+    few_shot_entry: CacheEntry | None = None
 
+    # ── Cache lookup ──────────────────────────────────────────────────────────
     if cache is not None and query_vec is not None:
         cache_hits = cache.get_similar(query_vec, k=3)
         if cache_hits:
@@ -169,124 +194,52 @@ async def _run_pipeline(query: str, msg_num: int, index: Any) -> None:
             elif choice == "context":
                 few_shot_entry = cache_hits[0][0]
 
-    retrieval_span_id: str = _NULL_SPAN_ID
-    synthesis_span_id: str = _NULL_SPAN_ID
-
-    # ── Step 1: Retrieval ─────────────────────────────────────────────────────
-    async with cl.Step(name="Retrieval", type="retrieval") as ret_step:
-        ret_step.input = query
-
-        def _do_retrieval():
-            from harness.retrieve import RetrievalConfig, retrieve_with_config
-            _ret_cfg = RetrievalConfig(
-                strategy=os.getenv("EMA_RETRIEVAL_STRATEGY", "flat"),  # type: ignore[arg-type]
-                mode=os.getenv("EMA_RETRIEVAL_MODE", "hybrid"),  # type: ignore[arg-type]
-                k=RETRIEVAL_K,
-            )
-            with _tracer.start_as_current_span("ema-app.retrieval") as span:
-                res = retrieve_with_config(_ret_cfg, index, query)
-                sid = format(span.get_span_context().span_id, "016x")
-            return res, sid
-
-        results, retrieval_span_id = await asyncio.to_thread(_do_retrieval)
-
-        sources: list[dict[str, Any]] = []
-        for qa_id, score, meta in results[:SOURCES_SHOWN]:
-            node = index.docstore.get_node(qa_id)
-            text = node.text if node else ""
-            q_part, _, a_part = text.partition("\n\nA: ")
-            sources.append(
-                {
-                    "score": score,
-                    "question": q_part.removeprefix("Q: "),
-                    "answer": a_part,
-                    "topic_path": meta.get("topic_path", ""),
-                    "source_url": meta.get("source_url", ""),
-                }
-            )
-
-        top3 = ", ".join(f"{r[1]:.3f}" for r in results[:3])
-        ret_step.output = f"Retrieved {len(results)} docs — top-3 scores: {top3}"
-
-    # ── Source sidebar elements ───────────────────────────────────────────────
-    source_elements: list[cl.Text] = []
-    for i, src in enumerate(sources, 1):
-        url = src["source_url"]
-        link = f"[{url}]({url})" if url else "_no URL_"
-        q = src["question"]
-        short_q = q[:120] + ("…" if len(q) > 120 else "")
-        card = (
-            f"**Q{msg_num}·{i}. {short_q}**\n\n"
-            f"Score: `{src['score']:.3f}` · Topic: `{src['topic_path'] or '—'}`\n\n"
-            f"Source: {link}"
-        )
-        source_elements.append(cl.Text(name=f"Q{msg_num} · Src {i}", content=card, display="side"))
-
-    # ── Step 2: Synthesis ─────────────────────────────────────────────────────
-    context_block = "\n\n---\n\n".join(
-        f"[{i}] Q: {s['question']}\nA: {s['answer']}" for i, s in enumerate(sources, 1)
-    )
-    system_prompt = (
-        "You are an expert assistant for European Medicines Agency (EMA) "
-        "regulatory Q&A. Answer based ONLY on the provided reference excerpts. "
-        "If the excerpts lack sufficient information, say so explicitly. "
-        "Cite excerpt numbers [1], [2] etc. when relevant."
-    )
-
+    # ── LangGraph pipeline invocation with MemorySaver + thread_id ────────────
     few_shot_block = ""
     if few_shot_entry is not None:
         few_shot_block = (
-            f"\nExample of a similar past question and answer for context:\n"
+            f"Example of a similar past question and answer for context:\n"
             f"Q: {few_shot_entry.question_text}\n"
             f"A: {few_shot_entry.answer_summary}\n\n"
         )
 
-    user_prompt = (
-        f"{few_shot_block}"
-        f"Reference excerpts from EMA regulatory documents:\n\n{context_block}\n\n"
-        f"Question: {query}"
-    )
+    async with cl.Step(name="Pipeline", type="run") as step:
+        step.input = query
+        result: dict = await pipeline.ainvoke(
+            {"question": query, "few_shot_context": few_shot_block},
+            config={"configurable": {"thread_id": session_id}},
+        )
+        step.output = f"Done: {len(result.get('answer_text', ''))} chars"
 
-    synthesis_span = _tracer.start_span("ema-app.synthesis")
-    token = otel_ctx.attach(set_span_in_context(synthesis_span))
-    answer_msg = cl.Message(content="", elements=source_elements)
-    usage_str = ""
-    answer_text = ""
+    answer_text: str = result.get("answer_text", "No answer generated.")
+    docs: list = result.get("docs", [])
 
-    try:
-        async with cl.Step(name="Synthesis", type="llm") as syn_step:
-            syn_step.input = query
-
-            async with anthropic.AsyncAnthropic().messages.stream(
-                model=CLAUDE_MODEL,
-                max_tokens=1024,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-            ) as stream:
-                async for chunk in stream.text_stream:
-                    answer_text += chunk
-                    await answer_msg.stream_token(chunk)
-                final = await stream.get_final_message()
-
-            usage_str = (
-                f"{final.usage.input_tokens} in / {final.usage.output_tokens} out tokens"
-            )
-            syn_step.output = f"Done ({usage_str})"
-            synthesis_span_id = format(synthesis_span.get_span_context().span_id, "016x")
-    finally:
-        synthesis_span.end()
-        otel_ctx.detach(token)
+    # ── Source sidebar elements ───────────────────────────────────────────────
+    source_elements: list[cl.Text] = []
+    for i, doc in enumerate(docs[:SOURCES_SHOWN], 1):
+        meta = doc.metadata if hasattr(doc, "metadata") else {}
+        score = meta.get("score", 0.0)
+        topic = meta.get("topic_path", "")
+        url = meta.get("source_url", "")
+        text = doc.page_content if hasattr(doc, "page_content") else ""
+        q_part, _, _ = text.partition("\n\nA: ")
+        short_q = q_part.removeprefix("Q: ")[:120] + ("…" if len(q_part) > 120 else "")
+        link = f"[{url}]({url})" if url else "_no URL_"
+        card = (
+            f"**Q{msg_num}·{i}. {short_q}**\n\n"
+            f"Score: `{score:.3f}` · Topic: `{topic or '—'}`\n\n"
+            f"Source: {link}"
+        )
+        source_elements.append(cl.Text(name=f"Q{msg_num} · Src {i}", content=card, display="side"))
 
     # ── Final message ─────────────────────────────────────────────────────────
-    if not PHOENIX_DISABLED:
-        answer_msg.content += f"\n\n[View traces →]({PHOENIX_URL}/projects/ema-nlp)"
-
-    await answer_msg.send()
+    footer = f"\n\n[View traces →]({PHOENIX_URL}/projects/ema-nlp)" if not PHOENIX_DISABLED else ""
+    await cl.Message(content=answer_text + footer, elements=source_elements).send()
 
     # ── Store in cache ────────────────────────────────────────────────────────
     if cache is not None and query_vec is not None and answer_text:
         run_id = str(uuid.uuid4())
-        cited_ids = [r[0] for r in results[:SOURCES_SHOWN]]
+        cited_ids = result.get("cited_qa_ids", [])
         await asyncio.to_thread(
             cache.add_entry,
             run_id,
@@ -297,37 +250,23 @@ async def _run_pipeline(query: str, msg_num: int, index: Any) -> None:
         )
         cl.user_session.set("last_run_id", run_id)
 
-    # Rating actions
-    actions: list[cl.Action] = []
-    if retrieval_span_id != _NULL_SPAN_ID:
-        actions += [
-            cl.Action(name="rate",
-                      payload={"step": "retrieval", "span_id": retrieval_span_id, "rating": "good"},
-                      label="👍 Retrieval"),
-            cl.Action(name="rate",
-                      payload={"step": "retrieval", "span_id": retrieval_span_id, "rating": "bad"},
-                      label="👎 Retrieval"),
-        ]
-    if synthesis_span_id != _NULL_SPAN_ID:
-        actions += [
-            cl.Action(name="rate",
-                      payload={"step": "synthesis", "span_id": synthesis_span_id, "rating": "good"},
-                      label="👍 Answer"),
-            cl.Action(name="rate",
-                      payload={"step": "synthesis", "span_id": synthesis_span_id, "rating": "bad"},
-                      label="👎 Answer"),
-        ]
-    if actions:
-        await cl.Message(content="Rate this response:", actions=actions).send()
+    # ── Rating actions ────────────────────────────────────────────────────────
+    await cl.Message(
+        content="Rate this response:",
+        actions=[
+            cl.Action(name="rate", payload={"rating": "good", "run_id": cl.user_session.get("last_run_id", "")}, label="👍 Helpful"),
+            cl.Action(name="rate", payload={"rating": "bad",  "run_id": cl.user_session.get("last_run_id", "")}, label="👎 Not helpful"),
+        ],
+    ).send()
 
 
 # ── Message handler ───────────────────────────────────────────────────────────
 
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
-    index = cl.user_session.get("index")
-    if index is None:
-        await cl.Message(content="Index not loaded — please refresh.").send()
+    pipeline = cl.user_session.get("pipeline")
+    if pipeline is None:
+        await cl.Message(content="Pipeline not loaded — please refresh.").send()
         return
 
     query = message.content.strip()
@@ -337,48 +276,41 @@ async def on_message(message: cl.Message) -> None:
     msg_num = cl.user_session.get("msg_counter", 0) + 1
     cl.user_session.set("msg_counter", msg_num)
 
-    # Root OTel span groups retrieval + synthesis into a single trace in Phoenix.
-    # try/finally ensures it is always closed, including early-return cache paths.
-    root_span = _tracer.start_span("ema-app.request")
-    root_span.set_attribute("query", query[:500])
-    root_span.set_attribute("msg_num", msg_num)
-    root_token = otel_ctx.attach(set_span_in_context(root_span))
-
-    try:
-        await _run_pipeline(query, msg_num, index)
-    finally:
-        root_span.end()
-        otel_ctx.detach(root_token)
+    await _run_pipeline(query, msg_num)
 
 
 # ── Feedback callback ─────────────────────────────────────────────────────────
 
 @cl.action_callback("rate")
 async def on_rate(action: cl.Action) -> None:
-    """Post 👍/👎 as a Phoenix span annotation."""
+    """Post 👍/👎 as a Phoenix span annotation by run_id."""
     payload = action.payload
-    step_name = payload.get("step", "unknown")
-    span_id = payload.get("span_id", "")
     rating = payload.get("rating", "")
-    if not span_id or not rating:
+    run_id = payload.get("run_id", "")
+    if not rating:
         return
 
     label = "good" if rating == "good" else "bad"
     score = 1.0 if rating == "good" else 0.0
 
-    if not PHOENIX_DISABLED:
+    if not PHOENIX_DISABLED and run_id:
         try:
             from phoenix.client import Client as PhoenixClient
+            from harness.rating import _find_recent_root_span_id
 
-            PhoenixClient(base_url=PHOENIX_URL).spans.add_span_annotation(
-                span_id=span_id,
-                annotation_name=f"user-rating-{step_name}",
-                annotator_kind="HUMAN",
-                label=label,
-                score=score,
-            )
+            client = PhoenixClient(base_url=PHOENIX_URL)
+            span_id = _find_recent_root_span_id(client, "ema-nlp")
+            if span_id:
+                client.spans.add_span_annotation(
+                    span_id=span_id,
+                    annotation_name="user_rating",
+                    annotator_kind="HUMAN",
+                    label=label,
+                    score=score,
+                    metadata={"run_id": run_id},
+                )
         except Exception as exc:
             log.warning("Phoenix annotation failed: %s", exc)
 
     emoji = "👍" if rating == "good" else "👎"
-    await cl.Message(content=f"{emoji} Recorded ({label}) for {step_name} step.").send()
+    await cl.Message(content=f"{emoji} Recorded ({label}).").send()
