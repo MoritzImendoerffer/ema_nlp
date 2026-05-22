@@ -1,0 +1,212 @@
+{
+  "status": "planning_complete",
+  "current_task": null,
+  "tasks": [
+    {
+      "id": "WF-001",
+      "title": "LlamaIndex LLM factory (replaces harness/chains/llms.py)",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "harness/llms.py exports get_llm(tier_id) -> LlamaIndex LLM",
+        "Anthropic tiers use llama-index-llms-anthropic Anthropic class",
+        "OLMo tier uses OpenAILike with Together AI base_url",
+        "llama-index-llms-openai added to pyproject.toml",
+        "LangChain LLM imports NOT present in the new file"
+      ],
+      "estimated_hours": 2,
+      "priority": "high",
+      "files_changed": ["harness/llms.py (new)", "pyproject.toml"]
+    },
+    {
+      "id": "WF-002",
+      "title": "Workflow infrastructure: typed events and shared utilities",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": ["WF-001"],
+      "acceptance_criteria": [
+        "harness/workflows/__init__.py created",
+        "harness/workflows/events.py defines: RetrievedEvent, GradeEvent, InsufficientEvent, GeneratedEvent, ReviewedEvent, SummarizedEvent (all Pydantic Event subclasses)",
+        "harness/workflows/utils.py provides: format_docs(), load_system_prompt(), extract_answer() (same logic as current simple_rag.py helpers)",
+        "All imports resolve; no LangChain imports"
+      ],
+      "estimated_hours": 2,
+      "priority": "high",
+      "files_changed": [
+        "harness/workflows/__init__.py (new)",
+        "harness/workflows/events.py (new)",
+        "harness/workflows/utils.py (new)"
+      ]
+    },
+    {
+      "id": "WF-003",
+      "title": "Simple RAG workflows: zero_shot, few_shot, cot_self",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["WF-001", "WF-002"],
+      "acceptance_criteria": [
+        "harness/workflows/simple_rag.py defines SimpleRAGWorkflow(Workflow) with strategy param",
+        "Single step: retrieve via retrieve_with_config() directly (no EMARetriever bridge), then call LLM",
+        "Supports zero_shot / few_shot / cot_self strategies",
+        "few_shot_context injected from StartEvent when provided",
+        "Output: {'answer_text': str, 'docs': list, 'prompt_strategy': str}"
+      ],
+      "estimated_hours": 3,
+      "priority": "high",
+      "files_changed": ["harness/workflows/simple_rag.py (new)"]
+    },
+    {
+      "id": "WF-004",
+      "title": "CRAG workflow: retrieve → grade ⇄ rewrite → generate",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["WF-001", "WF-002"],
+      "acceptance_criteria": [
+        "harness/workflows/crag.py defines CRAGWorkflow(Workflow)",
+        "Steps: retrieve → grade → (if InsufficientEvent) rewrite → retrieve loop, (if RetrievedEvent) generate → StopEvent",
+        "Max rewrite cycles enforced via Context counter",
+        "Grade uses LlamaIndex LLM (structured output preferred; fallback to string matching)",
+        "Output includes docs, answer_text, rewrite_cycles_used"
+      ],
+      "estimated_hours": 3,
+      "priority": "high",
+      "files_changed": ["harness/workflows/crag.py (new)"]
+    },
+    {
+      "id": "WF-005",
+      "title": "Summarize RAG workflow: retrieve → summarize → generate",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["WF-001", "WF-002"],
+      "acceptance_criteria": [
+        "harness/workflows/summarize_rag.py defines SummarizeRAGWorkflow(Workflow)",
+        "Steps: retrieve → summarize (LLM condenses docs into 200-word summary) → generate",
+        "Summarization uses same LLM instance as generation",
+        "Output: {'answer_text': str, 'docs': list, 'summary': str}"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium",
+      "files_changed": ["harness/workflows/summarize_rag.py (new)"]
+    },
+    {
+      "id": "WF-006",
+      "title": "Review step: faithfulness check for composite workflows",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["WF-001", "WF-002"],
+      "acceptance_criteria": [
+        "harness/workflows/review.py defines review_step() as a standalone @step function and ReviewMixin Workflow base class",
+        "Review calls Judge (harness/judge.py) directly — no extra LLM wrapper",
+        "Emits ReviewedEvent(score, feedback, passed=score>=threshold)",
+        "Threshold configurable (default 0.6); max_review_cycles configurable (default 1)"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium",
+      "files_changed": ["harness/workflows/review.py (new)"]
+    },
+    {
+      "id": "WF-007",
+      "title": "ReAct agent workflow with 4 EMA tools",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["WF-001", "WF-002"],
+      "acceptance_criteria": [
+        "harness/workflows/react.py defines build_react_workflow() factory",
+        "Uses LlamaIndex FunctionAgent with 4 tools: ema_search, follow_cross_refs, filter_by_topic, get_qa_by_id",
+        "Tools call harness/retrieve.py directly (no EMARetriever bridge, no mutable _last_docs state)",
+        "Wrapped in a thin Workflow so it has the same invoke() / ainvoke() interface as other workflows",
+        "Output: {'answer_text': str, 'docs': list, 'trajectory': list, 'cited_qa_ids': list}"
+      ],
+      "estimated_hours": 4,
+      "priority": "high",
+      "files_changed": ["harness/workflows/react.py (new)"]
+    },
+    {
+      "id": "WF-008",
+      "title": "Composite workflows and registry (9 strategies)",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["WF-003", "WF-004", "WF-005", "WF-006", "WF-007"],
+      "acceptance_criteria": [
+        "harness/workflows/composites.py defines CRAGSummarizeWorkflow, CRAGReviewWorkflow, ReactReviewWorkflow",
+        "harness/workflows/registry.py exports get_workflow(name, index, llm) and list_workflows()",
+        "All 9 strategies registered: simple_rag_zero, simple_rag_few, simple_rag_cot, react, crag, summarize_rag, crag_summarize, crag_review, react_review",
+        "Each workflow has a sync invoke({'question': str}) and async ainvoke({'question': str})",
+        "Output dict is uniform: answer_text, docs, prompt_strategy — extra keys allowed per strategy"
+      ],
+      "estimated_hours": 3,
+      "priority": "high",
+      "files_changed": [
+        "harness/workflows/composites.py (new)",
+        "harness/workflows/registry.py (new)"
+      ]
+    },
+    {
+      "id": "WF-009",
+      "title": "Update app.py: replace LangGraph pipeline with LlamaIndex Workflow",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["WF-008"],
+      "acceptance_criteria": [
+        "_build_session_pipeline() replaced with _build_session_workflow() using get_workflow() from harness/workflows/registry.py",
+        "No imports from harness.chains, langchain_anthropic, langgraph",
+        "pipeline.ainvoke() → workflow.ainvoke() with same {'question': str, 'few_shot_context': str} interface",
+        "result['docs'] is list of dicts with 'metadata' and 'page_content' keys OR adapted to match downstream usage in app.py",
+        "Chainlit session starts successfully (manual smoke test)"
+      ],
+      "estimated_hours": 2,
+      "priority": "high",
+      "files_changed": ["app.py"]
+    },
+    {
+      "id": "WF-010",
+      "title": "Delete LangChain code and strip deps from pyproject.toml",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": ["WF-009"],
+      "acceptance_criteria": [
+        "harness/chains/ directory deleted",
+        "harness/langsmith_dataset.py deleted",
+        "harness/run_langsmith_eval.py deleted",
+        "harness/agents/react_agent.py deleted (deprecated since LG-007)",
+        "pyproject.toml no longer lists: langchain-core, langchain-anthropic, langchain-openai, langchain-community, langgraph, langsmith",
+        "pip install -e '.[dev]' succeeds with no LangChain packages installed",
+        "ruff check . passes"
+      ],
+      "estimated_hours": 1,
+      "priority": "high",
+      "files_changed": [
+        "harness/chains/ (deleted)",
+        "harness/langsmith_dataset.py (deleted)",
+        "harness/run_langsmith_eval.py (deleted)",
+        "harness/agents/react_agent.py (deleted)",
+        "pyproject.toml"
+      ]
+    },
+    {
+      "id": "WF-011",
+      "title": "Replace LangChain test suite with Workflow tests",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": ["WF-003", "WF-004", "WF-005", "WF-006", "WF-007", "WF-008"],
+      "acceptance_criteria": [
+        "tests/test_langchain_chains.py deleted",
+        "tests/test_pipeline_nodes.py deleted",
+        "tests/test_workflows.py created: unit tests for SimpleRAGWorkflow, CRAGWorkflow, SummarizeRAGWorkflow using mocked index and LLM",
+        "tests/test_workflow_registry.py created: tests for get_workflow(), list_workflows()",
+        "pytest passes with no LangChain imports in any test file"
+      ],
+      "estimated_hours": 3,
+      "priority": "medium",
+      "files_changed": [
+        "tests/test_langchain_chains.py (deleted)",
+        "tests/test_pipeline_nodes.py (deleted)",
+        "tests/test_workflows.py (new)",
+        "tests/test_workflow_registry.py (new)"
+      ]
+    }
+  ],
+  "completed_tasks": [],
+  "next_available": ["WF-001"]
+}
