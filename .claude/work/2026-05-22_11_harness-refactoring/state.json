@@ -1,6 +1,6 @@
 {
   "status": "implementing",
-  "current_task": "REFACT-021",
+  "current_task": "REFACT-022",
   "tasks": [
     {
       "id": "REFACT-001",
@@ -492,7 +492,7 @@
       "id": "REFACT-021",
       "title": "Run full Ablation A comparison (A0\u2013A5) on simple_rag_zero",
       "type": "testing",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-015",
         "REFACT-016",
@@ -601,10 +601,11 @@
     "REFACT-017",
     "REFACT-018",
     "REFACT-020",
-    "REFACT-019"
+    "REFACT-019",
+    "REFACT-021"
   ],
   "next_available": [
-    "REFACT-021"
+    "REFACT-022"
   ],
   "week_summary": {
     "week_1": [
