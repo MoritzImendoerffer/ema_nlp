@@ -1,8 +1,7 @@
 # C: mid-tier × SME few-shot
 ablation: {}
-answer_generation:
-  enabled: true
-  strategy: few_shot
+orchestration:
+  strategy: simple_rag_few
   tier_id: mid
 benchmark:
   path: benchmark/benchmark.jsonl

@@ -179,57 +179,43 @@ def run(config_path: Path) -> dict:
             json.dumps(retrieval_results, indent=2), encoding="utf-8"
         )
 
-    # ---------- Answer generation (Ablation C) ----------
-    ans_gen_cfg = cfg.get("answer_generation", {})
+    # ---------- Answer generation (orchestration via workflow registry) ----------
+    orch_cfg: dict = cfg.get("orchestration", {})
     generated_answers: dict[str, str] = {}  # bench_id → answer text
-    retrieved_cache: dict[str, list] = {}   # bench_id → retrieve_fn output (avoid double call)
-    if ans_gen_cfg.get("enabled", False):
-        from harness.answer_gen import generate_answer
-        from harness.models import TIER_MID
-        ag_strategy = ans_gen_cfg.get("strategy", "zero_shot")
-        ag_tier = ans_gen_cfg.get("tier_id", TIER_MID)
-        log.info("Answer generation enabled: strategy=%s tier=%s", ag_strategy, ag_tier)
+    docs_cache: dict[str, list] = {}        # bench_id → list[Doc]
+    if orch_cfg:
+        from harness.llms import get_llm
+        from harness.workflows.registry import get_workflow
+        orch_strategy = orch_cfg["strategy"]
+        orch_tier = orch_cfg.get("tier_id", "mid")
+        log.info("Orchestration enabled: strategy=%s tier=%s", orch_strategy, orch_tier)
 
-        # Build corpus map qa_id → {text, source_title, source_url}
-        ag_corpus_map: dict[str, dict] = {}
-        try:
-            with corpus_path.open(encoding="utf-8") as fh:
-                for line in fh:
-                    r = json.loads(line)
-                    ag_corpus_map[r["qa_id"]] = {
-                        "qa_id": r["qa_id"],
-                        "text": f"Q: {r['question']}\n\nA: {r['answer']}",
-                        "source_title": r.get("source_title", ""),
-                        "source_url": r.get("source_url", ""),
-                    }
-        except FileNotFoundError:
-            log.warning("Corpus not found for answer generation; answers will be empty")
+        llm = get_llm(orch_tier)
+        workflow = get_workflow(
+            orch_strategy, index=index, llm=llm, retrieval_config=ret_config
+        )
 
         with benchmark_path.open(encoding="utf-8") as fh:
-            ag_items = [json.loads(line) for line in fh]
+            orch_items = [json.loads(line) for line in fh]
 
         ag_out_path = out_dir / "generated_answers.jsonl"
         with ag_out_path.open("w", encoding="utf-8") as ag_out:
-            for item in ag_items:
-                retrieved = retrieve_fn(item["question"])
-                retrieved_cache[item["bench_id"]] = retrieved
-                docs = []
-                for qa_id, score, meta in retrieved[:10]:
-                    doc = ag_corpus_map.get(qa_id, {})
-                    if doc:
-                        docs.append({**doc, "score": score})
+            for item in orch_items:
                 try:
-                    gen = generate_answer(
-                        item["question"],
-                        docs,
-                        strategy=ag_strategy,
-                        tier_id=ag_tier,
-                    )
-                    generated_answers[item["bench_id"]] = gen["answer_text"]
-                    row = {"bench_id": item["bench_id"], "type": item["type"], **gen}
+                    result = workflow.invoke({"question": item["question"]})
+                    generated_answers[item["bench_id"]] = result["answer_text"]
+                    docs_cache[item["bench_id"]] = result.get("docs", [])
+                    row = {
+                        "bench_id": item["bench_id"],
+                        "type": item["type"],
+                        "answer_text": result["answer_text"],
+                        "prompt_strategy": result.get("prompt_strategy", orch_strategy),
+                        "tier_id": orch_tier,
+                    }
                 except Exception as exc:
                     log.warning("Answer generation failed for %s: %s", item["bench_id"], exc)
                     generated_answers[item["bench_id"]] = "No answer generated."
+                    docs_cache[item["bench_id"]] = []
                     row = {"bench_id": item["bench_id"], "type": item["type"], "error": str(exc)}
                 ag_out.write(json.dumps(row, ensure_ascii=False) + "\n")
         log.info("Generated answers written to %s", ag_out_path)
@@ -247,32 +233,28 @@ def run(config_path: Path) -> dict:
     judge_cfg = cfg.get("judge", {})
     if judge_cfg.get("enabled", False):
         from harness.judge import Judge
+        from harness.workflows.utils import results_to_docs
         judge = Judge(model=judge_cfg.get("model") or get_llm_model())
         log.info("Running LLM judge …")
         with benchmark_path.open(encoding="utf-8") as fh:
             bench_items = [json.loads(line) for line in fh]
 
-        # Load corpus for context
-        corpus_map: dict[str, str] = {}
-        try:
-            with corpus_path.open(encoding="utf-8") as fh:
-                for line in fh:
-                    r = json.loads(line)
-                    corpus_map[r["qa_id"]] = f"Q: {r['question']}\nA: {r['answer']}"
-        except FileNotFoundError:
-            pass
-
         for item in bench_items:
-            retrieved = retrieved_cache.get(item["bench_id"]) or retrieve_fn(item["question"])
-            # Use LLM-generated answer if available (Ablation C), else top-1 retrieved
+            docs = docs_cache.get(item["bench_id"])
+            if docs is None:
+                raw = retrieve_fn(item["question"])
+                docs = results_to_docs(raw, index)
+                docs_cache[item["bench_id"]] = docs
+
             if item["bench_id"] in generated_answers:
                 answer = generated_answers[item["bench_id"]]
-            elif retrieved:
-                _qa_id, _score, _meta = retrieved[0]
-                answer = corpus_map.get(_qa_id, "No answer found.")
+            elif docs:
+                answer = docs[0].page_content
             else:
                 answer = "No answer found."
-            context_passages = [corpus_map[r[0]] for r in retrieved[:10] if r[0] in corpus_map]
+
+            context_passages = [doc.page_content for doc in docs[:10]]
+            cited_qa_ids = [doc.metadata["qa_id"] for doc in docs[:10]]
 
             scores = judge.score_item(
                 question=item["question"],
@@ -280,7 +262,12 @@ def run(config_path: Path) -> dict:
                 gold_answer=item["gold_answer"],
                 context_passages=context_passages,
             )
-            judge_scores.append({"bench_id": item["bench_id"], "type": item["type"], **scores})
+            judge_scores.append({
+                "bench_id": item["bench_id"],
+                "type": item["type"],
+                "cited_qa_ids": cited_qa_ids,
+                **scores,
+            })
 
         with (out_dir / "judge_scores.jsonl").open("w", encoding="utf-8") as fh:
             for row in judge_scores:

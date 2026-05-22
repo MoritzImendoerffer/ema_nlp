@@ -1,8 +1,7 @@
 # C: mid-tier × zero-shot
 ablation: {}
-answer_generation:
-  enabled: true
-  strategy: zero_shot
+orchestration:
+  strategy: simple_rag_zero
   tier_id: mid
 benchmark:
   path: benchmark/benchmark.jsonl

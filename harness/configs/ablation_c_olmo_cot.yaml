@@ -1,8 +1,7 @@
 # C: OLMo-3 × self-generated CoT
 ablation: {}
-answer_generation:
-  enabled: true
-  strategy: cot_self
+orchestration:
+  strategy: simple_rag_cot
   tier_id: olmo
 benchmark:
   path: benchmark/benchmark.jsonl

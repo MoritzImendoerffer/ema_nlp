@@ -1,8 +1,7 @@
 # C: mid-tier × self-generated CoT
 ablation: {}
-answer_generation:
-  enabled: true
-  strategy: cot_self
+orchestration:
+  strategy: simple_rag_cot
   tier_id: mid
 benchmark:
   path: benchmark/benchmark.jsonl

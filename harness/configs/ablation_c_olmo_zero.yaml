@@ -1,8 +1,7 @@
 # C: OLMo-3 × zero-shot
 ablation: {}
-answer_generation:
-  enabled: true
-  strategy: zero_shot
+orchestration:
+  strategy: simple_rag_zero
   tier_id: olmo
 benchmark:
   path: benchmark/benchmark.jsonl

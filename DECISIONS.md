@@ -53,6 +53,19 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Not chosen:** Using LangGraph for orchestration — the impedance mismatch at the LlamaIndex/LangChain boundary outweighed the benefits of LangGraph's state machine semantics for this retrieval-centric project.  
 **Ref:** [`.claude/work/2026-05-22_10_llamaindex-langgraph-assessment/`](.claude/work/2026-05-22_10_llamaindex-langgraph-assessment/)
 
+### `orchestration:` block as the answer-generation schema in eval configs
+**Decided:** 2026-05-23  
+**What:** Eval YAML configs use a top-level `orchestration:` block (with `strategy` and `tier_id` sub-keys) to specify which workflow strategy generates answers. The old `answer_generation:` block (with `enabled`, `strategy`, `tier_id`) is removed.  
+**Schema:**
+```yaml
+orchestration:
+  strategy: simple_rag_zero   # any key from harness/workflows/registry.py
+  tier_id: mid                # model tier — removed entirely in REFACT-007 (role-based)
+```
+Configs *without* an `orchestration:` block skip answer generation silently (used by retrieval-only baseline runs A0 and A0+).  
+**Why:** The old `answer_generation:` block called `harness.answer_gen.generate_answer()` directly, bypassing the LlamaIndex workflow layer. The new schema routes through `get_workflow()` in the registry, so every strategy gets Phoenix tracing, event-driven steps, and the same `invoke()` interface used everywhere else. `harness/answer_gen.py` is deleted.  
+**Mapping from old strategies:** `zero_shot → simple_rag_zero`, `few_shot → simple_rag_few`, `cot_self → simple_rag_cot`.
+
 ---
 
 ## Observability and tracing

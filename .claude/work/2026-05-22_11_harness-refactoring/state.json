@@ -1,0 +1,633 @@
+{
+  "status": "implementing",
+  "current_task": "REFACT-005",
+  "tasks": [
+    {
+      "id": "REFACT-001",
+      "title": "Migrate ablation_c configs to orchestration: block",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [],
+      "week": 1,
+      "priority": "high",
+      "estimated_hours": 1,
+      "files": [
+        "harness/configs/ablation_c_mid_zero.yaml",
+        "harness/configs/ablation_c_mid_few.yaml",
+        "harness/configs/ablation_c_mid_cot.yaml",
+        "harness/configs/ablation_c_frontier_zero.yaml",
+        "harness/configs/ablation_c_frontier_few.yaml",
+        "harness/configs/ablation_c_frontier_cot.yaml",
+        "harness/configs/ablation_c_olmo_zero.yaml",
+        "harness/configs/ablation_c_olmo_few.yaml",
+        "harness/configs/ablation_c_olmo_cot.yaml",
+        "harness/configs/baseline_a0.yaml",
+        "harness/configs/baseline_a0plus.yaml"
+      ],
+      "acceptance_criteria": [
+        "All 9 ablation_c configs have orchestration: block with strategy + tier_id",
+        "Strategy mapping applied: zero_shot\u2192simple_rag_zero, few_shot\u2192simple_rag_few, cot_self\u2192simple_rag_cot",
+        "Old answer_generation: block removed from all 9 ablation_c configs",
+        "Two baseline configs have no orchestration: block (answer gen disabled by absence)"
+      ]
+    },
+    {
+      "id": "REFACT-002",
+      "title": "Wire run_eval.py answer generation to workflow registry",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [
+        "REFACT-001"
+      ],
+      "week": 1,
+      "priority": "high",
+      "estimated_hours": 2,
+      "files": [
+        "harness/run_eval.py"
+      ],
+      "acceptance_criteria": [
+        "Answer generation block reads orchestration: YAML section instead of answer_generation:",
+        "Uses get_workflow(strategy, index=index, llm=llm, retrieval_config=ret_config).invoke()",
+        "LLM built from orchestration.tier_id via get_llm()",
+        "generated_answers populated from result['answer_text']",
+        "retrieved_cache populated from result['docs'] (list[Doc])",
+        "Judge context_passages built from docs directly, not corpus_map lookup",
+        "No import of harness.answer_gen remains in run_eval.py",
+        "Configs without orchestration: block skip answer generation silently"
+      ]
+    },
+    {
+      "id": "REFACT-003",
+      "title": "Delete answer_gen.py and update judge integration",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [
+        "REFACT-002"
+      ],
+      "week": 1,
+      "priority": "high",
+      "estimated_hours": 1,
+      "files": [
+        "harness/answer_gen.py",
+        "harness/run_eval.py",
+        "tests/test_workflows.py"
+      ],
+      "acceptance_criteria": [
+        "harness/answer_gen.py deleted",
+        "Judge section uses doc.page_content for context_passages (not corpus_map lookup)",
+        "Judge section uses doc.metadata['qa_id'] for cited_qa_ids",
+        "Tests for answer_gen.py removed or migrated to workflow tests",
+        "No broken imports anywhere"
+      ]
+    },
+    {
+      "id": "REFACT-004",
+      "title": "Confirm baselines A0 and A0+ reproduce through workflow path",
+      "type": "testing",
+      "status": "completed",
+      "dependencies": [
+        "REFACT-003"
+      ],
+      "week": 1,
+      "priority": "high",
+      "estimated_hours": 2,
+      "files": [
+        "harness/configs/ablation_c_mid_zero.yaml"
+      ],
+      "acceptance_criteria": [
+        "pytest tests/ passes",
+        "python -m harness.run_eval --config harness/configs/ablation_c_mid_zero.yaml succeeds",
+        "run_summary.md written under results/ablation_c_mid_zero/",
+        "Judge scores match pre-refactor values within \u00b10.05 (or difference explained)",
+        "DECISIONS.md updated with new orchestration: schema entry"
+      ]
+    },
+    {
+      "id": "REFACT-005",
+      "title": "Restructure models.yaml into models: + roles: sections",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-004"
+      ],
+      "week": 2,
+      "priority": "high",
+      "estimated_hours": 1,
+      "files": [
+        "harness/configs/models.yaml",
+        "harness/models.py"
+      ],
+      "acceptance_criteria": [
+        "models.yaml has top-level models: dict and roles: dict",
+        "models: contains claude_haiku, claude_opus, olmo_32b, local_qwen32 (openai_compatible provider)",
+        "roles: contains agent, grader, rewriter, reranker, judge, reviewer",
+        "ModelConfig dataclass extended with api_base and api_key_env fields for openai_compatible",
+        "load_tier() renamed to load_model_for_role() accepting a role name",
+        "Old tiers: section removed",
+        "DECISIONS.md updated with role/model separation entry"
+      ]
+    },
+    {
+      "id": "REFACT-006",
+      "title": "Refactor harness/llms.py \u2014 get_llm(role) API; break tier_id",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-005"
+      ],
+      "week": 2,
+      "priority": "high",
+      "estimated_hours": 2,
+      "files": [
+        "harness/llms.py"
+      ],
+      "acceptance_criteria": [
+        "get_llm(role_name) accepts role strings: 'agent', 'grader', 'rewriter', 'reranker', 'judge', 'reviewer'",
+        "openai_compatible provider implemented via llama-index-llms-openai with api_base override",
+        "tier_id parameter removed entirely \u2014 no backward compat alias",
+        "EnvironmentError raised if API key env var is missing for the resolved model",
+        "get_llm('agent') returns Haiku by default (per models.yaml roles.agent: claude_haiku)"
+      ]
+    },
+    {
+      "id": "REFACT-007",
+      "title": "Migrate all tier_id call sites to get_llm(role)",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-006"
+      ],
+      "week": 2,
+      "priority": "high",
+      "estimated_hours": 2,
+      "files": [
+        "harness/run_eval.py",
+        "harness/judge.py",
+        "harness/ablations/a3_reranker.py",
+        "harness/ablations/a4_reranker.py",
+        "harness/workflows/crag.py",
+        "harness/workflows/react.py",
+        "harness/workflows/registry.py",
+        "harness/configs/ablation_c_*.yaml"
+      ],
+      "acceptance_criteria": [
+        "run_eval.py: orchestration.tier_id removed; llm built as get_llm('agent')",
+        "judge.py: constructs LLM via get_llm('judge'), no direct anthropic SDK client",
+        "a3_reranker.py and a4_reranker.py: use get_llm('reranker'), no direct SDK",
+        "registry.py: get_workflow() no longer accepts tier_id kwarg",
+        "All ablation_c configs: tier_id removed from orchestration: block",
+        "No reference to TierId, TIER_MID, TIER_FRONTIER, TIER_OLMO in hot paths",
+        "pytest tests/ passes",
+        "run_eval.py smoke test succeeds"
+      ]
+    },
+    {
+      "id": "REFACT-008",
+      "title": "Fix CRAG grader: per-doc JSON scoring + missing_facts + grounded rewrite",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-007"
+      ],
+      "week": 2,
+      "priority": "high",
+      "estimated_hours": 3,
+      "files": [
+        "harness/workflows/crag.py",
+        "harness/workflows/events.py"
+      ],
+      "acceptance_criteria": [
+        "_GRADE_SYSTEM replaced with per-doc 0/1/2 scoring prompt returning JSON {per_doc, missing_facts}",
+        "grade step returns GradeEvent if any doc scores 2 AND missing_facts is empty",
+        "grade step returns InsufficientEvent with missing_facts list when retrieval insufficient",
+        "InsufficientEvent carries missing_facts; rewrite step uses them in the rewrite prompt",
+        "Rewrite prompt targets specific missing_facts, not just 'try again'",
+        "Max-cycles fallback logs the per_doc scores and missing_facts for debugging",
+        "graded_docs field in GradeEvent carries per-doc scores as span-annotatable data",
+        "Unit tests cover the new grade logic (sufficient/insufficient/max-cycles paths)"
+      ]
+    },
+    {
+      "id": "REFACT-009",
+      "title": "Build harness/workflows/react_native.py \u2014 hand-written ReAct with per-step events",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-007"
+      ],
+      "week": 3,
+      "priority": "high",
+      "estimated_hours": 4,
+      "files": [
+        "harness/workflows/react_native.py",
+        "harness/workflows/events.py"
+      ],
+      "acceptance_criteria": [
+        "ReActNativeWorkflow implements StartEvent \u2192 think \u2192 ThoughtEvent \u2192 act \u2192 ActionEvent | FinishEvent \u2192 observe \u2192 ObservationEvent \u2192 think loop",
+        "Each step is a separate @step producing its own Phoenix span",
+        "Same 4 tools as existing react.py: ema_search, get_qa_by_id, list_topics, get_related",
+        "FinishEvent carries cited_qa_ids parsed from the agent's final answer",
+        "Max iterations guard (default 5) prevents infinite loops",
+        "react_native answers the same benchmark questions as react_legacy within \u00b110% correctness (informal check)",
+        "Unit tests cover the thought\u2192act\u2192observe cycle and the max-iter guard"
+      ]
+    },
+    {
+      "id": "REFACT-010",
+      "title": "Register react_native; rename legacy react entry in registry",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-009"
+      ],
+      "week": 3,
+      "priority": "medium",
+      "estimated_hours": 1,
+      "files": [
+        "harness/workflows/registry.py"
+      ],
+      "acceptance_criteria": [
+        "Registry key 'react' now points to react_native builder",
+        "Registry key 'react_legacy' points to the old FunctionAgent-based builder",
+        "react_review composite updated to use react (native) by default",
+        "list_workflows() returns both 'react' and 'react_legacy'",
+        "DECISIONS.md updated with react_native decision entry"
+      ]
+    },
+    {
+      "id": "REFACT-011",
+      "title": "Document Phoenix annotation setup in docs/SETUP.md",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-009"
+      ],
+      "week": 3,
+      "priority": "medium",
+      "estimated_hours": 1,
+      "files": [
+        "docs/SETUP.md"
+      ],
+      "acceptance_criteria": [
+        "SETUP.md section 'Phoenix annotation schemas' describes how to create step_quality and answer_quality configs in Phoenix UI",
+        "step_quality: categorical {good, suboptimal, wrong} \u2014 for tool-call and thought spans",
+        "answer_quality: 1-5 scale + freeform reason \u2014 for root spans",
+        "Section 'Phoenix hosting' documents home PC always-on + Elitebook via Tailscale setup",
+        "Section notes that annotation queues per strategy (one for 'recent CRAG', one for 'recent react') should be created manually"
+      ]
+    },
+    {
+      "id": "REFACT-012",
+      "title": "Create harness/hitl/ package skeleton",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-010"
+      ],
+      "week": 4,
+      "priority": "medium",
+      "estimated_hours": 1,
+      "files": [
+        "harness/hitl/__init__.py"
+      ],
+      "acceptance_criteria": [
+        "harness/hitl/ directory exists with __init__.py",
+        "Package docstring explains: HITL code lives here; writes JSONL to Nextcloud; never stores data in-repo",
+        "pytest tests/ still passes (no import errors from new package)"
+      ]
+    },
+    {
+      "id": "REFACT-013",
+      "title": "Write harness/hitl/export_annotations.py \u2014 Phoenix \u2192 Nextcloud JSONL",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-012"
+      ],
+      "week": 4,
+      "priority": "medium",
+      "estimated_hours": 3,
+      "files": [
+        "harness/hitl/export_annotations.py"
+      ],
+      "acceptance_criteria": [
+        "Script queries Phoenix annotations API for labelled spans since a given date",
+        "Output JSONL schema: {trace_id, span_id, span_name, input, output, labels, reason, annotated_by, annotated_at}",
+        "Writes to ~/Nextcloud/Datasets/ema_nlp/annotations/YYYY-MM-DD.jsonl",
+        "Supports --since DATE and --strategy STRATEGY_NAME filter flags",
+        "Dry-run mode (--dry-run) prints rows to stdout without writing",
+        "Handles Phoenix API errors gracefully (logs, exits non-zero)",
+        "Unit test with mocked Phoenix client verifies schema and file naming"
+      ]
+    },
+    {
+      "id": "REFACT-014",
+      "title": "First SME labelling session + runtime interrupt decision",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-013"
+      ],
+      "week": 4,
+      "priority": "medium",
+      "estimated_hours": 3,
+      "files": [],
+      "acceptance_criteria": [
+        "5 benchmark questions run through simple_rag_zero, crag, react_native",
+        "All spans labelled in Phoenix with step_quality and answer_quality",
+        "export_annotations.py successfully exports to Nextcloud JSONL",
+        "OPEN_QUESTIONS.md entry for 'runtime HITL interrupt' updated with decision based on labelling UX",
+        "If interrupt decided: REFACT-014b added to plan for CRAGReviewWorkflow HumanConfirmEvent"
+      ]
+    },
+    {
+      "id": "REFACT-015",
+      "title": "Cache BM25 retriever per session in app.py and run_eval.py",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-004"
+      ],
+      "week": 5,
+      "priority": "low",
+      "estimated_hours": 1,
+      "files": [
+        "harness/retrieve.py",
+        "app.py",
+        "harness/run_eval.py"
+      ],
+      "acceptance_criteria": [
+        "make_bm25_retriever called once per session in app.py on_chat_start",
+        "make_bm25_retriever called once in run_eval.py setup phase, passed to retrieve_fn",
+        "Subsequent calls within a session reuse the cached instance",
+        "No functional change to retrieval results"
+      ]
+    },
+    {
+      "id": "REFACT-016",
+      "title": "Drop Doc dataclass; use TextNode end-to-end in workflows and app.py",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-010"
+      ],
+      "week": 5,
+      "priority": "low",
+      "estimated_hours": 3,
+      "files": [
+        "harness/workflows/utils.py",
+        "harness/workflows/simple_rag.py",
+        "harness/workflows/crag.py",
+        "harness/workflows/react.py",
+        "harness/workflows/react_native.py",
+        "harness/workflows/summarize_rag.py",
+        "harness/workflows/review.py",
+        "harness/workflows/composites.py",
+        "app.py"
+      ],
+      "acceptance_criteria": [
+        "Doc dataclass removed from workflows/utils.py",
+        "results_to_docs() returns list[TextNode]",
+        "format_docs() accepts list[TextNode] and reads node.text + node.metadata",
+        "app.py iteration over docs uses node.text / node.metadata directly \u2014 no hasattr checks",
+        "All workflow StopEvent results contain docs: list[TextNode]",
+        "run_eval.py judge section updated to use TextNode.text for context_passages",
+        "pytest tests/ passes"
+      ]
+    },
+    {
+      "id": "REFACT-017",
+      "title": "Promote A3/A4 rerankers to LlamaIndex NodePostprocessor",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-016"
+      ],
+      "week": 5,
+      "priority": "low",
+      "estimated_hours": 2,
+      "files": [
+        "harness/ablations/a3_reranker.py",
+        "harness/ablations/a4_reranker.py",
+        "harness/run_eval.py"
+      ],
+      "acceptance_criteria": [
+        "a3_reranker and a4_reranker implement BaseNodePostprocessor interface",
+        "postprocess_nodes() accepts list[NodeWithScore] and returns reranked list[NodeWithScore]",
+        "run_eval.py chains postprocessor after base retriever via RetrieverQueryEngine or manual call",
+        "Reranker now uses get_llm('reranker') (already done in REFACT-007)",
+        "Results traceable in Phoenix as a distinct span",
+        "Retrieval eval results unchanged for runs without reranking"
+      ]
+    },
+    {
+      "id": "REFACT-018",
+      "title": "Move EMA acronym hint from react.py to acronym_dict.yaml",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-010"
+      ],
+      "week": 5,
+      "priority": "low",
+      "estimated_hours": 1,
+      "files": [
+        "harness/workflows/react.py",
+        "harness/workflows/react_native.py",
+        "ablations/A_evidence_filter/acronym_dict.yaml"
+      ],
+      "acceptance_criteria": [
+        "Hardcoded 'AI means Acceptable Intake' string removed from react.py system prompt",
+        "acronym_dict.yaml contains AI: Acceptable Intake (ng/day) entry",
+        "react_native.py applies A1 query expansion (with acronym dict) before tool calls",
+        "Expansion is applied in the retrieve step, not hardcoded in the prompt"
+      ]
+    },
+    {
+      "id": "REFACT-019",
+      "title": "Move results/ to Nextcloud; add repo symlink",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-004"
+      ],
+      "week": 5,
+      "priority": "low",
+      "estimated_hours": 1,
+      "files": [
+        "harness/configs/*.yaml",
+        "docs/SETUP.md",
+        ".gitignore"
+      ],
+      "acceptance_criteria": [
+        "results/ directory moved to ~/Nextcloud/Datasets/ema_nlp/results/",
+        "Symlink results/ \u2192 ~/Nextcloud/Datasets/ema_nlp/results/ in repo root",
+        "Symlink added to .gitignore (or tracked as symlink \u2014 check git behavior)",
+        "All harness/configs/*.yaml results.base_dir updated to ~/Nextcloud/Datasets/ema_nlp/results",
+        "SETUP.md documents the Nextcloud results directory",
+        "DECISIONS.md updated with code/data separation entry"
+      ]
+    },
+    {
+      "id": "REFACT-020",
+      "title": "Fix README framing + RETRIEVAL_PIPELINE.md A3/A4 section",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": [],
+      "week": 5,
+      "priority": "low",
+      "estimated_hours": 1,
+      "files": [
+        "README.md",
+        "docs/RETRIEVAL_PIPELINE.md"
+      ],
+      "acceptance_criteria": [
+        "README no longer says 'Tinkering with Graph RAG'",
+        "README describes project as 'Agentic RAG evaluation toolkit for EMA regulatory documents with SME-in-the-loop review'",
+        "RETRIEVAL_PIPELINE.md A3/A4 section updated to say rerankers use get_llm('reranker') (not raw SDK)",
+        "cross_refs described as metadata edges (not a property graph or Neo4j)"
+      ]
+    },
+    {
+      "id": "REFACT-021",
+      "title": "Run full Ablation A comparison (A0\u2013A5) on simple_rag_zero",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-015",
+        "REFACT-016",
+        "REFACT-017",
+        "REFACT-018",
+        "REFACT-019"
+      ],
+      "week": 6,
+      "priority": "medium",
+      "estimated_hours": 2,
+      "files": [
+        "harness/configs/ablation_a_*.yaml",
+        "results/"
+      ],
+      "acceptance_criteria": [
+        "All 6 ablation_a configs run successfully through new workflow path",
+        "Per-type (T1\u2013T4) retrieval and judge metrics written to results/",
+        "A0+ reproduces within \u00b10.02 of pre-refactor baseline (confirms no regression)",
+        "run_summary.md written for each config"
+      ]
+    },
+    {
+      "id": "REFACT-022",
+      "title": "Run workflow axis comparison (simple_rag_zero, crag, react, crag_review) on A0+",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-021"
+      ],
+      "week": 6,
+      "priority": "medium",
+      "estimated_hours": 2,
+      "files": [
+        "harness/configs/",
+        "results/"
+      ],
+      "acceptance_criteria": [
+        "4 new workflow-axis configs created (workflow_simple_rag.yaml, workflow_crag.yaml, workflow_react.yaml, workflow_crag_review.yaml) \u2014 all use A0+ retrieval",
+        "All 4 configs run successfully",
+        "Per-type judge metrics available for each strategy",
+        "Strategy comparison table written to results/workflow_comparison.md"
+      ]
+    },
+    {
+      "id": "REFACT-023",
+      "title": "Write T1/T2/T3/T4 per-strategy comparison report",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-022"
+      ],
+      "week": 6,
+      "priority": "medium",
+      "estimated_hours": 2,
+      "files": [
+        "results/workflow_comparison.md"
+      ],
+      "acceptance_criteria": [
+        "Report covers all Ablation A strategies (A0\u2013A5) and all workflow strategies",
+        "Per-type breakdown for T1, T2, T3, T4: recall@k, faithfulness, correctness, lift",
+        "Key findings highlighted: which strategy helps T3 multi-hop, which hurts T1 lookup",
+        "Failure-mode observations from SME labelling integrated"
+      ]
+    },
+    {
+      "id": "REFACT-024",
+      "title": "SME failure-mode breakdown + v2 scope decision",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": [
+        "REFACT-023"
+      ],
+      "week": 6,
+      "priority": "medium",
+      "estimated_hours": 2,
+      "files": [
+        "DECISIONS.md",
+        "OPEN_QUESTIONS.md",
+        "project_roadmap/ROADMAP.md"
+      ],
+      "acceptance_criteria": [
+        "Failure modes broken down by AgentHallu taxonomy: planning, retrieval, reasoning, tool_use, none",
+        "Per-strategy failure mode distribution documented",
+        "v2 scope decision made: graph RAG (if cross_ref traversal failed on T3), DSPy (if \u226550 rated runs), Ablation B (process rewards)",
+        "DECISIONS.md updated with v2 scope entry",
+        "ROADMAP.md Phase 3+ section updated based on findings"
+      ]
+    }
+  ],
+  "completed_tasks": [
+    "REFACT-001",
+    "REFACT-002",
+    "REFACT-003",
+    "REFACT-004"
+  ],
+  "next_available": [
+    "REFACT-005",
+    "REFACT-020"
+  ],
+  "week_summary": {
+    "week_1": [
+      "REFACT-001",
+      "REFACT-002",
+      "REFACT-003",
+      "REFACT-004"
+    ],
+    "week_2": [
+      "REFACT-005",
+      "REFACT-006",
+      "REFACT-007",
+      "REFACT-008"
+    ],
+    "week_3": [
+      "REFACT-009",
+      "REFACT-010",
+      "REFACT-011"
+    ],
+    "week_4": [
+      "REFACT-012",
+      "REFACT-013",
+      "REFACT-014"
+    ],
+    "week_5": [
+      "REFACT-015",
+      "REFACT-016",
+      "REFACT-017",
+      "REFACT-018",
+      "REFACT-019",
+      "REFACT-020"
+    ],
+    "week_6": [
+      "REFACT-021",
+      "REFACT-022",
+      "REFACT-023",
+      "REFACT-024"
+    ]
+  }
+}
