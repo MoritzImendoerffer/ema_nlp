@@ -156,26 +156,6 @@ def build_index(
     return index
 
 
-def dense_retrieve(
-    index: VectorStoreIndex,
-    query: str,
-    k: int = 10,
-    embed_model=None,
-) -> list[tuple[str, float]]:
-    """
-    Dense retrieval: embed query and return top-k (qa_id, score) pairs.
-    """
-    retriever = index.as_retriever(similarity_top_k=k, embed_model=embed_model)
-    nodes = retriever.retrieve(query)
-
-    results = []
-    for node_with_score in nodes:
-        qa_id = node_with_score.node.metadata.get("qa_id", node_with_score.node.node_id)
-        results.append((qa_id, float(node_with_score.score or 0.0)))
-
-    return results
-
-
 def get_node_by_id(index: VectorStoreIndex, qa_id: str) -> TextNode | None:
     """Look up a node by qa_id from the docstore (O(1))."""
     try:

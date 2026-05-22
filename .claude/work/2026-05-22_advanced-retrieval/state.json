@@ -1,0 +1,138 @@
+{
+  "status": "implementing",
+  "current_task": "RET-002",
+  "tasks": [
+    {
+      "id": "RET-001",
+      "title": "Architecture cleanup: remove dead code and fix naming conflicts",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [],
+      "estimated_hours": 2,
+      "priority": "high",
+      "acceptance_criteria": [
+        "harness/embed.py::dense_retrieve() removed — identical functionality exists in retrieve.py::retrieve(mode='dense')",
+        "harness/agents/react_agent.py has a module-level deprecation notice pointing to harness/chains/agents/react.py",
+        "All output dicts in harness/chains/ use 'prompt_strategy' key instead of 'strategy' to prevent confusion with retrieval strategy",
+        "harness/chains/agents/crag.py updated: output key renamed to prompt_strategy",
+        "harness/chains/agents/react.py updated: output key renamed to prompt_strategy",
+        "harness/chains/simple_rag.py updated: output key renamed to prompt_strategy",
+        "pytest tests/test_langchain_chains.py passes (update test assertions that check the key name)",
+        "grep -r '\"strategy\"' harness/chains/ shows no remaining 'strategy' keys in output dicts"
+      ]
+    },
+    {
+      "id": "RET-002",
+      "title": "Retrieval config schema and unified retriever factory",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": ["RET-001"],
+      "estimated_hours": 3,
+      "priority": "high",
+      "acceptance_criteria": [
+        "RetrievalConfig dataclass defined in harness/retrieve.py with fields: mode, strategy, k, recursive_max_hops, hierarchical_summary_dir",
+        "make_retriever(config, index) factory in harness/retrieve.py routes to the correct EMARetriever subclass based on config.strategy",
+        "EMARetriever in harness/chains/retriever.py updated to accept strategy='flat'|'recursive'|'hierarchical' parameter (defaults to 'flat' — backward compatible)",
+        "run_eval.py uses make_retriever(cfg, index) instead of the bespoke retrieve_fn closure (ablation steps A1/A2/A3 remain as post-processing wrappers around make_retriever)",
+        "app.py retrieval step uses EMARetriever with configurable mode (removes direct retrieve() import)",
+        "All existing harness/configs/*.yaml files run unchanged (flat strategy is default if key absent)",
+        "YAML config extended: retrieval.strategy key documented in baseline_a0.yaml",
+        "pytest tests/ passes with no regressions"
+      ]
+    },
+    {
+      "id": "RET-003",
+      "title": "Recursive retrieval strategy: automatic cross_ref expansion",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["RET-002"],
+      "estimated_hours": 3,
+      "priority": "high",
+      "acceptance_criteria": [
+        "RecursiveEMARetriever (or EMARetriever with strategy='recursive') performs initial flat retrieval then expands via cross_refs metadata",
+        "Expansion is limited by config.recursive_max_hops (default 1); max_hops=0 degenerates to flat",
+        "Expanded nodes are deduplicated and appended after initial results (so top-k initial results are preserved at the front)",
+        "Config key: retrieval.strategy: recursive with optional retrieval.recursive.max_hops: 1",
+        "New config file: harness/configs/retrieval_recursive.yaml with run_id: recursive_hybrid, mode: hybrid, strategy: recursive",
+        "Tests in tests/test_retrieval_strategies.py: (1) corpus with cross_refs → expanded results include referenced nodes; (2) max_hops=0 → no expansion; (3) circular cross_ref → no infinite loop; (4) no cross_refs → identical to flat",
+        "make_retriever(config, index) correctly instantiates recursive retriever when strategy='recursive'"
+      ]
+    },
+    {
+      "id": "RET-004",
+      "title": "Hierarchical DocumentSummaryIndex: EMA page-level summary nodes",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["RET-002"],
+      "estimated_hours": 4,
+      "priority": "medium",
+      "acceptance_criteria": [
+        "build_hierarchical_index(corpus_path, index_dir, *, force=False, embed_model=None) in harness/embed.py (or harness/embed_hierarchical.py) creates a two-level node structure",
+        "Parent nodes: one per unique source_url, text = 'Title: {source_title}\\nTopic: {topic_path}\\nQ&A count: {n}'; metadata includes source_url, source_type, topic_path, child_qa_ids list",
+        "Child nodes: existing Q&A TextNodes (unchanged) with PARENT relationship pointing to the parent node ID",
+        "Hierarchical index persisted alongside flat index (new subdir: hierarchical/) so both can coexist",
+        "HierarchicalEMARetriever (or EMARetriever with strategy='hierarchical'): retrieves top parent nodes by dense similarity, expands to all child Q&A nodes for each matched parent, re-ranks children by dense similarity to original query",
+        "Config: retrieval.strategy: hierarchical, retrieval.hierarchical.top_doc_k: 5 (number of parent docs to expand)",
+        "New config file: harness/configs/retrieval_hierarchical.yaml",
+        "Tests: corpus of 2 source_urls × 3 Q&As each; retrieval of a targeted query returns Q&As from the correct source_url parent",
+        "build_hierarchical_index does NOT require a new LLM call — parent summary is constructed from metadata, not LLM-generated"
+      ]
+    },
+    {
+      "id": "RET-005",
+      "title": "Adaptive strategy selection from rated trajectories",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["RET-002"],
+      "estimated_hours": 3,
+      "priority": "medium",
+      "acceptance_criteria": [
+        "CacheEntry dataclass in harness/query_cache.py gains two new nullable fields: retrieval_strategy (str|None) and question_type (str|None='T1'|'T2'|'T3'|'T4')",
+        "Backward compatible: existing cache JSON files load correctly (fields default to None when absent)",
+        "StrategySelector class in harness/strategy_selector.py with method suggest(query_vec, cache, *, default='flat') -> str",
+        "suggest() finds similar past questions (similarity >= 0.85), groups by retrieval_strategy, computes weighted-average rating (weight = similarity), returns highest-scoring strategy",
+        "Falls back to default when: cache is empty, no rated entries, no entries with retrieval_strategy set, or best strategy has fewer than 3 supporting examples",
+        "StrategySelector.explain(query_vec, cache) -> dict returns the rationale (strategy, supporting_examples, avg_rating) for transparency/debugging",
+        "app.py calls StrategySelector.suggest() and displays the recommended strategy name in the retrieval step header",
+        "Cache.add_entry() signature extended: add retrieval_strategy=None, question_type=None parameters",
+        "Tests: (1) empty cache → fallback; (2) 5 rated entries all using 'recursive' with rating 5 → suggest returns 'recursive'; (3) mixed strategies → highest-rated wins; (4) below similarity threshold → fallback"
+      ]
+    },
+    {
+      "id": "RET-006",
+      "title": "Eval harness and chain registry integration",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["RET-003", "RET-004", "RET-005"],
+      "estimated_hours": 2,
+      "priority": "medium",
+      "acceptance_criteria": [
+        "All harness/configs/*.yaml files include retrieval.strategy key (add 'flat' as explicit default to existing files)",
+        "run_langsmith_eval.py uses make_retriever(cfg, index) from retrieve.py — consistent with run_eval.py",
+        "CHAIN_REGISTRY in harness/chains/registry.py updated: builder functions accept and forward strategy from retriever config",
+        "Two new registry entries added as examples: 'recursive_cot' (recursive retriever + cot_self prompt) and 'hierarchical_zero' (hierarchical retriever + zero_shot prompt)",
+        "harness/configs/retrieval_recursive.yaml and retrieval_hierarchical.yaml run end-to-end with run_eval.py (benchmark path can be missing — just checks config parsing and retriever init)",
+        "python3 -m harness.chains.registry --list shows at least 7 chains including the two new ones",
+        "pytest tests/ passes with no regressions"
+      ]
+    },
+    {
+      "id": "RET-007",
+      "title": "Documentation: retrieval strategy guide and architecture update",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": ["RET-001", "RET-002", "RET-003", "RET-004", "RET-005", "RET-006"],
+      "estimated_hours": 3,
+      "priority": "high",
+      "acceptance_criteria": [
+        "docs/retrieval_strategies.md created with: (1) overview of the strategy layer; (2) config reference table for each strategy; (3) per-question-type guidance (T1-T4 which strategy to try first); (4) ASCII architecture diagram; (5) step-by-step guide to adding a new strategy; (6) known limitations and tradeoffs",
+        "DECISIONS.md updated with entry: 'Retrieval strategy layer — 2026-05-22' explaining the RetrievalConfig factory, naming clarification (retrieval strategy vs prompt strategy), and the decision to keep strategies composable with prompting variants",
+        "OPEN_QUESTIONS.md updated: add question about whether hierarchical index summary quality affects T2/T4 and when to switch to LLM-generated summaries",
+        "README (if exists) or CLAUDE.md retrieval section updated to mention strategy config key",
+        ".claude/HISTORY.md row appended for this work unit"
+      ]
+    }
+  ],
+  "completed_tasks": [],
+  "next_available": ["RET-001"]
+}

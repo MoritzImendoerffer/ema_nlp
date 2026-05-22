@@ -177,9 +177,14 @@ async def _run_pipeline(query: str, msg_num: int, index: Any) -> None:
         ret_step.input = query
 
         def _do_retrieval():
-            from harness.retrieve import retrieve
+            from harness.retrieve import RetrievalConfig, retrieve_with_config
+            _ret_cfg = RetrievalConfig(
+                strategy=os.getenv("EMA_RETRIEVAL_STRATEGY", "flat"),  # type: ignore[arg-type]
+                mode=os.getenv("EMA_RETRIEVAL_MODE", "hybrid"),  # type: ignore[arg-type]
+                k=RETRIEVAL_K,
+            )
             with _tracer.start_as_current_span("ema-app.retrieval") as span:
-                res = retrieve(index, query, mode="hybrid", k=RETRIEVAL_K)
+                res = retrieve_with_config(_ret_cfg, index, query)
                 sid = format(span.get_span_context().span_id, "016x")
             return res, sid
 

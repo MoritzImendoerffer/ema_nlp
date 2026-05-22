@@ -1,4 +1,10 @@
 """
+.. deprecated::
+    harness.agents.react_agent (LlamaIndex ReActAgent) is superseded by
+    harness.chains.agents.react (LangGraph ReAct, LangSmith-traced, tool-call API).
+    New code should import from harness.chains.agents.react.
+    This module is kept for app.py backward compatibility only.
+
 LlamaIndex ReActAgent for EMA Q&A retrieval.
 
 Four FunctionTools:

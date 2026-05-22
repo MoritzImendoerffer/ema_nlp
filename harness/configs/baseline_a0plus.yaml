@@ -3,6 +3,7 @@ run_id: baseline_a0plus
 description: "A0+ baseline: hybrid RRF retrieval (dense + BM25)"
 
 retrieval:
+  strategy: flat    # "flat" | "recursive" | "hierarchical" | "agentic"
   mode: hybrid      # "dense" | "bm25" | "hybrid"
   k: 10
 

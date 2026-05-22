@@ -92,9 +92,11 @@ def run(config_path: Path) -> dict:
         index = build_index(corpus_path, index_dir, force=False)
 
     # ---------- Build retriever ----------
-    from harness.retrieve import RetrieverMode, retrieve
-    mode: RetrieverMode = cfg["retrieval"]["mode"]
-    k: int = cfg["retrieval"]["k"]
+    from harness.retrieve import RetrievalConfig, make_raw_retriever
+
+    ret_section = cfg["retrieval"]
+    ret_config = RetrievalConfig.from_yaml_section(ret_section)
+    k: int = ret_config.k
 
     # ---------- Ablation config ----------
     abl_cfg: dict = cfg.get("ablation", {})
@@ -119,13 +121,27 @@ def run(config_path: Path) -> dict:
     if _reranker_name:
         log.info("Reranker enabled: %s (model=%s, max_chunks=%d)", _reranker_name, _reranker_model, _reranker_max_chunks)
 
+    # Load hierarchical index if needed
+    _hier_index = None
+    if ret_config.strategy == "hierarchical":
+        hier_dir = ret_config.hierarchical.summary_index_dir
+        if hier_dir:
+            try:
+                from harness.embed_hierarchical import load_hierarchical_index
+                _hier_index = load_hierarchical_index(Path(hier_dir).expanduser())
+                log.info("Hierarchical index loaded from %s", hier_dir)
+            except Exception as exc:
+                log.warning("Could not load hierarchical index from %s: %s — falling back to flat", hier_dir, exc)
+
+    _base_retriever = make_raw_retriever(ret_config, index, hier_index=_hier_index)
+
     def retrieve_fn(query: str):
         # A1 — optional query expansion
         expanded = _expander.expand(query) if _expander else query
         if expanded != query:
             log.debug("A1 expanded: %r → %r", query, expanded)
 
-        results = retrieve(index, expanded, mode=mode, k=k)
+        results = _base_retriever(expanded)
 
         # A2 — optional topic filter
         if _topic_filter_mode == "keyword":
@@ -155,7 +171,7 @@ def run(config_path: Path) -> dict:
         log.warning("Benchmark not found at %s — skipping retrieval eval", benchmark_path)
         retrieval_results = {"k": k, "per_item": [], "by_type": {}}
     else:
-        log.info("Running retrieval eval (k=%d, mode=%s) …", k, mode)
+        log.info("Running retrieval eval (k=%d, mode=%s, strategy=%s) …", k, ret_config.mode, ret_config.strategy)
         retrieval_results = eval_retrieval(
             benchmark_path, retrieve_fn, k=k, out_dir=out_dir
         )
@@ -289,7 +305,7 @@ def _write_summary(
         "",
         f"**Timestamp:** {timestamp}  ",
         f"**Description:** {cfg.get('description', '')}  ",
-        f"**Mode:** {cfg['retrieval']['mode']} @ k={cfg['retrieval']['k']}  ",
+        f"**Mode:** {cfg['retrieval'].get('mode','hybrid')} @ k={cfg['retrieval'].get('k',10)} strategy={cfg['retrieval'].get('strategy','flat')}  ",
         "",
         "## Retrieval metrics",
         "",

@@ -3,6 +3,7 @@ run_id: baseline_a0
 description: "A0 baseline: dense retrieval only, no hybrid, no ablations"
 
 retrieval:
+  strategy: flat    # "flat" | "recursive" | "hierarchical" | "agentic"
   mode: dense       # "dense" | "bm25" | "hybrid"
   k: 10
 

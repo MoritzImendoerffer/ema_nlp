@@ -1,0 +1,38 @@
+# Recursive retrieval — hybrid RRF + automatic cross_ref expansion (1 hop)
+#
+# After the initial top-k results are retrieved, any Q&A node that is
+# explicitly cross-referenced in those results is also fetched and appended.
+# This improves recall for T3 multi-hop questions without agent overhead.
+#
+# Set recursive.max_hops: 0 to disable expansion (equivalent to flat/hybrid).
+# Set recursive.max_hops: 2 for two-hop expansion (use with caution — may
+# return many results for highly-connected regulatory topics).
+
+run_id: recursive_hybrid
+description: "Recursive hybrid retrieval: initial RRF + 1-hop cross_ref expansion"
+
+retrieval:
+  strategy: recursive   # "flat" | "recursive" | "hierarchical" | "agentic"
+  mode: hybrid          # "dense" | "bm25" | "hybrid"
+  k: 10
+  recursive:
+    max_hops: 1         # automatic cross_ref expansion depth
+
+index:
+  corpus: ~/Nextcloud/Datasets/ema_nlp/corpus/corpus.jsonl
+  index_dir: ~/Nextcloud/Datasets/ema_nlp/index
+  embed_model: BAAI/bge-large-en-v1.5
+  force_rebuild: false
+
+benchmark:
+  path: benchmark/benchmark.jsonl
+
+judge:
+  enabled: false
+  model: claude-haiku-4-5-20251001
+  sample_fraction: 1.0
+
+cache: false
+
+results:
+  base_dir: results

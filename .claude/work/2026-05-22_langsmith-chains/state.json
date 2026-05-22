@@ -1,0 +1,165 @@
+{
+  "status": "implementing",
+  "current_task": "LSMT-001",
+  "tasks": [
+    {
+      "id": "LSMT-001",
+      "title": "Dependencies + LangSmith setup",
+      "type": "foundation",
+      "status": "in_progress",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "pyproject.toml gains: langchain-core, langchain-anthropic, langchain-community, langgraph, langsmith, langchain-openai",
+        "docs/SETUP.md documents LANGSMITH_API_KEY, LANGCHAIN_TRACING_V2, LANGCHAIN_PROJECT",
+        "harness/chains/__init__.py created",
+        "python3 -c 'import langsmith, langchain_core, langgraph; print(ok)' passes"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "LSMT-002",
+      "title": "EMARetriever — LangChain BaseRetriever adapter wrapping LlamaIndex",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": ["LSMT-001"],
+      "acceptance_criteria": [
+        "EMARetriever(BaseRetriever) in harness/chains/retriever.py",
+        "Supports mode: dense | bm25 | hybrid",
+        "Returns list[Document] with qa_id, score, metadata",
+        "Exposes get_cross_refs(qa_id) and filter_by_topic(topic) methods",
+        "6+ unit tests covering all modes"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "LSMT-003",
+      "title": "LangChain LLM factory from models.yaml tiers",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": ["LSMT-001"],
+      "acceptance_criteria": [
+        "get_langchain_llm(tier_id) in harness/chains/llms.py",
+        "Returns ChatAnthropic for anthropic provider",
+        "Returns ChatOpenAI(base_url=together) for together_ai provider",
+        "Reads from models.yaml via load_tier() — single source of truth",
+        "3+ unit tests"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "LSMT-004",
+      "title": "LCEL simple RAG chains (zero_shot, few_shot, cot_self)",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["LSMT-002", "LSMT-003"],
+      "acceptance_criteria": [
+        "build_rag_chain(strategy, retriever, llm) in harness/chains/simple_rag.py",
+        "All three strategies return {answer_text, strategy, docs}",
+        "Reuses harness/prompts/*.md files",
+        "CoT strips <reasoning> block",
+        "5+ unit tests with mocked LLM + retriever"
+      ],
+      "estimated_hours": 4,
+      "priority": "high"
+    },
+    {
+      "id": "LSMT-005",
+      "title": "LangSmith benchmark dataset upload",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["LSMT-001"],
+      "acceptance_criteria": [
+        "upload_benchmark_dataset() in harness/langsmith_dataset.py",
+        "Reads benchmark/benchmark.jsonl",
+        "Creates/updates LangSmith dataset (idempotent)",
+        "CLI: python3 -m harness.langsmith_dataset",
+        "3+ unit tests with mocked LangSmith client"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium"
+    },
+    {
+      "id": "LSMT-006",
+      "title": "LangSmith evaluators wrapping judge.py",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["LSMT-001"],
+      "acceptance_criteria": [
+        "faithfulness_evaluator and correctness_evaluator in harness/chains/evaluators.py",
+        "Wraps harness.judge.Judge (no new LLM logic)",
+        "Returns EvaluationResult with score 0.0-1.0",
+        "Non-answer sentinel propagated as score=0",
+        "3+ unit tests"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium"
+    },
+    {
+      "id": "LSMT-007",
+      "title": "LangSmith experiment runner CLI",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["LSMT-004", "LSMT-005", "LSMT-006"],
+      "acceptance_criteria": [
+        "harness/run_langsmith_eval.py with --chain, --tier, --dataset, --run-id flags",
+        "Calls langsmith.evaluate() and prints experiment URL",
+        "Writes results/<run_id>/judge_scores.jsonl + run_summary.md (compatible format)",
+        "3+ tests"
+      ],
+      "estimated_hours": 3,
+      "priority": "medium"
+    },
+    {
+      "id": "LSMT-008",
+      "title": "LangGraph ReAct agent with EMA tools",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["LSMT-002", "LSMT-003"],
+      "acceptance_criteria": [
+        "build_react_agent(retriever, llm) in harness/chains/agents/react.py",
+        "Tools: ema_search, follow_cross_refs, filter_by_topic, format_answer",
+        "Returns {answer_text, cited_qa_ids, trajectory}",
+        "Async ainvoke() works",
+        "4+ tests covering tool dispatch"
+      ],
+      "estimated_hours": 4,
+      "priority": "high"
+    },
+    {
+      "id": "LSMT-009",
+      "title": "Corrective RAG (CRAG) LangGraph workflow",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["LSMT-008"],
+      "acceptance_criteria": [
+        "build_crag(retriever, llm) in harness/chains/agents/crag.py",
+        "Nodes: retrieve → grade → [generate | rewrite → retrieve → generate]",
+        "Max 2 correction cycles guard",
+        "4+ tests covering happy path, correction path, cycle guard"
+      ],
+      "estimated_hours": 4,
+      "priority": "medium"
+    },
+    {
+      "id": "LSMT-010",
+      "title": "Chain registry + strategy switcher",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["LSMT-004", "LSMT-008"],
+      "acceptance_criteria": [
+        "CHAIN_REGISTRY dict + get_chain(name, tier_id, retriever) in harness/chains/registry.py",
+        "All 5 strategies registered: simple_rag_zero/few/cot, react, crag",
+        "CLI --list prints strategy names",
+        "Unknown name raises ValueError with helpful message",
+        "3+ tests"
+      ],
+      "estimated_hours": 2,
+      "priority": "low"
+    }
+  ],
+  "completed_tasks": [],
+  "next_available": ["LSMT-001"]
+}

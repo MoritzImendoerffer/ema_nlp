@@ -15,9 +15,9 @@ from harness.embed import (
     _build_nodes,
     _load_records,
     build_index,
-    dense_retrieve,
     follow_cross_refs,
 )
+from harness.retrieve import retrieve
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -124,7 +124,7 @@ def test_build_nodes_cross_refs_in_metadata() -> None:
 
 
 # ---------------------------------------------------------------------------
-# build_index + dense_retrieve (patched embed model)
+# build_index + dense retrieval (patched embed model)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
@@ -154,15 +154,15 @@ def fake_index(tmp_path: Path):
 
 def test_dense_retrieve_returns_results(fake_index) -> None:
     idx, _, fake_embed, _ = fake_index
-    results = dense_retrieve(idx, "nitrosamine acceptable intake", k=5, embed_model=fake_embed)
+    results = retrieve(idx, "nitrosamine acceptable intake", mode="dense", k=5, embed_model=fake_embed)
     assert len(results) > 0
-    assert all(isinstance(qa_id, str) for qa_id, _ in results)
-    assert all(isinstance(score, float) for _, score in results)
+    assert all(isinstance(qa_id, str) for qa_id, _, _ in results)
+    assert all(isinstance(score, float) for _, score, _ in results)
 
 
 def test_dense_retrieve_respects_k(fake_index) -> None:
     idx, _, fake_embed, _ = fake_index
-    results = dense_retrieve(idx, "acceptable intake", k=2, embed_model=fake_embed)
+    results = retrieve(idx, "acceptable intake", mode="dense", k=2, embed_model=fake_embed)
     assert len(results) <= 2
 
 
@@ -197,6 +197,6 @@ def test_known_question_retrieves_itself_top1(fake_index) -> None:
     r = records[0]
     # Querying with the exact stored node text gives identical embedding → distance 0 → top-1.
     query = f"Q: {r.question}\n\nA: {r.answer}"
-    results = dense_retrieve(idx, query, k=1, embed_model=fake_embed)
+    results = retrieve(idx, query, mode="dense", k=1, embed_model=fake_embed)
     assert len(results) == 1
     assert results[0][0] == r.qa_id

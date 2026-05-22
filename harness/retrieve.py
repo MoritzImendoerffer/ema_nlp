@@ -1,13 +1,19 @@
 """
 Retrieval façade for the EMA Q&A harness.
 
-Three modes, selectable at call time:
+Three base modes (selectable at call time):
   "dense"  (A0)  — VectorStoreIndex similarity search only
   "bm25"         — BM25 keyword search only (rank-bm25 via llama-index-retrievers-bm25)
   "hybrid" (A0+) — Reciprocal Rank Fusion of dense + BM25
 
-All three return a uniform list of (qa_id, score, metadata) triples where metadata
-includes at minimum: qa_id, topic_path, source_url, source_type, cross_refs.
+Four retrieval strategies (selectable via RetrievalConfig):
+  "flat"         — standard flat retrieval (default; uses the base mode above)
+  "recursive"    — flat retrieval + automatic cross_ref expansion (N hops)
+  "hierarchical" — two-level page → Q&A retrieval (requires hierarchical index)
+  "agentic"      — delegated to a ReAct/CRAG agent via the chain registry
+
+All retrieve functions return a uniform list of (qa_id, score, metadata) triples
+where metadata includes at minimum: qa_id, topic_path, source_url, source_type, cross_refs.
 
 RRF is implemented directly (no LLM required) using the standard formula:
   RRF(d) = Σ_r  1 / (RRF_K + rank_r(d))
@@ -16,18 +22,91 @@ with RRF_K = 60 (Cormack et al. 2009).
 
 from __future__ import annotations
 
-from typing import Literal
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Literal
 
 from llama_index.core import VectorStoreIndex
 from llama_index.retrievers.bm25 import BM25Retriever
 
+log = logging.getLogger(__name__)
+
 RetrieverMode = Literal["dense", "bm25", "hybrid"]
+RetrievalStrategyId = Literal["flat", "recursive", "hierarchical", "agentic"]
 
 # (qa_id, normalised_score, node_metadata)
 RetrievalResult = tuple[str, float, dict]
 
 _RRF_K = 60  # standard RRF constant
 
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RecursiveConfig:
+    max_hops: int = 1
+
+
+@dataclass
+class HierarchicalConfig:
+    top_doc_k: int = 5
+    summary_index_dir: str | None = None
+
+
+@dataclass
+class RetrievalConfig:
+    """
+    Unified retrieval configuration — read from the ``retrieval:`` YAML section.
+
+    All fields have sensible defaults so existing configs continue to work without
+    specifying a ``strategy`` key.
+
+    Attributes:
+        strategy:    "flat" | "recursive" | "hierarchical" | "agentic"
+        mode:        "dense" | "bm25" | "hybrid"  (applies to flat + recursive)
+        k:           Number of results to return
+        recursive:   Sub-config for the recursive strategy
+        hierarchical: Sub-config for the hierarchical strategy
+
+    Example YAML::
+
+        retrieval:
+          strategy: recursive
+          mode: hybrid
+          k: 10
+          recursive:
+            max_hops: 1
+    """
+    strategy: RetrievalStrategyId = "flat"
+    mode: RetrieverMode = "hybrid"
+    k: int = 10
+    recursive: RecursiveConfig = field(default_factory=RecursiveConfig)
+    hierarchical: HierarchicalConfig = field(default_factory=HierarchicalConfig)
+
+    @classmethod
+    def from_yaml_section(cls, cfg: dict) -> "RetrievalConfig":
+        """Build a RetrievalConfig from the ``retrieval:`` dict in a run YAML."""
+        rec_cfg = RecursiveConfig(**cfg.get("recursive", {}))
+        hier_raw = cfg.get("hierarchical", {})
+        hier_cfg = HierarchicalConfig(
+            top_doc_k=hier_raw.get("top_doc_k", 5),
+            summary_index_dir=hier_raw.get("summary_index_dir"),
+        )
+        return cls(
+            strategy=cfg.get("strategy", "flat"),
+            mode=cfg.get("mode", "hybrid"),
+            k=cfg.get("k", 10),
+            recursive=rec_cfg,
+            hierarchical=hier_cfg,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Low-level primitives
+# ---------------------------------------------------------------------------
 
 def _results_from_nodes(nodes_with_scores) -> list[RetrievalResult]:
     results: list[RetrievalResult] = []
@@ -113,3 +192,213 @@ def retrieve(
     dense_results = _results_from_nodes(make_dense_retriever(index, k, embed_model).retrieve(query))
     bm25_results = _results_from_nodes(make_bm25_retriever(index, k).retrieve(query))
     return _rrf_fuse([dense_results, bm25_results], k)
+
+
+# ---------------------------------------------------------------------------
+# Strategy implementations
+# ---------------------------------------------------------------------------
+
+def _retrieve_recursive(
+    index: VectorStoreIndex,
+    query: str,
+    *,
+    mode: RetrieverMode,
+    k: int,
+    max_hops: int,
+    embed_model=None,
+) -> list[RetrievalResult]:
+    """
+    Flat retrieval followed by automatic cross_ref expansion up to *max_hops* hops.
+
+    Initial top-k results are preserved at the front of the returned list.
+    Expanded cross-reference nodes are appended after, deduplicated by qa_id.
+    The expansion limit prevents runaway fetching when nodes have many cross_refs.
+    """
+    from harness.embed import get_node_by_id
+
+    if max_hops == 0:
+        return retrieve(index, query, mode=mode, k=k, embed_model=embed_model)
+
+    initial = retrieve(index, query, mode=mode, k=k, embed_model=embed_model)
+    seen_ids: set[str] = {qa_id for qa_id, _, _ in initial}
+    expanded: list[RetrievalResult] = list(initial)
+
+    frontier = list(initial)
+    for _hop in range(max_hops):
+        next_frontier: list[RetrievalResult] = []
+        for qa_id, _score, meta in frontier:
+            cross_refs: list[str] = meta.get("cross_refs") or []
+            for ref_id in cross_refs:
+                if ref_id in seen_ids:
+                    continue
+                ref_node = get_node_by_id(index, ref_id)
+                if ref_node is None:
+                    continue
+                seen_ids.add(ref_id)
+                ref_result = (ref_id, 0.0, dict(ref_node.metadata))
+                expanded.append(ref_result)
+                next_frontier.append(ref_result)
+        if not next_frontier:
+            break
+        frontier = next_frontier
+
+    log.debug(
+        "recursive retrieve: initial=%d expanded=%d (hops=%d)",
+        len(initial), len(expanded) - len(initial), max_hops,
+    )
+    return expanded
+
+
+def _retrieve_hierarchical(
+    index: VectorStoreIndex,
+    query: str,
+    *,
+    k: int,
+    hier_index: Any,
+    top_doc_k: int,
+    embed_model=None,
+) -> list[RetrievalResult]:
+    """
+    Hierarchical retrieval: retrieve top-*top_doc_k* parent (page) nodes, then
+    expand to all child Q&A nodes and re-rank by dense similarity.
+    """
+    from harness.embed import get_node_by_id
+
+    # 1. Retrieve top parent nodes by dense similarity
+    parent_retriever = hier_index.as_retriever(similarity_top_k=top_doc_k)
+    parent_nodes = parent_retriever.retrieve(query)
+
+    # 2. Collect all child qa_ids from matched parents
+    child_qa_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for pnws in parent_nodes:
+        for cid in (pnws.node.metadata.get("child_qa_ids") or []):
+            if cid not in seen_ids:
+                seen_ids.add(cid)
+                child_qa_ids.append(cid)
+
+    if not child_qa_ids:
+        log.debug("hierarchical: no children found, falling back to dense")
+        return retrieve(index, query, mode="dense", k=k, embed_model=embed_model)
+
+    # 3. Fetch child nodes from flat docstore (one pass — nodes reused in step 4)
+    children_and_nodes: list[tuple[str, dict, Any]] = []  # (qa_id, meta, node)
+    for cid in child_qa_ids:
+        node = get_node_by_id(index, cid)
+        if node is not None:
+            children_and_nodes.append((cid, dict(node.metadata), node))
+
+    children: list[RetrievalResult] = [(qa_id, 0.0, meta) for qa_id, meta, _ in children_and_nodes]
+
+    # 4. Re-score children by dense similarity (embed query, compute dot product)
+    try:
+        from llama_index.core import Settings
+        import numpy as np
+        q_vec = Settings.embed_model.get_query_embedding(query)
+        q_arr = np.array(q_vec, dtype=np.float32)
+        q_norm = float(np.linalg.norm(q_arr))
+
+        rescored: list[tuple[float, RetrievalResult]] = []
+        for qa_id, meta, node in children_and_nodes:
+            try:
+                n_embed = node.embedding
+                if n_embed:
+                    n_arr = np.array(n_embed, dtype=np.float32)
+                    sim = float(np.dot(q_arr, n_arr) / (q_norm * np.linalg.norm(n_arr) + 1e-9))
+                else:
+                    sim = 0.0
+            except Exception:
+                sim = 0.0
+            rescored.append((sim, (qa_id, sim, meta)))
+
+        rescored.sort(key=lambda x: x[0], reverse=True)
+        results = [r for _, r in rescored[:k]]
+        log.debug("hierarchical: %d parents → %d children → top %d", len(parent_nodes), len(children), len(results))
+        return results
+
+    except Exception as exc:
+        log.warning("hierarchical re-ranking failed (%s); returning unscored children", exc)
+        return children[:k]
+
+
+# ---------------------------------------------------------------------------
+# Unified strategy dispatcher
+# ---------------------------------------------------------------------------
+
+def retrieve_with_config(
+    config: RetrievalConfig,
+    index: VectorStoreIndex,
+    query: str,
+    *,
+    hier_index: Any = None,
+    embed_model=None,
+) -> list[RetrievalResult]:
+    """
+    Retrieve Q&A nodes using the strategy specified in *config*.
+
+    This is the single retrieval entry point used by run_eval.py, app.py, and
+    harness/chains/retriever.py — replacing three separate ad-hoc code paths.
+
+    Args:
+        config:      RetrievalConfig (built from YAML ``retrieval:`` section).
+        index:       Flat VectorStoreIndex (always required).
+        query:       Natural-language query string.
+        hier_index:  Hierarchical parent VectorStoreIndex (required when
+                     config.strategy == "hierarchical").
+        embed_model: Override the embedding model (used in tests).
+
+    Returns:
+        Ordered list of (qa_id, score, metadata) — highest score first.
+    """
+    strategy = config.strategy
+
+    if strategy == "flat":
+        return retrieve(index, query, mode=config.mode, k=config.k, embed_model=embed_model)
+
+    if strategy == "agentic":
+        raise NotImplementedError(
+            "'agentic' strategy is not handled by retrieve_with_config — "
+            "use harness.chains.registry.get_chain() instead"
+        )
+
+    if strategy == "recursive":
+        return _retrieve_recursive(
+            index, query,
+            mode=config.mode,
+            k=config.k,
+            max_hops=config.recursive.max_hops,
+            embed_model=embed_model,
+        )
+
+    if strategy == "hierarchical":
+        if hier_index is None:
+            log.warning("hierarchical strategy requested but hier_index=None — falling back to flat")
+            return retrieve(index, query, mode=config.mode, k=config.k, embed_model=embed_model)
+        return _retrieve_hierarchical(
+            index, query,
+            k=config.k,
+            hier_index=hier_index,
+            top_doc_k=config.hierarchical.top_doc_k,
+            embed_model=embed_model,
+        )
+
+    log.warning("Unknown retrieval strategy %r — falling back to flat", strategy)
+    return retrieve(index, query, mode=config.mode, k=config.k, embed_model=embed_model)
+
+
+def make_raw_retriever(
+    config: RetrievalConfig,
+    index: VectorStoreIndex,
+    *,
+    hier_index: Any = None,
+    embed_model=None,
+) -> Callable[[str], list[RetrievalResult]]:
+    """
+    Return a callable ``fn(query) -> list[RetrievalResult]`` configured for *config*.
+
+    Used by run_eval.py which needs a function signature (not a LangChain object)
+    so ablation wrappers (A1/A2/A3) can be layered on top.
+    """
+    def _fn(query: str) -> list[RetrievalResult]:
+        return retrieve_with_config(config, index, query, hier_index=hier_index, embed_model=embed_model)
+    return _fn

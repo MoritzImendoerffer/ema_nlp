@@ -107,6 +107,6 @@ def generate_answer(
     return {
         "answer_text": answer_text,
         "raw_response": raw,
-        "strategy": strategy,
+        "prompt_strategy": strategy,
         "tier_id": tier_id,
     }
