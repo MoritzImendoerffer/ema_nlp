@@ -1,31 +1,49 @@
-# Model tier definitions for Ablation C (3x3 prompting matrix).
-# Each tier is used across all three prompting modes: zero-shot, SME few-shot, self-generated CoT.
+# Model definitions and role → model bindings.
 #
-# Tier IDs are stable — update model_id here to change the version without touching call sites.
+# To swap a model for a role: change the value under roles: (e.g. grader: local_qwen32).
+# To add a new model: add an entry under models: — no code changes needed.
+#
+# Supported providers:
+#   anthropic          — uses ANTHROPIC_API_KEY
+#   together_ai        — uses TOGETHER_API_KEY; base URL hardcoded to api.together.xyz
+#   openai_compatible  — api_base + api_key_env must be set (e.g. llama.cpp / vLLM)
 
-tiers:
-  mid:
-    tier_id: mid
-    description: "Mid-tier: fast, cheap — used for ablation baseline"
+models:
+  claude_haiku:
+    description: "Claude Haiku 4.5 — fast and cheap; default agent model"
     provider: anthropic
     model_id: claude-haiku-4-5-20251001
     max_tokens: 1024
     temperature: 0.0
 
-  frontier:
-    tier_id: frontier
-    description: "Frontier reasoning — best quality reference"
+  claude_opus:
+    description: "Claude Opus 4.7 — frontier reasoning; used for judge and reviewer roles"
     provider: anthropic
     model_id: claude-opus-4-7
     max_tokens: 2048
     temperature: 0.0
 
-  olmo:
-    tier_id: olmo
+  olmo_32b:
     description: "OLMo 2 32B (Nov 2024) — open-weight, contamination-auditable via OLMoTrace"
     provider: together_ai
     model_id: allenai/OLMo-2-1124-32B-Instruct
     max_tokens: 2048
     temperature: 0.0
     # Requires TOGETHER_API_KEY in ~/.myenvs/ema_nlp.env
-    # Together AI base URL: https://api.together.xyz/v1
+
+  local_qwen32:
+    description: "Qwen 2.5 32B — local inference via OpenAI-compatible server (llama.cpp / vLLM)"
+    provider: openai_compatible
+    model_id: Qwen/Qwen2.5-32B-Instruct
+    api_base: http://localhost:8000/v1
+    api_key_env: LOCAL_LLM_API_KEY
+    max_tokens: 2048
+    temperature: 0.0
+
+roles:
+  agent:    claude_haiku   # workflow answer-generation model (simple_rag, crag, react)
+  grader:   claude_haiku   # CRAG relevance grader; swap to local_qwen32 for offline runs
+  rewriter: claude_haiku   # CRAG query rewriter
+  reranker: claude_haiku   # A3/A4 LLM reranker
+  judge:    claude_opus    # faithfulness + correctness judge (opus for reliability)
+  reviewer: claude_opus    # post-generation answer reviewer

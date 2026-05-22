@@ -1,19 +1,20 @@
 """
-LlamaIndex LLM factory for the three model tiers defined in models.yaml.
+LlamaIndex LLM factory — role-based model selection.
 
-Reads model IDs, temperature, and max_tokens from harness/configs/models.yaml
-via harness.models.load_tier() — the same source of truth used by call_model().
+Reads model configuration from harness/configs/models.yaml via
+harness.models.load_model_for_role(). Returns a LlamaIndex LLM instance
+compatible with llm.chat(), llm.achat(), and all LlamaIndex workflows.
 
 Usage::
 
     from harness.llms import get_llm
 
-    llm = get_llm("frontier")   # Anthropic(claude-opus-4-7, ...)
-    llm = get_llm("mid")        # Anthropic(claude-haiku-4-5, ...)
-    llm = get_llm("olmo")       # OpenAI(OLMo-2-32B via Together AI)
+    llm = get_llm("agent")    # → Anthropic(claude-haiku-4-5, ...)
+    llm = get_llm("judge")    # → Anthropic(claude-opus-4-7, ...)
+    llm = get_llm("grader")   # → Anthropic(claude-haiku-4-5, ...) by default
 
-The returned objects are LlamaIndex LLM instances compatible with
-llm.chat(), llm.achat(), and LlamaIndex agents/workflows.
+Available roles (defined in models.yaml):
+    agent, grader, rewriter, reranker, judge, reviewer
 """
 
 from __future__ import annotations
@@ -23,37 +24,45 @@ import os
 
 from llama_index.core.llms import LLM
 
-from harness.models import TierId, load_tier
+from harness.models import ModelConfig, load_model_for_role
 
 log = logging.getLogger(__name__)
 
 _TOGETHER_BASE_URL = "https://api.together.xyz/v1"
 
 
-def get_llm(tier_id: TierId) -> LLM:
+def get_llm(role_name: str) -> LLM:
     """
-    Return a LlamaIndex LLM for the given tier_id.
+    Return a LlamaIndex LLM for the given role.
 
     Args:
-        tier_id: "mid" | "frontier" | "olmo"
+        role_name: Role key defined in models.yaml (e.g. 'agent', 'judge').
 
     Returns:
-        Anthropic LLM for Anthropic tiers, OpenAI (Together AI) for olmo.
+        Anthropic LLM for anthropic provider,
+        OpenAI (Together AI) for together_ai provider,
+        OpenAI (custom api_base) for openai_compatible provider.
 
     Raises:
         EnvironmentError: If the required API key env var is missing.
-        ValueError:       If the provider in models.yaml is unrecognised.
+        ValueError:       If the role or provider is unrecognised.
     """
-    cfg = load_tier(tier_id)
+    cfg = load_model_for_role(role_name)
 
     if cfg.provider == "anthropic":
         return _make_anthropic(cfg.model_id, cfg.temperature, cfg.max_tokens)
     elif cfg.provider == "together_ai":
         return _make_together(cfg.model_id, cfg.temperature, cfg.max_tokens)
+    elif cfg.provider == "openai_compatible":
+        return _make_openai_compatible(
+            cfg.model_id, cfg.temperature, cfg.max_tokens,
+            api_base=cfg.api_base or "http://localhost:8000/v1",
+            api_key_env=cfg.api_key_env or "OPENAI_API_KEY",
+        )
     else:
         raise ValueError(
-            f"Unknown provider '{cfg.provider}' for tier '{tier_id}'. "
-            "Expected 'anthropic' or 'together_ai'."
+            f"Unknown provider '{cfg.provider}' for role '{role_name}'. "
+            "Expected 'anthropic', 'together_ai', or 'openai_compatible'."
         )
 
 
@@ -91,6 +100,34 @@ def _make_together(model_id: str, temperature: float, max_tokens: int) -> LLM:
     return OpenAI(
         model=model_id,
         api_base=_TOGETHER_BASE_URL,
+        api_key=api_key,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+
+def _make_openai_compatible(
+    model_id: str,
+    temperature: float,
+    max_tokens: int,
+    *,
+    api_base: str,
+    api_key_env: str,
+) -> LLM:
+    try:
+        from llama_index.llms.openai import OpenAI
+    except ImportError as exc:
+        raise ImportError("pip install llama-index-llms-openai") from exc
+
+    api_key = os.getenv(api_key_env, "local")
+    if not api_key:
+        raise OSError(
+            f"{api_key_env} not set. Add it to ~/.myenvs/ema_nlp.env"
+        )
+
+    return OpenAI(
+        model=model_id,
+        api_base=api_base,
         api_key=api_key,
         temperature=temperature,
         max_tokens=max_tokens,

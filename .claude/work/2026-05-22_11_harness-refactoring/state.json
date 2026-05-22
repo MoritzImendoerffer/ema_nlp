@@ -1,6 +1,6 @@
 {
   "status": "implementing",
-  "current_task": "REFACT-005",
+  "current_task": "REFACT-009",
   "tasks": [
     {
       "id": "REFACT-001",
@@ -106,7 +106,7 @@
       "id": "REFACT-005",
       "title": "Restructure models.yaml into models: + roles: sections",
       "type": "foundation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-004"
       ],
@@ -131,7 +131,7 @@
       "id": "REFACT-006",
       "title": "Refactor harness/llms.py \u2014 get_llm(role) API; break tier_id",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-005"
       ],
@@ -153,7 +153,7 @@
       "id": "REFACT-007",
       "title": "Migrate all tier_id call sites to get_llm(role)",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-006"
       ],
@@ -185,7 +185,7 @@
       "id": "REFACT-008",
       "title": "Fix CRAG grader: per-doc JSON scoring + missing_facts + grounded rewrite",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "REFACT-007"
       ],
@@ -586,10 +586,17 @@
     "REFACT-001",
     "REFACT-002",
     "REFACT-003",
-    "REFACT-004"
+    "REFACT-004",
+    "REFACT-005",
+    "REFACT-006",
+    "REFACT-007",
+    "REFACT-008"
   ],
   "next_available": [
-    "REFACT-005",
+    "REFACT-009",
+    "REFACT-011",
+    "REFACT-015",
+    "REFACT-019",
     "REFACT-020"
   ],
   "week_summary": {

@@ -39,6 +39,7 @@ class GradeEvent(Event):
     few_shot_context: str
     docs: list
     rewrite_cycles: int
+    graded_docs: list = []  # per-doc score dicts [{qa_id, score}, ...] for Phoenix spans
 
 
 class InsufficientEvent(Event):
@@ -46,6 +47,7 @@ class InsufficientEvent(Event):
     question: str
     few_shot_context: str
     rewrite_cycles: int
+    missing_facts: list = []  # facts the retrieved docs do not cover
 
 
 class GeneratedEvent(Event):

@@ -118,7 +118,6 @@ def get_workflow(
     *,
     index: Any,
     llm: Any | None = None,
-    tier_id: str = "mid",
     retrieval_config: RetrievalConfig | None = None,
     **kwargs: Any,
 ) -> Any:
@@ -132,8 +131,7 @@ def get_workflow(
     Args:
         name:             Strategy name (key in WORKFLOW_REGISTRY).
         index:            LlamaIndex VectorStoreIndex.
-        llm:              Pre-built LlamaIndex LLM; auto-built from tier_id if None.
-        tier_id:          Model tier used when llm is None ("mid" | "frontier" | "olmo").
+        llm:              Pre-built LlamaIndex LLM; auto-built from 'agent' role if None.
         retrieval_config: Override retrieval settings.
         **kwargs:         Passed to the builder (e.g. strategy="cot_self" for CRAG).
 
@@ -148,7 +146,7 @@ def get_workflow(
 
     if llm is None:
         from harness.llms import get_llm
-        llm = get_llm(tier_id)  # type: ignore[arg-type]
+        llm = get_llm("agent")
 
     if retrieval_config is not None:
         kwargs.setdefault("retrieval_config", retrieval_config)

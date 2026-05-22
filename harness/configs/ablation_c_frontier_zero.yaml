@@ -2,7 +2,6 @@
 ablation: {}
 orchestration:
   strategy: simple_rag_zero
-  tier_id: frontier
 benchmark:
   path: benchmark/benchmark.jsonl
 cache: false

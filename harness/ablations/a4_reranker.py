@@ -12,15 +12,12 @@ A3 vs A4 comparison isolates the value of SME rubric authorship:
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-import anthropic
-
-from harness.providers import get_llm_model
 from harness.retrieve import RetrievalResult
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = get_llm_model()
 _DEFAULT_MAX_CHUNKS = 5
 
 _GENERIC_PROMPT = """\
@@ -40,21 +37,14 @@ Retrieved Q&A:
 """
 
 
-def _score_chunk(
-    client: anthropic.Anthropic,
-    model: str,
-    query: str,
-    chunk_text: str,
-) -> float:
+def _score_chunk(llm: Any, query: str, chunk_text: str) -> float:
     """Score a single chunk 0–2 using a generic relevance prompt."""
+    from llama_index.core.llms import ChatMessage, MessageRole
+
     prompt = _GENERIC_PROMPT.format(query=query, chunk_text=chunk_text)
     try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=4,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = next((b.text for b in response.content if hasattr(b, "text")), "").strip()
+        response = llm.chat([ChatMessage(role=MessageRole.USER, content=prompt)])
+        raw = (response.message.content or "").strip()
         return float(raw[0]) if raw and raw[0] in "012" else 0.0
     except Exception as exc:
         log.warning("Reranker API error: %s", exc)
@@ -64,17 +54,26 @@ def _score_chunk(
 def rerank(
     results: list[RetrievalResult],
     query: str,
-    index,
+    index: Any,
     *,
-    model: str = _DEFAULT_MODEL,
+    llm: Any = None,
     max_chunks: int = _DEFAULT_MAX_CHUNKS,
 ) -> list[RetrievalResult]:
     """
     Rerank *results* by generic LLM relevance score.
 
     Same interface as a3_reranker.rerank() — drop-in swap.
+
+    Args:
+        results:    Retrieval results from harness.retrieve.retrieve().
+        query:      The original query string.
+        index:      VectorStoreIndex — used to fetch node text.
+        llm:        LlamaIndex LLM; uses get_llm('reranker') if None.
+        max_chunks: Maximum number of chunks to score (cost cap).
     """
-    client = anthropic.Anthropic()
+    if llm is None:
+        from harness.llms import get_llm
+        llm = get_llm("reranker")
 
     to_score = results[:max_chunks]
     remainder = results[max_chunks:]
@@ -83,7 +82,7 @@ def rerank(
     for qa_id, score, meta in to_score:
         node = index.docstore.get_node(qa_id)
         chunk_text = node.text if node else "Q: (missing)\nA: (missing)"
-        llm_score = _score_chunk(client, model, query, chunk_text)
+        llm_score = _score_chunk(llm, query, chunk_text)
         scored.append((llm_score, (qa_id, score, meta)))
         log.debug("A4 score %s → %.0f", qa_id, llm_score)
 

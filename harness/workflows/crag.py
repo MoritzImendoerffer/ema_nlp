@@ -15,6 +15,16 @@ Events:
     InsufficientEvent → rewrite
     StopEvent         ← generate
 
+Grading uses per-doc 0/1/2 scoring with a JSON response::
+
+    {
+      "per_doc": [{"qa_id": "...", "score": 0|1|2}, ...],
+      "missing_facts": ["what fact is missing", ...]
+    }
+
+Grade is "sufficient" when any doc scores 2 AND missing_facts is empty.
+The rewrite prompt is grounded in missing_facts so queries target the actual gap.
+
 Usage::
 
     from harness.workflows.crag import CRAGWorkflow
@@ -23,7 +33,7 @@ Usage::
     from harness.embed import build_index
 
     index  = build_index(corpus_path, index_dir)
-    llm    = get_llm("frontier")
+    llm    = get_llm("agent")
     runner = WorkflowRunner(CRAGWorkflow(index=index, llm=llm, timeout=180))
     result = runner.invoke({"question": "What is the AI for NDMA?"})
     print(result["answer_text"])
@@ -32,7 +42,9 @@ Usage::
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from typing import Any
 
 from llama_index.core.llms import ChatMessage, MessageRole
@@ -54,28 +66,58 @@ log = logging.getLogger(__name__)
 
 MAX_CYCLES = 2  # max retrieve-rewrite iterations before forcing an answer
 
-_GRADE_SYSTEM = (
-    "You are a relevance grader for EMA regulatory Q&A retrieval. "
-    "Your only job is to decide whether the retrieved documents contain "
-    "enough information to answer the question.\n\n"
-    "Respond with exactly one word: 'sufficient' or 'insufficient'.\n"
-    "Do not explain your reasoning."
-)
+_GRADE_SYSTEM = """\
+You are a relevance grader for EMA regulatory Q&A retrieval.
 
-_REWRITE_SYSTEM = (
-    "You are a query rewriter for EMA regulatory document retrieval. "
-    "The original query did not retrieve sufficient documents. "
-    "Rewrite it to be more specific, using EMA terminology. "
-    "Return only the rewritten query, nothing else."
-)
+Score each retrieved document on a 0–2 scale:
+  0 — not relevant; shares keywords but doesn't address the question
+  1 — partially relevant; addresses the topic but misses key details
+  2 — fully relevant; directly answers the question with specific information
+
+Also list any facts the question requires that are absent from ALL retrieved documents.
+
+Respond with ONLY valid JSON in this exact format:
+{
+  "per_doc": [
+    {"qa_id": "<qa_id>", "score": <0|1|2>},
+    ...
+  ],
+  "missing_facts": ["<description of missing fact>", ...]
+}
+
+If all necessary facts are covered (score=2 exists and nothing is missing), set missing_facts to [].
+"""
+
+_REWRITE_SYSTEM = """\
+You are a query rewriter for EMA regulatory document retrieval.
+The original query did not retrieve sufficient documents.
+
+Rewrite the query to target the specific missing facts listed below.
+Use precise EMA terminology. Return only the rewritten query — nothing else.
+"""
+
+
+def _parse_grade(raw: str) -> tuple[list[dict], list[str]]:
+    """Parse grader JSON response. Returns (per_doc, missing_facts)."""
+    raw = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`").strip()
+    try:
+        data = json.loads(raw)
+        per_doc: list[dict] = data.get("per_doc", [])
+        missing_facts: list[str] = data.get("missing_facts", [])
+        return per_doc, missing_facts
+    except (json.JSONDecodeError, KeyError):
+        log.warning("CRAG: could not parse grader JSON: %s", raw[:200])
+        return [], ["(parse error — treating as insufficient)"]
+
+
+def _is_sufficient(per_doc: list[dict], missing_facts: list[str]) -> bool:
+    """Grade is sufficient when at least one doc scores 2 AND missing_facts is empty."""
+    has_excellent = any(d.get("score", 0) == 2 for d in per_doc)
+    return has_excellent and not missing_facts
 
 
 class _CRAGQueryEvent(Event):
-    """Internal loop event: carries a rewritten query back to the retrieve step.
-
-    Kept separate from RetrievedEvent so the router sends it to `retrieve`,
-    not to `grade` (which consumes RetrievedEvent).
-    """
+    """Internal loop event: carries a rewritten query back to the retrieve step."""
     question: str
     few_shot_context: str
     rewrite_cycles: int
@@ -139,7 +181,7 @@ class CRAGWorkflow(Workflow):
         )
 
     # ------------------------------------------------------------------
-    # Step 2: Grade document sufficiency
+    # Step 2: Grade document sufficiency (per-doc JSON scoring)
     # ------------------------------------------------------------------
 
     @step
@@ -153,37 +195,43 @@ class CRAGWorkflow(Workflow):
                 role=MessageRole.USER,
                 content=(
                     f"Question: {ev.question}\n\n"
-                    f"Retrieved documents:\n{context_str}\n\n"
-                    "Are these documents sufficient to answer the question?"
+                    f"Retrieved documents:\n{context_str}"
                 ),
             ),
         ]
         response = await self._llm.achat(messages)
-        raw = (response.message.content or "").lower().strip()
-        is_sufficient = "sufficient" in raw and "insufficient" not in raw
+        raw = response.message.content or ""
+        per_doc, missing_facts = _parse_grade(raw)
+        sufficient = _is_sufficient(per_doc, missing_facts)
 
         log.debug(
-            "CRAG grade (cycle=%d): %s",
+            "CRAG grade (cycle=%d): %s | per_doc scores=%s | missing=%s",
             ev.rewrite_cycles,
-            "sufficient" if is_sufficient else "insufficient",
+            "sufficient" if sufficient else "insufficient",
+            [d.get("score") for d in per_doc],
+            missing_facts,
         )
 
-        if is_sufficient or ev.rewrite_cycles >= self._max_cycles:
-            if ev.rewrite_cycles >= self._max_cycles and not is_sufficient:
+        if sufficient or ev.rewrite_cycles >= self._max_cycles:
+            if ev.rewrite_cycles >= self._max_cycles and not sufficient:
                 log.warning(
-                    "CRAG: max cycles (%d) reached; generating anyway", self._max_cycles
+                    "CRAG: max cycles (%d) reached; generating anyway. "
+                    "per_doc=%s missing_facts=%s",
+                    self._max_cycles, per_doc, missing_facts,
                 )
             return GradeEvent(
                 question=ev.question,
                 few_shot_context=ev.few_shot_context,
                 docs=ev.docs,
                 rewrite_cycles=ev.rewrite_cycles,
+                graded_docs=per_doc,
             )
 
         return InsufficientEvent(
             question=ev.question,
             few_shot_context=ev.few_shot_context,
             rewrite_cycles=ev.rewrite_cycles,
+            missing_facts=missing_facts,
         )
 
     # ------------------------------------------------------------------
@@ -205,17 +253,25 @@ class CRAGWorkflow(Workflow):
             "docs": ev.docs,
             "prompt_strategy": f"crag_{self._strategy}",
             "rewrite_cycles_used": ev.rewrite_cycles,
+            "graded_docs": ev.graded_docs,
         })
 
     # ------------------------------------------------------------------
-    # Step 3b: Rewrite query (grade failed)
+    # Step 3b: Rewrite query (grade failed — grounded in missing_facts)
     # ------------------------------------------------------------------
 
     @step
     async def rewrite(self, ctx: Context, ev: InsufficientEvent) -> _CRAGQueryEvent:
+        missing_str = "\n".join(f"- {f}" for f in ev.missing_facts) or "(unspecified)"
         messages = [
             ChatMessage(role=MessageRole.SYSTEM, content=_REWRITE_SYSTEM),
-            ChatMessage(role=MessageRole.USER, content=f"Original query: {ev.question}"),
+            ChatMessage(
+                role=MessageRole.USER,
+                content=(
+                    f"Original query: {ev.question}\n\n"
+                    f"Missing facts that the retrieved documents do not cover:\n{missing_str}"
+                ),
+            ),
         ]
         response = await self._llm.achat(messages)
         new_question = (response.message.content or ev.question).strip()
@@ -231,7 +287,6 @@ class CRAGWorkflow(Workflow):
         return _CRAGQueryEvent(
             question=new_question,
             few_shot_context=ev.few_shot_context,
-            docs=[],  # filled by retrieve
             rewrite_cycles=ev.rewrite_cycles + 1,
         )
 

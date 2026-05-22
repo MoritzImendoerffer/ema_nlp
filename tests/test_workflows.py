@@ -243,6 +243,10 @@ class TestSimpleRAGWorkflow:
 # CRAGWorkflow tests
 # ---------------------------------------------------------------------------
 
+_GRADE_SUFFICIENT = '{"per_doc": [{"qa_id": "qa1", "score": 2}], "missing_facts": []}'
+_GRADE_INSUFFICIENT = '{"per_doc": [{"qa_id": "qa1", "score": 1}], "missing_facts": ["specific NDMA limit value"]}'
+
+
 class TestCRAGWorkflow:
     @pytest.fixture(scope="class")
     def index(self):
@@ -251,14 +255,16 @@ class TestCRAGWorkflow:
     def test_returns_expected_keys(self, index):
         from harness.workflows.crag import CRAGWorkflow
 
-        # LLM always grades "sufficient" so no rewrite occurs
         call_count = {"n": 0}
 
         async def achat(messages, **kw):
             call_count["n"] += 1
             system = next((m.content for m in messages if m.role == MessageRole.SYSTEM), "")
-            # grade call → "sufficient"; generate call → "Answer"
-            text = "sufficient" if "grader" in system.lower() or "grader" in system else "Fake CRAG answer."
+            # grade call → sufficient JSON; generate call → answer text
+            if "per_doc" in system or "missing_facts" in system or "0–2" in system:
+                text = _GRADE_SUFFICIENT
+            else:
+                text = "Fake CRAG answer."
             return ChatResponse(message=ChatMessage(role=MessageRole.ASSISTANT, content=text))
 
         mock_llm = MagicMock()
@@ -271,6 +277,7 @@ class TestCRAGWorkflow:
         assert "answer_text" in result
         assert "docs" in result
         assert "rewrite_cycles_used" in result
+        assert "graded_docs" in result
         assert result["rewrite_cycles_used"] == 0
 
     def test_rewrite_cycle_increments(self, index):
@@ -280,15 +287,19 @@ class TestCRAGWorkflow:
 
         async def achat(messages, **kw):
             system = next((m.content for m in messages if m.role == MessageRole.SYSTEM), "")
-            is_grade = "grader" in system.lower() or "sufficient" in system.lower()
+            is_grade = "per_doc" in system or "missing_facts" in system or "0–2" in system
+            is_rewrite = "Missing facts" in next(
+                (m.content for m in messages if m.role == MessageRole.USER), ""
+            )
             if is_grade:
                 grade_calls["n"] += 1
-                # Return "insufficient" for first 2 calls, then "sufficient"
-                return ChatResponse(message=ChatMessage(
-                    role=MessageRole.ASSISTANT,
-                    content="insufficient" if grade_calls["n"] < 3 else "sufficient",
-                ))
-            return ChatResponse(message=ChatMessage(role=MessageRole.ASSISTANT, content="rewritten query" if "rewriter" in system.lower() else "Final answer."))
+                # Insufficient for first 2 grade calls, then sufficient
+                text = _GRADE_INSUFFICIENT if grade_calls["n"] < 3 else _GRADE_SUFFICIENT
+            elif is_rewrite:
+                text = "rewritten query about NDMA specific limit"
+            else:
+                text = "Final answer."
+            return ChatResponse(message=ChatMessage(role=MessageRole.ASSISTANT, content=text))
 
         mock_llm = MagicMock()
         mock_llm.achat = achat
@@ -296,8 +307,59 @@ class TestCRAGWorkflow:
         wf = CRAGWorkflow(index=index, llm=mock_llm, max_cycles=2, timeout=120)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "test"})
-        # Either got sufficient after rewrite, or hit max cycles
         assert result["rewrite_cycles_used"] >= 0
+
+    def test_grade_sufficient_when_score2_and_no_missing(self, index):
+        """A doc scoring 2 with empty missing_facts produces GradeEvent (no rewrite)."""
+        from harness.workflows.crag import CRAGWorkflow
+
+        async def achat(messages, **kw):
+            system = next((m.content for m in messages if m.role == MessageRole.SYSTEM), "")
+            if "per_doc" in system or "0–2" in system:
+                return ChatResponse(message=ChatMessage(
+                    role=MessageRole.ASSISTANT, content=_GRADE_SUFFICIENT
+                ))
+            return ChatResponse(message=ChatMessage(role=MessageRole.ASSISTANT, content="Answer."))
+
+        mock_llm = MagicMock()
+        mock_llm.achat = achat
+
+        wf = CRAGWorkflow(index=index, llm=mock_llm, timeout=60)
+        runner = WorkflowRunner(wf)
+        result = runner.invoke({"question": "NDMA limit?"})
+        assert result["rewrite_cycles_used"] == 0
+
+    def test_rewrite_grounded_in_missing_facts(self, index):
+        """Rewrite prompt receives missing_facts from grader."""
+        from harness.workflows.crag import CRAGWorkflow
+
+        rewrite_user_msgs: list[str] = []
+        grade_count = {"n": 0}
+
+        async def achat(messages, **kw):
+            system = next((m.content for m in messages if m.role == MessageRole.SYSTEM), "")
+            user = next((m.content for m in messages if m.role == MessageRole.USER), "")
+            is_grade = "per_doc" in system or "0–2" in system
+            is_rewrite = "Missing facts" in user
+            if is_grade:
+                grade_count["n"] += 1
+                text = _GRADE_INSUFFICIENT if grade_count["n"] < 2 else _GRADE_SUFFICIENT
+            elif is_rewrite:
+                rewrite_user_msgs.append(user)
+                text = "rewritten query"
+            else:
+                text = "Final answer."
+            return ChatResponse(message=ChatMessage(role=MessageRole.ASSISTANT, content=text))
+
+        mock_llm = MagicMock()
+        mock_llm.achat = achat
+
+        wf = CRAGWorkflow(index=index, llm=mock_llm, max_cycles=2, timeout=120)
+        runner = WorkflowRunner(wf)
+        runner.invoke({"question": "test"})
+
+        assert rewrite_user_msgs, "rewrite step was not called"
+        assert "specific NDMA limit value" in rewrite_user_msgs[0]
 
 
 # ---------------------------------------------------------------------------

@@ -74,7 +74,7 @@ def run(config_path: Path) -> dict:
 
     # ---------- Build / reload index ----------
     from harness.embed import build_index
-    from harness.providers import configure_embed_model, get_llm_model
+    from harness.providers import configure_embed_model
 
     idx_cfg = cfg["index"]
     corpus_path = _resolve(idx_cfg["corpus"])
@@ -103,7 +103,6 @@ def run(config_path: Path) -> dict:
     _query_exp_cfg: dict = abl_cfg.get("query_expansion", {})
     _topic_cfg: dict = abl_cfg.get("topic_filter", {})
     _reranker_name: str | None = abl_cfg.get("reranker", None)
-    _reranker_model: str = abl_cfg.get("reranker_model") or get_llm_model()
     _reranker_max_chunks: int = abl_cfg.get("reranker_max_chunks", 5)
 
     _expander = None
@@ -119,7 +118,7 @@ def run(config_path: Path) -> dict:
         log.info("A2 topic filter enabled (mode: %s)", _topic_filter_mode)
 
     if _reranker_name:
-        log.info("Reranker enabled: %s (model=%s, max_chunks=%d)", _reranker_name, _reranker_model, _reranker_max_chunks)
+        log.info("Reranker enabled: %s (max_chunks=%d, model from reranker role)", _reranker_name, _reranker_max_chunks)
 
     # Load hierarchical index if needed
     _hier_index = None
@@ -153,13 +152,13 @@ def run(config_path: Path) -> dict:
             from harness.retrieve import _results_from_nodes
             results = _results_from_nodes(retriever.retrieve(expanded))
 
-        # A3/A4 — optional LLM reranker
+        # A3/A4 — optional LLM reranker (model from 'reranker' role in models.yaml)
         if _reranker_name == "sme":
             import harness.ablations.a3_reranker as _a3
-            results = _a3.rerank(results, query, index, model=_reranker_model, max_chunks=_reranker_max_chunks)
+            results = _a3.rerank(results, query, index, max_chunks=_reranker_max_chunks)
         elif _reranker_name == "generic":
             import harness.ablations.a4_reranker as _a4
-            results = _a4.rerank(results, query, index, model=_reranker_model, max_chunks=_reranker_max_chunks)
+            results = _a4.rerank(results, query, index, max_chunks=_reranker_max_chunks)
 
         return results
 
@@ -187,10 +186,9 @@ def run(config_path: Path) -> dict:
         from harness.llms import get_llm
         from harness.workflows.registry import get_workflow
         orch_strategy = orch_cfg["strategy"]
-        orch_tier = orch_cfg.get("tier_id", "mid")
-        log.info("Orchestration enabled: strategy=%s tier=%s", orch_strategy, orch_tier)
+        log.info("Orchestration enabled: strategy=%s (agent role)", orch_strategy)
 
-        llm = get_llm(orch_tier)
+        llm = get_llm("agent")
         workflow = get_workflow(
             orch_strategy, index=index, llm=llm, retrieval_config=ret_config
         )
@@ -210,7 +208,6 @@ def run(config_path: Path) -> dict:
                         "type": item["type"],
                         "answer_text": result["answer_text"],
                         "prompt_strategy": result.get("prompt_strategy", orch_strategy),
-                        "tier_id": orch_tier,
                     }
                 except Exception as exc:
                     log.warning("Answer generation failed for %s: %s", item["bench_id"], exc)
@@ -234,7 +231,7 @@ def run(config_path: Path) -> dict:
     if judge_cfg.get("enabled", False):
         from harness.judge import Judge
         from harness.workflows.utils import results_to_docs
-        judge = Judge(model=judge_cfg.get("model") or get_llm_model())
+        judge = Judge()  # model configured via models.yaml roles.judge
         log.info("Running LLM judge …")
         with benchmark_path.open(encoding="utf-8") as fh:
             bench_items = [json.loads(line) for line in fh]

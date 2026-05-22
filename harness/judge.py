@@ -5,10 +5,9 @@ Two prompts live in harness/judges/:
     faithfulness.md  — is the answer supported by the retrieved context?
     correctness.md   — does the answer match the gold answer?
 
-The judge model should be at Sonnet capability or above.  Haiku cannot
-reliably distinguish strong from weak answers on complex regulatory content
-and gives nonsensical scores to non-answers (faithfulness=5 for
-"No answer generated.").  Use claude-sonnet-4-6 as the default.
+The judge model is configured via models.yaml roles.judge (default: claude_opus).
+Use claude_opus or above for reliable scoring on regulatory content — Haiku gives
+nonsensical scores on edge cases.
 
 Both prompts return {"score": 1-5, "reason": "..."}.
 
@@ -25,14 +24,11 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import TypedDict
-
-import anthropic
+from typing import Any, TypedDict
 
 log = logging.getLogger(__name__)
 
 JUDGES_DIR = Path(__file__).parent / "judges"
-DEFAULT_JUDGE_MODEL = "claude-sonnet-4-6"
 _MAX_TOKENS = 512
 
 
@@ -57,7 +53,6 @@ def _render_prompt(template: str, **kwargs: str) -> str:
 
 def _parse_score(text: str) -> JudgeScore:
     """Extract JSON score from LLM response (strips accidental markdown fences)."""
-    # Strip optional ```json … ``` wrapper
     text = re.sub(r"```(?:json)?\s*", "", text).strip().rstrip("`").strip()
     try:
         data = json.loads(text)
@@ -68,25 +63,25 @@ def _parse_score(text: str) -> JudgeScore:
 
 
 class Judge:
-    """Stateless LLM judge backed by Anthropic Claude."""
+    """LLM judge backed by the model assigned to the 'judge' role in models.yaml."""
 
-    def __init__(self, model: str = DEFAULT_JUDGE_MODEL, api_key: str | None = None) -> None:
-        self._model = model
-        self._client = anthropic.Anthropic(api_key=api_key)  # reads ANTHROPIC_API_KEY env var
+    def __init__(self, llm: Any = None) -> None:
+        if llm is None:
+            from harness.llms import get_llm
+            llm = get_llm("judge")
+        self._llm = llm
         self._faithfulness_tmpl = _load_prompt("faithfulness")
         self._correctness_tmpl = _load_prompt("correctness")
 
     def _call(self, prompt: str) -> str:
-        msg = self._client.messages.create(
-            model=self._model,
-            max_tokens=_MAX_TOKENS,
-            messages=[{"role": "user", "content": prompt}],
+        from llama_index.core.llms import ChatMessage, MessageRole
+        response = self._llm.chat(
+            [ChatMessage(role=MessageRole.USER, content=prompt)]
         )
-        return msg.content[0].text  # type: ignore[index]
+        return response.message.content or ""
 
     @staticmethod
     def _is_non_answer(answer: str) -> bool:
-        """Return True if the answer string is a generation-failure sentinel."""
         stripped = answer.strip().lower()
         return stripped in {
             "no answer generated.",

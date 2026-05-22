@@ -53,6 +53,16 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Not chosen:** Using LangGraph for orchestration — the impedance mismatch at the LlamaIndex/LangChain boundary outweighed the benefits of LangGraph's state machine semantics for this retrieval-centric project.  
 **Ref:** [`.claude/work/2026-05-22_10_llamaindex-langgraph-assessment/`](.claude/work/2026-05-22_10_llamaindex-langgraph-assessment/)
 
+### Role/model separation in models.yaml
+**Decided:** 2026-05-23  
+**What:** `harness/configs/models.yaml` is restructured into two top-level sections:
+- `models:` — model definitions keyed by a stable name (e.g. `claude_haiku`, `claude_opus`, `olmo_32b`, `local_qwen32`). Each entry has `provider`, `model_id`, `max_tokens`, `temperature`, and optionally `api_base` + `api_key_env` for `openai_compatible` servers.
+- `roles:` — maps functional roles (`agent`, `grader`, `rewriter`, `reranker`, `judge`, `reviewer`) to model names. Change a role here to swap the model everywhere it's used.
+
+`get_llm(role_name)` (in `harness/llms.py`) replaces `get_llm(tier_id)`. `load_model_for_role(role_name)` replaces `load_tier(tier_id)`. The constants `TIER_MID`, `TIER_FRONTIER`, `TIER_OLMO`, `TierId` are removed from hot paths.  
+**Why:** The old `tier_id` conflated two concerns: which model to use AND what it's used for. Swapping the grader to a local model for offline runs required touching every call site. Roles decouple these: `roles.grader: local_qwen32` swaps only the grader with no code change.  
+**Default role mapping:** agent/grader/rewriter/reranker → `claude_haiku`; judge/reviewer → `claude_opus`.
+
 ### `orchestration:` block as the answer-generation schema in eval configs
 **Decided:** 2026-05-23  
 **What:** Eval YAML configs use a top-level `orchestration:` block (with `strategy` and `tier_id` sub-keys) to specify which workflow strategy generates answers. The old `answer_generation:` block (with `enabled`, `strategy`, `tier_id`) is removed.  

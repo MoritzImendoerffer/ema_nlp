@@ -2,7 +2,6 @@
 ablation: {}
 orchestration:
   strategy: simple_rag_few
-  tier_id: olmo
 benchmark:
   path: benchmark/benchmark.jsonl
 cache: false

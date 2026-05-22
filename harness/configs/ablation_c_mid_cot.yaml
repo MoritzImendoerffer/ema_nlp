@@ -2,7 +2,6 @@
 ablation: {}
 orchestration:
   strategy: simple_rag_cot
-  tier_id: mid
 benchmark:
   path: benchmark/benchmark.jsonl
 cache: false

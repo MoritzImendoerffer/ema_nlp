@@ -129,6 +129,21 @@ class TestA2TopicFilter:
 
 # ── A3 — SME reranker (mocked) ────────────────────────────────────────────────
 
+def _make_fake_llm(score_sequence: list[str]) -> MagicMock:
+    """LlamaIndex LLM mock that returns scores from the sequence on each .chat() call."""
+    from llama_index.core.base.llms.types import ChatMessage, ChatResponse, MessageRole
+
+    llm = MagicMock()
+    seq = list(score_sequence)
+
+    def chat(messages, **kw):
+        text = seq.pop(0) if seq else "0"
+        return ChatResponse(message=ChatMessage(role=MessageRole.ASSISTANT, content=text))
+
+    llm.chat.side_effect = chat
+    return llm
+
+
 class TestA3Reranker:
     def _make_results(self) -> list:
         return [
@@ -146,24 +161,12 @@ class TestA3Reranker:
         index.docstore.get_node.side_effect = get_node
         return index
 
-    @patch("anthropic.Anthropic")
-    def test_rerank_reorders_by_score(self, mock_anthropic_cls):
+    def test_rerank_reorders_by_score(self):
         """Higher LLM score should bubble to top."""
         from harness.ablations.a3_reranker import rerank
 
-        # results are scored in order: qa_0, qa_1, qa_2
-        # give qa_0→0, qa_1→2, qa_2→1 so qa_1 ends up first
-        score_seq = ["0", "2", "1"]
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
-
-        def side_effect(**kwargs):
-            resp = MagicMock()
-            resp.content = [MagicMock(text=score_seq.pop(0))]
-            return resp
-
-        mock_client.messages.create.side_effect = side_effect
-
+        # qa_0→0, qa_1→2, qa_2→1 so qa_1 ends up first
+        llm = _make_fake_llm(["0", "2", "1"])
         results = self._make_results()
         index = self._make_index({
             "qa_0": "Q: ndma?\nA: low",
@@ -171,47 +174,34 @@ class TestA3Reranker:
             "qa_2": "Q: testing?\nA: hplc",
         })
 
-        reranked = rerank(results, "nitrosamine AI", index, max_chunks=3)
+        reranked = rerank(results, "nitrosamine AI", index, llm=llm, max_chunks=3)
         assert reranked[0][0] == "qa_1"  # score 2 → first
         assert reranked[1][0] == "qa_2"  # score 1 → second
         assert reranked[2][0] == "qa_0"  # score 0 → last
 
-    @patch("anthropic.Anthropic")
-    def test_rerank_appends_unscored_remainder(self, mock_anthropic_cls):
+    def test_rerank_appends_unscored_remainder(self):
         """Chunks beyond max_chunks are appended in original order."""
         from harness.ablations.a3_reranker import rerank
 
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
-        resp = MagicMock()
-        resp.content = [MagicMock(text="1")]
-        mock_client.messages.create.return_value = resp
-
+        llm = _make_fake_llm(["1", "1"])
         results = self._make_results()  # 3 results
         index = self._make_index({})
 
-        reranked = rerank(results, "test", index, max_chunks=2)
+        reranked = rerank(results, "test", index, llm=llm, max_chunks=2)
         assert len(reranked) == 3
-        # qa_2 (index 2) was not scored and should be at the end
-        assert reranked[-1][0] == "qa_2"
+        assert reranked[-1][0] == "qa_2"  # unscored → appended last
 
 
 # ── A4 — Generic reranker (mocked) ───────────────────────────────────────────
 
-@patch("anthropic.Anthropic")
-def test_a4_rerank_same_interface_as_a3(mock_anthropic_cls):
+def test_a4_rerank_same_interface_as_a3():
     from harness.ablations.a4_reranker import rerank
 
-    mock_client = MagicMock()
-    mock_anthropic_cls.return_value = mock_client
-    resp = MagicMock()
-    resp.content = [MagicMock(text="2")]
-    mock_client.messages.create.return_value = resp
-
+    llm = _make_fake_llm(["2", "2"])
     results = [("qa_0", 0.9, {}), ("qa_1", 0.8, {})]
     index = MagicMock()
     index.docstore.get_node.return_value = MagicMock(text="Q: x\nA: y")
 
-    reranked = rerank(results, "query", index, max_chunks=2)
+    reranked = rerank(results, "query", index, llm=llm, max_chunks=2)
     assert len(reranked) == 2
-    assert mock_client.messages.create.call_count == 2
+    assert llm.chat.call_count == 2

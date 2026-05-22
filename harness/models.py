@@ -1,18 +1,17 @@
 """
-Unified LLM interface for the three model tiers used in Ablation C.
+Unified model configuration for EMA NLP harness.
 
-    mid      — claude-haiku-4-5-20251001  (Anthropic, fast/cheap)
-    frontier — claude-opus-4-7            (Anthropic, highest quality)
-    olmo     — allenai/OLMo-2-1124-32B-Instruct (Together AI, open-weight)
+Models and roles are defined in harness/configs/models.yaml:
 
-Config is read from harness/configs/models.yaml and can be overridden per-run
-via the eval YAML or env vars.
+    models:  {claude_haiku, claude_opus, olmo_32b, local_qwen32}
+    roles:   {agent, grader, rewriter, reranker, judge, reviewer}
 
 Usage:
-    from harness.models import call_model, load_tier, TIER_MID, TIER_FRONTIER, TIER_OLMO
-    response = call_model("Explain X", tier_id=TIER_MID)
+    from harness.models import load_model_for_role, call_model
+    cfg  = load_model_for_role("agent")   # → claude_haiku config
+    text = call_model("Explain X", "agent")
 
-Smoke test (requires ANTHROPIC_API_KEY; TOGETHER_API_KEY optional for olmo):
+Smoke test (requires ANTHROPIC_API_KEY):
     python -m harness.models
 """
 
@@ -20,19 +19,13 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Optional
 
 import yaml
 
 log = logging.getLogger(__name__)
-
-TIER_MID = "mid"
-TIER_FRONTIER = "frontier"
-TIER_OLMO = "olmo"
-
-TierId = Literal["mid", "frontier", "olmo"]
 
 _MODELS_YAML = Path(__file__).parent / "configs" / "models.yaml"
 _TOGETHER_BASE_URL = "https://api.together.xyz/v1"
@@ -40,35 +33,59 @@ _TOGETHER_BASE_URL = "https://api.together.xyz/v1"
 
 @dataclass
 class ModelConfig:
-    tier_id: str
+    model_name: str         # key in models: dict
     description: str
-    provider: str          # "anthropic" | "together_ai"
+    provider: str           # "anthropic" | "together_ai" | "openai_compatible"
     model_id: str
     max_tokens: int
     temperature: float
+    api_base: Optional[str] = field(default=None)      # openai_compatible only
+    api_key_env: Optional[str] = field(default=None)   # openai_compatible only
 
 
-def load_tier(tier_id: TierId, config_path: Path = _MODELS_YAML) -> ModelConfig:
-    """Load a ModelConfig from models.yaml by tier_id."""
+def load_model_for_role(role_name: str, config_path: Path = _MODELS_YAML) -> ModelConfig:
+    """Load ModelConfig for a given role name.
+
+    Args:
+        role_name:   Role key defined in models.yaml (e.g. 'agent', 'judge').
+        config_path: Override path to models.yaml.
+
+    Raises:
+        ValueError: If role or model name is not found.
+    """
     with config_path.open(encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
-    tiers = raw["tiers"]
-    if tier_id not in tiers:
-        raise ValueError(f"Unknown tier '{tier_id}'. Available: {list(tiers)}")
-    d = tiers[tier_id]
+
+    roles: dict = raw.get("roles", {})
+    if role_name not in roles:
+        raise ValueError(
+            f"Unknown role '{role_name}'. Available roles: {sorted(roles)}"
+        )
+
+    model_name: str = roles[role_name]
+    models: dict = raw.get("models", {})
+    if model_name not in models:
+        raise ValueError(
+            f"Role '{role_name}' maps to unknown model '{model_name}'. "
+            f"Available models: {sorted(models)}"
+        )
+
+    d = models[model_name]
     return ModelConfig(
-        tier_id=d["tier_id"],
-        description=d["description"],
+        model_name=model_name,
+        description=d.get("description", ""),
         provider=d["provider"],
         model_id=d["model_id"],
         max_tokens=d["max_tokens"],
         temperature=d["temperature"],
+        api_base=d.get("api_base"),
+        api_key_env=d.get("api_key_env"),
     )
 
 
 def call_model(
     prompt: str,
-    tier_id: TierId = TIER_MID,  # type: ignore[assignment]
+    role_name: str = "agent",
     system: str = "",
     *,
     config: ModelConfig | None = None,
@@ -76,15 +93,15 @@ def call_model(
     max_tokens: int | None = None,
 ) -> str:
     """
-    Call the LLM for the given tier and return the response text.
+    Call the LLM for the given role and return the response text.
 
     Args:
         prompt:           User-turn content.
-        tier_id:          Which tier to use (ignored if ``config`` is provided).
+        role_name:        Which role to use (resolved via models.yaml roles:).
         system:           Optional system prompt.
-        config:           Pre-loaded ModelConfig; overrides tier_id if given.
-        model_id_override: Override the model_id from the config (for one-off calls).
-        max_tokens:       Override max_tokens from the ModelConfig (for one-off calls).
+        config:           Pre-loaded ModelConfig; overrides role_name if given.
+        model_id_override: Override the model_id (for one-off calls).
+        max_tokens:       Override max_tokens from the ModelConfig.
 
     Returns:
         Response text string.
@@ -93,14 +110,27 @@ def call_model(
         EnvironmentError: If the required API key is missing.
         ImportError:      If the required SDK is not installed.
     """
-    cfg = config or load_tier(tier_id)
+    cfg = config or load_model_for_role(role_name)
     model_id = model_id_override or cfg.model_id
     effective_max_tokens = max_tokens if max_tokens is not None else cfg.max_tokens
 
     if cfg.provider == "anthropic":
         return _call_anthropic(prompt, system, model_id, effective_max_tokens, cfg.temperature)
     elif cfg.provider == "together_ai":
-        return _call_together(prompt, system, model_id, effective_max_tokens, cfg.temperature)
+        return _call_openai_compat(
+            prompt, system, model_id, effective_max_tokens, cfg.temperature,
+            api_base=_TOGETHER_BASE_URL,
+            api_key=os.getenv("TOGETHER_API_KEY"),
+            key_env="TOGETHER_API_KEY",
+        )
+    elif cfg.provider == "openai_compatible":
+        key_env = cfg.api_key_env or "OPENAI_API_KEY"
+        return _call_openai_compat(
+            prompt, system, model_id, effective_max_tokens, cfg.temperature,
+            api_base=cfg.api_base or "http://localhost:8000/v1",
+            api_key=os.getenv(key_env),
+            key_env=key_env,
+        )
     else:
         raise ValueError(f"Unknown provider '{cfg.provider}'")
 
@@ -123,9 +153,7 @@ def _call_anthropic(
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        raise OSError(
-            "ANTHROPIC_API_KEY not set. Add it to ~/.myenvs/ema_nlp.env"
-        )
+        raise OSError("ANTHROPIC_API_KEY not set. Add it to ~/.myenvs/ema_nlp.env")
 
     client = anthropic.Anthropic(api_key=api_key)
     kwargs: dict = dict(
@@ -140,26 +168,28 @@ def _call_anthropic(
     return msg.content[0].text
 
 
-def _call_together(
+def _call_openai_compat(
     prompt: str,
     system: str,
     model_id: str,
     max_tokens: int,
     temperature: float,
+    *,
+    api_base: str,
+    api_key: str | None,
+    key_env: str,
 ) -> str:
     try:
         from openai import OpenAI
     except ImportError as e:
         raise ImportError("pip install openai") from e
 
-    api_key = os.getenv("TOGETHER_API_KEY")
     if not api_key:
         raise OSError(
-            "TOGETHER_API_KEY not set. Add it to ~/.myenvs/ema_nlp.env. "
-            "Get a key at https://api.together.xyz"
+            f"{key_env} not set. Add it to ~/.myenvs/ema_nlp.env"
         )
 
-    client = OpenAI(api_key=api_key, base_url=_TOGETHER_BASE_URL)
+    client = OpenAI(api_key=api_key, base_url=api_base)
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -183,24 +213,22 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    tiers_to_test: list[TierId] = [TIER_MID, TIER_FRONTIER]  # type: ignore[list-item]
+    roles_to_test = ["agent"]
     if os.getenv("TOGETHER_API_KEY"):
-        tiers_to_test.append(TIER_OLMO)  # type: ignore[arg-type]
-    else:
-        log.warning("TOGETHER_API_KEY not set — skipping OLMo smoke test")
+        pass  # add olmo test via config override if needed
 
     prompt = "Reply with exactly: 'model check OK'"
     all_ok = True
-    for tier_id in tiers_to_test:
-        cfg = load_tier(tier_id)
+    for role in roles_to_test:
+        cfg = load_model_for_role(role)
         try:
-            response = call_model(prompt, config=cfg)
-            log.info("[%s] %s → %r", tier_id, cfg.model_id, response[:80])
+            response = call_model(prompt, role)
+            log.info("[%s → %s] %r", role, cfg.model_id, response[:80])
         except OSError as exc:
-            log.error("[%s] missing credentials: %s", tier_id, exc)
+            log.error("[%s] missing credentials: %s", role, exc)
             all_ok = False
         except Exception as exc:
-            log.error("[%s] call failed: %s", tier_id, exc)
+            log.error("[%s] call failed: %s", role, exc)
             all_ok = False
 
     sys.exit(0 if all_ok else 1)
