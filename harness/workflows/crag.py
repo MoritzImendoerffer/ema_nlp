@@ -98,7 +98,13 @@ Use precise EMA terminology. Return only the rewritten query — nothing else.
 
 def _parse_grade(raw: str) -> tuple[list[dict], list[str]]:
     """Parse grader JSON response. Returns (per_doc, missing_facts)."""
+    # Strip markdown code fences
     raw = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`").strip()
+    # Extract JSON object: take from first { to last }
+    first_brace = raw.find("{")
+    last_brace = raw.rfind("}")
+    if first_brace != -1 and last_brace > first_brace:
+        raw = raw[first_brace : last_brace + 1]
     try:
         data = json.loads(raw)
         per_doc: list[dict] = data.get("per_doc", [])
