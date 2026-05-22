@@ -1,19 +1,18 @@
 """
 EMA Q&A Chat UI — Chainlit 2.11
 
-Browser chat with hybrid RAG retrieval, LangGraph pipeline synthesis,
+Browser chat with hybrid RAG retrieval, LlamaIndex Workflow pipeline,
 Arize Phoenix trace integration, and per-step 👍/👎 feedback.
 
-Each chat session runs through a LangGraph pipeline compiled with
-MemorySaver, so the full pipeline state is checkpointed per turn.
-The session_id (uuid4) is printed at startup and stored per browser session.
+Each chat session builds a fresh WorkflowRunner (stateless per turn;
+session context is managed by the cache, not by workflow state).
 
 Usage:
     chainlit run app.py
-    PHOENIX_DISABLED=1 chainlit run app.py      # tracing off
+    PHOENIX_DISABLED=1 chainlit run app.py           # tracing off
     EMA_INDEX_PATH=/path/to/index chainlit run app.py
     EMA_CORPUS_PATH=/path/to/corpus.jsonl chainlit run app.py
-    EMA_CLAUDE_MODEL=claude-sonnet-4-6 chainlit run app.py
+    EMA_WORKFLOW_STRATEGY=crag chainlit run app.py   # default: simple_rag_zero
 """
 
 from __future__ import annotations
@@ -33,7 +32,7 @@ load_dotenv(Path.home() / ".myenvs" / "ema_nlp.env", override=False)
 
 PHOENIX_URL = os.getenv("PHOENIX_URL", "http://localhost:6006")
 PHOENIX_DISABLED = os.getenv("PHOENIX_DISABLED", "").lower() in ("1", "true", "yes")
-CLAUDE_MODEL = os.getenv("EMA_CLAUDE_MODEL") or os.getenv("EMA_LLM_MODEL", "claude-haiku-4-5-20251001")
+WORKFLOW_STRATEGY = os.getenv("EMA_WORKFLOW_STRATEGY", "simple_rag_zero")
 RETRIEVAL_K = 10
 SOURCES_SHOWN = 5
 
@@ -79,25 +78,15 @@ def _embed_query_sync(query: str) -> np.ndarray | None:
         return None
 
 
-def _build_session_pipeline(index: Any) -> Any:
-    """Build a build_pipeline() instance with MemorySaver for a single browser session."""
-    from harness.chains.pipeline import PipelineConfig, build_pipeline
-    from harness.chains.retriever import EMARetriever
-    from langchain_anthropic import ChatAnthropic
-    from langgraph.checkpoint.memory import MemorySaver
+def _build_session_workflow(index: Any) -> Any:
+    """Build a WorkflowRunner for a single browser session."""
+    from harness.llms import get_llm
+    from harness.retrieve import RetrievalConfig
+    from harness.workflows.registry import get_workflow
 
-    retriever = EMARetriever(index=index, mode="hybrid", k=RETRIEVAL_K)
-    llm = ChatAnthropic(
-        model=CLAUDE_MODEL,
-        max_tokens=1024,
-        api_key=os.getenv("ANTHROPIC_API_KEY"),  # type: ignore[arg-type]
-    )
-    return build_pipeline(
-        PipelineConfig(),
-        retriever=retriever,
-        llm=llm,
-        checkpointer=MemorySaver(),
-    )
+    llm = get_llm("mid")
+    cfg = RetrievalConfig(mode="hybrid", k=RETRIEVAL_K)
+    return get_workflow(WORKFLOW_STRATEGY, index=index, llm=llm, retrieval_config=cfg)
 
 
 # ── Chainlit lifecycle ────────────────────────────────────────────────────────
@@ -118,8 +107,8 @@ async def on_chat_start() -> None:
     log.info("Session started: %s", session_id)
     cl.user_session.set("session_id", session_id)
 
-    # Build LangGraph pipeline with MemorySaver (persists state across turns in this session)
-    pipeline = await asyncio.to_thread(_build_session_pipeline, index)
+    # Build LlamaIndex Workflow runner for this session
+    pipeline = await asyncio.to_thread(_build_session_workflow, index)
     cl.user_session.set("pipeline", pipeline)
 
     # Initialise semantic cache — graceful if index dir doesn't exist yet
@@ -142,7 +131,6 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
     from harness.query_cache import CacheEntry, QueryCache
 
     pipeline: Any = cl.user_session.get("pipeline")
-    session_id: str = cl.user_session.get("session_id", str(uuid.uuid4()))
     cache: QueryCache | None = cl.user_session.get("cache")
     query_vec = await asyncio.to_thread(_embed_query_sync, query)
 
@@ -207,7 +195,6 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
         step.input = query
         result: dict = await pipeline.ainvoke(
             {"question": query, "few_shot_context": few_shot_block},
-            config={"configurable": {"thread_id": session_id}},
         )
         step.output = f"Done: {len(result.get('answer_text', ''))} chars"
 

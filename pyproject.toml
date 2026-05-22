@@ -20,6 +20,7 @@ dependencies = [
     "llama-index-vector-stores-faiss>=0.3",       # wraps faiss-cpu
     "llama-index-retrievers-bm25>=0.5",           # wraps rank-bm25
     "llama-index-llms-anthropic>=0.6",            # Claude LLM integration
+    "llama-index-llms-openai>=0.7",              # OpenAI-compatible LLMs (Together AI / OLMo)
     # Retrieval backends (used by LlamaIndex)
     "rank-bm25>=0.2.2",
     "faiss-cpu>=1.13",
@@ -29,13 +30,6 @@ dependencies = [
     "openinference-instrumentation-llama-index>=2.0",
     # LLM
     "anthropic>=0.100",
-    # LangChain / LangGraph / LangSmith — agentic chain iteration layer
-    "langchain-core>=0.3",
-    "langchain-anthropic>=0.3",
-    "langchain-openai>=0.2",       # Together AI uses OpenAI-compatible API
-    "langchain-community>=0.3",
-    "langgraph>=0.2",
-    "langsmith>=0.2",
     # Utilities
     "PyYAML>=6.0",
     "matplotlib>=3.9",
