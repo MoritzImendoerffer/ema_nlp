@@ -32,6 +32,7 @@ def prompt_for_rating(
     *,
     root_span_id: str | None = None,
     step_span_ids: list[str] | None = None,
+    node_span_ids: dict[str, str] | None = None,
     cache: Any = None,
     phoenix_url: str = PHOENIX_URL,
     project: str = PHOENIX_PROJECT,
@@ -50,6 +51,9 @@ def prompt_for_rating(
         trajectory:      List of step dicts from AgentAnswer.trajectory.
         root_span_id:    OTel span_id of the root agent span (optional; heuristic fallback used if absent).
         step_span_ids:   OTel span_ids for individual trajectory steps (optional).
+        node_span_ids:   Mapping from pipeline node name to span_id (LG-006).
+                         When provided, the user is offered the option to annotate
+                         individual named nodes (e.g. "grade", "generate", "review").
         cache:           QueryCache instance to sync the rating into.
         phoenix_url:     Base URL of the Phoenix server.
         project:         Phoenix project identifier.
@@ -81,7 +85,7 @@ def prompt_for_rating(
     print("Note (Enter to skip): ", end="", flush=True)
     note = sys.stdin.readline().strip() or None
 
-    # --- Optional per-step labels ---
+    # --- Optional per-step labels (ReAct trajectory) ---
     step_labels: list[dict] = []
     tool_steps = [s for s in trajectory if s.get("type") == "tool_call"]
     if tool_steps:
@@ -105,12 +109,38 @@ def prompt_for_rating(
                 if lraw in label_map:
                     step_labels.append({"step_idx": i, "tool_name": tool_name, "label": label_map[lraw]})
 
+    # --- Optional per-node labels (pipeline strategies, LG-006) ---
+    node_labels: list[dict] = []
+    if node_span_ids:
+        node_names = list(node_span_ids.keys())
+        print(
+            f"Label pipeline nodes? {node_names} [y/N]: ",
+            end="",
+            flush=True,
+        )
+        if sys.stdin.readline().strip().lower() == "y":
+            label_map = {"g": "good_step", "s": "suboptimal_step", "w": "wrong_step"}
+            for node in node_names:
+                print(
+                    f"  Node [{node}]  [g]ood / [s]uboptimal / [w]rong / Enter=skip: ",
+                    end="",
+                    flush=True,
+                )
+                lraw = sys.stdin.readline().strip().lower()
+                if lraw in label_map:
+                    node_labels.append({
+                        "node_name": node,
+                        "span_id": node_span_ids[node],
+                        "label": label_map[lraw],
+                    })
+
     # --- Post to Phoenix ---
     _post_phoenix_annotation(
         run_id=run_id,
         root_span_id=root_span_id,
         step_span_ids=step_span_ids or [],
         step_labels=step_labels,
+        node_labels=node_labels,
         rating=rating,
         note=note,
         phoenix_url=phoenix_url,
@@ -141,6 +171,7 @@ def _post_phoenix_annotation(
     note: str | None,
     phoenix_url: str,
     project: str,
+    node_labels: list[dict] | None = None,
 ) -> None:
     try:
         from phoenix.client import Client as PhoenixClient
@@ -165,7 +196,7 @@ def _post_phoenix_annotation(
         else:
             log.warning("Phoenix annotation skipped — no span_id found for run_id=%s", run_id)
 
-        # Per-step labels on child spans (best-effort)
+        # Per-step labels on child spans (ReAct trajectory, best-effort)
         for sl in step_labels:
             idx = sl["step_idx"]
             if idx < len(step_span_ids):
@@ -175,6 +206,17 @@ def _post_phoenix_annotation(
                     annotator_kind="HUMAN",
                     label=sl["label"],
                     metadata={"run_id": run_id, "step_idx": idx, "tool_name": sl.get("tool_name", "")},
+                )
+
+        # Per-node labels on pipeline spans (LG-006, best-effort)
+        for nl in (node_labels or []):
+            if nl.get("span_id"):
+                client.spans.add_span_annotation(
+                    span_id=nl["span_id"],
+                    annotation_name="step_quality",
+                    annotator_kind="HUMAN",
+                    label=nl["label"],
+                    metadata={"run_id": run_id, "node_name": nl.get("node_name", "")},
                 )
 
     except Exception as exc:

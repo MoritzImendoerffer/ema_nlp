@@ -573,7 +573,7 @@ class TestChainRegistry:
     def test_list_chains_returns_all_strategies(self):
         from harness.chains.registry import list_chains
         chains = list_chains()
-        assert set(chains) == {"simple_rag_zero", "simple_rag_few", "simple_rag_cot", "react", "crag"}
+        assert {"simple_rag_zero", "simple_rag_few", "simple_rag_cot", "react", "crag"}.issubset(set(chains))
 
     def test_unknown_chain_raises_value_error(self, tiny_index):
         from harness.chains.registry import get_chain

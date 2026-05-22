@@ -1,0 +1,9 @@
+{
+  "id": "2026-05-22_langgraph-orchestration",
+  "title": "LangGraph orchestration for retrieval, summarization, and review agents",
+  "status": "exploring",
+  "type": "architecture",
+  "created_at": "2026-05-22",
+  "phase": "Phase 2-3",
+  "goal": "Integrate LangGraph as the orchestration layer while keeping LlamaIndex for retrieval and memory. Support composable retrieval, summarization, and QA-review agents with fast iteration."
+}

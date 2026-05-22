@@ -56,6 +56,7 @@ def get_fewshot_context(
     k: int = 3,
     min_rating: float = 4.0,
     min_examples: int = 3,
+    node_name: str | None = None,
     phoenix_url: str = PHOENIX_URL,
     project: str = PHOENIX_PROJECT,
 ) -> str | None:
@@ -68,6 +69,10 @@ def get_fewshot_context(
         k:             Maximum number of examples to include.
         min_rating:    Minimum rating threshold (default 4 out of 5).
         min_examples:  Suppress injection if fewer than this many candidates exist.
+        node_name:     Optional pipeline node name filter (e.g. "grade", "generate").
+                       When supplied, fetches examples annotated for that specific node
+                       rather than the full trajectory.  None = full trajectory (default,
+                       backwards-compatible).
         phoenix_url:   Phoenix server base URL (for trajectory enrichment).
         project:       Phoenix project identifier.
 
@@ -89,7 +94,15 @@ def get_fewshot_context(
 
     blocks: list[str] = []
     for i, (entry, _sim) in enumerate(hits, 1):
-        trajectory = _fetch_trajectory(entry.run_id, phoenix_url=phoenix_url, project=project)
+        if node_name:
+            trajectory = _fetch_node_annotations(
+                entry.run_id,
+                node_name=node_name,
+                phoenix_url=phoenix_url,
+                project=project,
+            )
+        else:
+            trajectory = _fetch_trajectory(entry.run_id, phoenix_url=phoenix_url, project=project)
         trajectory_block = _format_trajectory(trajectory) if trajectory else ""
         cited_str = ", ".join(entry.cited_qa_ids) if entry.cited_qa_ids else "none"
         blocks.append(
@@ -173,6 +186,87 @@ def _fetch_trajectory(run_id: str, *, phoenix_url: str, project: str) -> list[di
     except Exception as exc:
         log.debug("Trajectory fetch from Phoenix failed (run_id=%s): %s", run_id, exc)
         return []
+
+
+def _fetch_node_annotations(
+    run_id: str,
+    *,
+    node_name: str,
+    phoenix_url: str,
+    project: str,
+) -> list[dict]:
+    """
+    Fetch per-node span annotations for a specific pipeline node (LG-006).
+
+    Looks for child spans with `span.name == node_name` that have a
+    "step_quality" annotation stored by rating.py --span-name.
+
+    Returns a list of step dicts compatible with _format_trajectory.
+    Returns empty list if Phoenix is unreachable or no data is found.
+    """
+    try:
+        from datetime import UTC, datetime, timedelta
+
+        from phoenix.client import Client as PhoenixClient
+
+        client = PhoenixClient(base_url=phoenix_url)
+        root_spans = client.spans.get_spans(
+            project_identifier=project,
+            parent_id="null",
+            limit=200,
+            start_time=datetime.now(UTC) - timedelta(days=30),
+        )
+
+        for span in root_spans:
+            anns = client.spans.get_span_annotations(
+                spans=[span],
+                project_identifier=project,
+                include_annotation_names=["user_rating"],
+            )
+            for ann in anns:
+                meta = (ann.get("metadata") if isinstance(ann, dict) else getattr(ann, "metadata", {})) or {}
+                if meta.get("run_id") != run_id:
+                    continue
+                ctx = (
+                    span.get("context")
+                    if isinstance(span, dict)
+                    else getattr(span, "context", None)
+                )
+                parent_span_id = (
+                    ctx.get("span_id") if isinstance(ctx, dict) else getattr(ctx, "span_id", None)
+                )
+                if not parent_span_id:
+                    continue
+
+                # Find the named child span
+                child_spans = client.spans.get_spans(
+                    project_identifier=project,
+                    parent_id=parent_span_id,
+                    limit=50,
+                )
+                for cs in child_spans:
+                    cs_name = (
+                        cs.get("name") if isinstance(cs, dict) else getattr(cs, "name", "")
+                    )
+                    if cs_name != node_name:
+                        continue
+                    attrs = (
+                        cs.get("attributes") if isinstance(cs, dict) else getattr(cs, "attributes", {})
+                    ) or {}
+                    return [{
+                        "tool_name": node_name,
+                        "tool_kwargs": attrs.get("input.value") or "",
+                        "tool_output": (attrs.get("output.value") or "")[:200],
+                    }]
+
+    except Exception as exc:
+        log.debug(
+            "Node annotation fetch from Phoenix failed (run_id=%s node=%s): %s",
+            run_id,
+            node_name,
+            exc,
+        )
+    return []
 
 
 def _format_trajectory(steps: list[dict]) -> str:

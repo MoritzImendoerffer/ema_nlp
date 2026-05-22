@@ -37,9 +37,10 @@ from typing import Any, TypedDict
 from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, StateGraph
 
+from harness.chains.nodes.grade import build_grade_node
+from harness.chains.nodes.rewrite import build_rewrite_node
 from harness.chains.retriever import EMARetriever
 from harness.chains.simple_rag import extract_answer, format_docs, load_system_prompt
 
@@ -57,7 +58,7 @@ class CRAGState(TypedDict):
     docs: list[Document]
     answer_text: str
     prompt_strategy: str
-    cycle: int            # number of rewrite cycles completed
+    rewrite_cycle: int    # number of rewrite cycles completed (renamed from cycle)
     grade: str            # "sufficient" | "insufficient"
 
 
@@ -85,43 +86,9 @@ def build_crag(
     """
     system_prompt = load_system_prompt(strategy)
 
-    # ---- Grade node ----
-    _grade_prompt = ChatPromptTemplate.from_messages([
-        ("system",
-         "You are a relevance grader for EMA regulatory Q&A retrieval. "
-         "Your only job is to decide whether the retrieved documents contain "
-         "enough information to answer the question.\n\n"
-         "Respond with exactly one word: 'sufficient' or 'insufficient'.\n"
-         "Do not explain your reasoning."),
-        ("human",
-         "Question: {question}\n\nRetrieved documents:\n{context}\n\n"
-         "Are these documents sufficient to answer the question?"),
-    ])
-    _grade_chain = _grade_prompt | llm | StrOutputParser()
-
-    def grade_relevance(state: CRAGState) -> dict:
-        context = format_docs(state["docs"])
-        raw = _grade_chain.invoke({"question": state["question"], "context": context})
-        raw_lower = raw.lower().strip()
-        grade = "sufficient" if "sufficient" in raw_lower and "insufficient" not in raw_lower else "insufficient"
-        log.debug("CRAG grade (cycle=%d): %s", state["cycle"], grade)
-        return {"grade": grade}
-
-    # ---- Rewrite node ----
-    _rewrite_prompt = ChatPromptTemplate.from_messages([
-        ("system",
-         "You are a query rewriter for EMA regulatory document retrieval. "
-         "The original query did not retrieve sufficient documents. "
-         "Rewrite it to be more specific, using EMA terminology. "
-         "Return only the rewritten query, nothing else."),
-        ("human", "Original query: {question}"),
-    ])
-    _rewrite_chain = _rewrite_prompt | llm | StrOutputParser()
-
-    def rewrite_query(state: CRAGState) -> dict:
-        new_question = _rewrite_chain.invoke({"question": state["question"]}).strip()
-        log.debug("CRAG rewrite (cycle=%d): %r → %r", state["cycle"], state["question"], new_question)
-        return {"question": new_question, "cycle": state["cycle"] + 1}
+    # ---- Grade + Rewrite nodes (from harness/chains/nodes/) ----
+    grade_node = build_grade_node(llm)
+    rewrite_node = build_rewrite_node(llm)
 
     # ---- Retrieve node ----
     def retrieve(state: CRAGState) -> dict:
@@ -145,8 +112,9 @@ def build_crag(
 
     # ---- Routing ----
     def route_after_grade(state: CRAGState) -> str:
-        if state["grade"] == "sufficient" or state["cycle"] >= MAX_CYCLES:
-            if state["cycle"] >= MAX_CYCLES and state["grade"] != "sufficient":
+        cycle = state.get("rewrite_cycle", 0)
+        if state["grade"] == "sufficient" or cycle >= MAX_CYCLES:
+            if cycle >= MAX_CYCLES and state["grade"] != "sufficient":
                 log.warning("CRAG: max cycles (%d) reached; generating anyway", MAX_CYCLES)
             return "generate"
         return "rewrite"
@@ -154,8 +122,8 @@ def build_crag(
     # ---- Build graph ----
     graph = StateGraph(CRAGState)
     graph.add_node("retrieve", retrieve)
-    graph.add_node("grade", grade_relevance)
-    graph.add_node("rewrite", rewrite_query)
+    graph.add_node("grade", grade_node)
+    graph.add_node("rewrite", rewrite_node)
     graph.add_node("generate", generate)
 
     graph.set_entry_point("retrieve")
@@ -170,27 +138,41 @@ def build_crag(
         def invoke(self, inputs: dict, **kwargs: Any) -> dict:
             question = inputs.get("question", "")
             state = compiled.invoke(
-                {"question": question, "docs": [], "answer_text": "", "prompt_strategy": "", "cycle": 0, "grade": ""},
+                {
+                    "question": question,
+                    "docs": [],
+                    "answer_text": "",
+                    "prompt_strategy": "",
+                    "rewrite_cycle": 0,
+                    "grade": "",
+                },
                 **kwargs,
             )
             return {
                 "answer_text": state.get("answer_text", "No answer generated."),
                 "docs": state.get("docs", []),
                 "prompt_strategy": state.get("prompt_strategy", f"crag_{strategy}"),
-                "correction_cycles": state.get("cycle", 0),
+                "correction_cycles": state.get("rewrite_cycle", 0),
             }
 
         async def ainvoke(self, inputs: dict, **kwargs: Any) -> dict:
             question = inputs.get("question", "")
             state = await compiled.ainvoke(
-                {"question": question, "docs": [], "answer_text": "", "prompt_strategy": "", "cycle": 0, "grade": ""},
+                {
+                    "question": question,
+                    "docs": [],
+                    "answer_text": "",
+                    "prompt_strategy": "",
+                    "rewrite_cycle": 0,
+                    "grade": "",
+                },
                 **kwargs,
             )
             return {
                 "answer_text": state.get("answer_text", "No answer generated."),
                 "docs": state.get("docs", []),
                 "prompt_strategy": state.get("prompt_strategy", f"crag_{strategy}"),
-                "correction_cycles": state.get("cycle", 0),
+                "correction_cycles": state.get("rewrite_cycle", 0),
             }
 
         def __call__(self, inputs: dict) -> dict:

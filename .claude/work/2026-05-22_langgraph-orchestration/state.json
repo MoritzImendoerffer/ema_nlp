@@ -1,0 +1,189 @@
+{
+  "status": "implementing",
+  "current_task": null,
+  "tasks": [
+    {
+      "id": "LG-001",
+      "title": "Pipeline foundation: PipelineState TypedDict + retrieval and generation nodes",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "harness/chains/pipeline_state.py created with PipelineState TypedDict and make_initial_state()",
+        "harness/chains/nodes/__init__.py created",
+        "harness/chains/nodes/retrieval.py: retrieval_node(state, retriever) returns {docs: [...]}",
+        "harness/chains/nodes/generation.py: generation_node(state, llm, strategy) picks summary if non-empty, else docs",
+        "tests/test_pipeline_nodes.py with mock retriever and mock LLM passes"
+      ],
+      "estimated_hours": 3,
+      "priority": "high",
+      "files": [
+        "harness/chains/pipeline_state.py",
+        "harness/chains/nodes/__init__.py",
+        "harness/chains/nodes/retrieval.py",
+        "harness/chains/nodes/generation.py",
+        "tests/test_pipeline_nodes.py"
+      ]
+    },
+    {
+      "id": "LG-002",
+      "title": "Extract grade + rewrite nodes from crag.py into nodes/",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": ["LG-001"],
+      "acceptance_criteria": [
+        "harness/chains/nodes/grade.py: build_grade_node(llm) factory callable standalone",
+        "harness/chains/nodes/rewrite.py: build_rewrite_node(llm) factory callable standalone",
+        "crag.py updated to import from nodes/ (no behaviour change)",
+        "cycle renamed to rewrite_cycle in crag.py; wrapper output still has correction_cycles key",
+        "pytest tests/test_langchain_chains.py::TestCRAG — all tests still pass"
+      ],
+      "estimated_hours": 2,
+      "priority": "high",
+      "files": [
+        "harness/chains/nodes/grade.py",
+        "harness/chains/nodes/rewrite.py",
+        "harness/chains/agents/crag.py"
+      ]
+    },
+    {
+      "id": "LG-003",
+      "title": "Summarization node + summarize_rag strategy",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": ["LG-001"],
+      "acceptance_criteria": [
+        "harness/chains/nodes/summarization.py: build_summarization_node(llm) callable",
+        "harness/prompts/system_summarize.md created (instructs to be concise, preserve qa_id citations)",
+        "summarize_rag registered in CHAIN_REGISTRY",
+        "get_chain('summarize_rag', ...).invoke({'question': '...'}) returns answer_text",
+        "Test: mock LLM; verify state['summary'] populated; generation uses summary not raw docs"
+      ],
+      "estimated_hours": 2,
+      "priority": "high",
+      "files": [
+        "harness/chains/nodes/summarization.py",
+        "harness/prompts/system_summarize.md",
+        "harness/chains/registry.py",
+        "tests/test_pipeline_nodes.py"
+      ]
+    },
+    {
+      "id": "LG-004",
+      "title": "build_pipeline() factory + PipelineConfig dataclass",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": ["LG-001", "LG-002", "LG-003"],
+      "acceptance_criteria": [
+        "harness/chains/pipeline.py: PipelineConfig dataclass + build_pipeline() function",
+        "build_pipeline() assembles StateGraph from PipelineConfig flags",
+        "crag_summarize strategy registered (retrieve → grade ⇄ rewrite → summarize → generate)",
+        "Output dict has: answer_text, docs, cited_qa_ids, prompt_strategy (+ optional summary, review_score)",
+        "Existing TestChainRegistry, TestCRAG, TestBuildRagChain all still pass",
+        "Tests for: linear path, grade-rewrite loop bounded by max_rewrite_cycles, summarization branch"
+      ],
+      "estimated_hours": 4,
+      "priority": "high",
+      "files": [
+        "harness/chains/pipeline.py",
+        "harness/chains/registry.py",
+        "tests/test_pipeline_nodes.py"
+      ]
+    },
+    {
+      "id": "LG-005",
+      "title": "Review node + crag_review and react_review strategies",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": ["LG-001", "LG-004"],
+      "acceptance_criteria": [
+        "harness/chains/nodes/review.py: build_review_node(llm, threshold) callable",
+        "review_node calls Judge.faithfulness; converts 1-5 score to [0,1]",
+        "route_after_review: loops back to generate if score < threshold AND review_cycle < max_review_cycles",
+        "crag_review strategy: retrieve → grade ⇄ rewrite → generate → review ⇄ revise",
+        "react_review strategy: react subgraph → extract → review → [revise]",
+        "Test: always-low-judge mock never exceeds max_review_cycles iterations",
+        "Existing TestEvaluators tests unaffected"
+      ],
+      "estimated_hours": 3,
+      "priority": "medium",
+      "files": [
+        "harness/chains/nodes/review.py",
+        "harness/chains/registry.py",
+        "tests/test_pipeline_nodes.py"
+      ]
+    },
+    {
+      "id": "LG-006",
+      "title": "Per-step RLHF feedback: node-level Phoenix annotation + fewshot injection",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": ["LG-004", "LG-005"],
+      "acceptance_criteria": [
+        "rating.py node_span_ids parameter annotates named child spans in Phoenix",
+        "get_fewshot_context(query_vec, cache, node_name='grade') returns grade-specific examples",
+        "build_pipeline() accepts fewshot_context_by_node: dict[str, str]",
+        "Backward compat: existing get_fewshot_context() calls without node_name still work",
+        "Tests use mock Phoenix client; no live Phoenix server required"
+      ],
+      "estimated_hours": 3,
+      "priority": "medium",
+      "files": [
+        "harness/rating.py",
+        "harness/fewshot_inject.py",
+        "harness/chains/pipeline.py",
+        "harness/prompts/system_summarize.md",
+        "tests/test_pipeline_nodes.py"
+      ]
+    },
+    {
+      "id": "LG-007",
+      "title": "LangGraph MemorySaver for interactive sessions in app.py",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["LG-004"],
+      "acceptance_criteria": [
+        "app.py creates a session_id (uuid4) at startup and prints it",
+        "Pipeline compiled with MemorySaver() checkpointer in interactive mode",
+        "config={'configurable': {'thread_id': session_id}} passed in interactive mode",
+        "run_eval.py and run_langsmith_eval.py invoke without thread_id (stateless, no checkpointing)",
+        "Unit test: two sequential graph.invoke() calls with same thread_id share state"
+      ],
+      "estimated_hours": 1,
+      "priority": "low",
+      "files": [
+        "app.py",
+        "tests/test_pipeline_nodes.py"
+      ]
+    },
+    {
+      "id": "LG-008",
+      "title": "(Optional) Clean break: migrate simple_rag_* to build_pipeline()",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": ["LG-004"],
+      "acceptance_criteria": [
+        "simple_rag_zero/few/cot in CHAIN_REGISTRY use build_pipeline(PipelineConfig(...))",
+        "simple_rag.py kept as utility module (extract_answer, format_docs still importable)",
+        "TestBuildRagChain tests migrated to test build_pipeline() directly",
+        "simple_rag_* strategies produce named node spans in LangSmith (retrieve/generate)",
+        "All existing tests pass with updated imports"
+      ],
+      "estimated_hours": 3,
+      "priority": "low",
+      "files": [
+        "harness/chains/registry.py",
+        "harness/chains/simple_rag.py",
+        "tests/test_langchain_chains.py"
+      ]
+    }
+  ],
+  "completed_tasks": ["LG-001", "LG-002", "LG-003", "LG-004", "LG-005", "LG-006"],
+  "next_available": ["LG-007", "LG-008"],
+  "parallel_opportunities": [],
+  "critical_path": ["LG-001", "LG-004", "LG-005", "LG-006"],
+  "total_estimated_hours": {
+    "required": 18,
+    "optional_LG-008": 3
+  }
+}
