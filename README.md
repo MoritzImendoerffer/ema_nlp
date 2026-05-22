@@ -33,10 +33,13 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 - 20×T1 Lookup, 10×T2 Scoping, 10×T3 Multi-hop, 5×T4 Synthesis
 - Covers 7 EMA source documents; 62% of items include specific numeric thresholds for contamination resistance
 
-**Phase 3 — harness substantially complete.** LlamaIndex Workflow pipeline operational:
+**Phase 3 — harness complete.** LlamaIndex Workflow pipeline operational:
 - 9 registered workflow strategies (simple RAG, CRAG, ReAct, CRAG+summarize, CRAG+review, ReAct+review)
 - All orchestration, agent loops, and prompt chains run as LlamaIndex `Workflow` / `FunctionAgent` steps
-- Ablation A (retrieval variants) and Ablation C (prompting matrix) eval runs in `results/`
+- Chainlit chat UI (`app.py`) with hybrid retrieval, Phoenix tracing, and 👍/👎 feedback annotation
+- Semantic query cache with few-shot injection from rated past trajectories
+
+**Phase 4 — ablations.** Ablation A (retrieval variants) and Ablation C (prompting matrix ×3 tiers) runs complete in `results/`. Ablation B (process-reward supervision) infrastructure done; full run pending.
 
 See `.claude/work/` for all work unit logs.
 
@@ -45,12 +48,13 @@ See `.claude/work/` for all work unit logs.
 | Layer | Choice |
 |-------|--------|
 | Retrieval framework | LlamaIndex (`VectorStoreIndex`, `BM25Retriever`, RRF fusion) |
-| Agent/chain framework | LlamaIndex Workflows (`Workflow`, `FunctionAgent`, `AgentWorkflow`) |
+| Workflow orchestration | LlamaIndex Workflows (`Workflow`, `FunctionAgent`, `AgentWorkflow`) |
+| Chat UI | Chainlit 2.11 — streaming answers, source sidebar, 👍/👎 |
 | Embeddings | BGE-large-en via sentence-transformers (local, no API key) |
-| Vector store | FAISS flat-L2 (document index + query cache) |
-| Tracing | Arize Phoenix + OpenInference (interactive chat UI, model-agnostic) |
-| Feedback | Phoenix annotations + Chainlit 👍/👎 |
-| LLM | Anthropic Claude (primary); OLMo 3 (contamination-verifiable reference) |
+| Vector store | FAISS flat-L2 (document index + semantic query cache) |
+| Tracing | Arize Phoenix + OpenInference (model-agnostic, self-hosted) |
+| Feedback | Phoenix span annotations via Chainlit 👍/👎 |
+| LLM | Anthropic Claude (primary); OLMo 2 32B (contamination-verifiable reference) |
 | Data | MongoDB (raw scrape) → JSONL (corpus/benchmark) |
 
 ## Data sources
