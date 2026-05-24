@@ -9,6 +9,7 @@ retrieval:
 
 orchestration:
   strategy: crag
+  cache_inject: false
 
 index:
   corpus: ~/Nextcloud/Datasets/ema_nlp/corpus/corpus.jsonl

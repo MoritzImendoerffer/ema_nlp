@@ -194,6 +194,16 @@ def run(config_path: Path) -> dict:
             orch_strategy, index=index, llm=llm, retrieval_config=ret_config
         )
 
+        cache_inject: bool = orch_cfg.get("cache_inject", False)
+        _eval_cache = None
+        if cache_inject:
+            import numpy as np
+            from llama_index.core import Settings
+            from harness.fewshot_inject import get_fewshot_context
+            from harness.query_cache import QueryCache
+            _eval_cache = QueryCache(index_dir)
+            log.info("Few-shot injection enabled (cache_inject=true)")
+
         with benchmark_path.open(encoding="utf-8") as fh:
             orch_items = [json.loads(line) for line in fh]
 
@@ -201,7 +211,14 @@ def run(config_path: Path) -> dict:
         with ag_out_path.open("w", encoding="utf-8") as ag_out:
             for item in orch_items:
                 try:
-                    result = workflow.invoke({"question": item["question"]})
+                    few_shot_context = ""
+                    if cache_inject and _eval_cache is not None:
+                        q_vec = np.array(
+                            Settings.embed_model.get_text_embedding(item["question"]),
+                            dtype=np.float32,
+                        )
+                        few_shot_context = get_fewshot_context(q_vec, _eval_cache, k=3, min_rating=4) or ""
+                    result = workflow.invoke({"question": item["question"], "few_shot_context": few_shot_context})
                     generated_answers[item["bench_id"]] = result["answer_text"]
                     docs_cache[item["bench_id"]] = result.get("docs", [])
                     row = {

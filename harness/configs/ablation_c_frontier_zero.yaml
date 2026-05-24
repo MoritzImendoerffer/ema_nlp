@@ -2,6 +2,7 @@
 ablation: {}
 orchestration:
   strategy: simple_rag_zero
+  cache_inject: false
 benchmark:
   path: benchmark/benchmark.jsonl
 description: 'C: frontier × zero-shot'

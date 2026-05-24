@@ -11,6 +11,7 @@ retrieval:
 
 orchestration:
   strategy: react
+  cache_inject: false
 
 index:
   corpus: ~/Nextcloud/Datasets/ema_nlp/corpus/corpus.jsonl

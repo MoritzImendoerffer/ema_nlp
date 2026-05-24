@@ -128,13 +128,12 @@ async def on_chat_start() -> None:
 # ── Pipeline (one turn, stateless WorkflowRunner) ────────────────────────────
 
 async def _run_pipeline(query: str, msg_num: int) -> None:
-    from harness.query_cache import CacheEntry, QueryCache
+    from harness.fewshot_inject import get_fewshot_context
+    from harness.query_cache import QueryCache
 
     pipeline: Any = cl.user_session.get("pipeline")
     cache: QueryCache | None = cl.user_session.get("cache")
     query_vec = await asyncio.to_thread(_embed_query_sync, query)
-
-    few_shot_entry: CacheEntry | None = None
 
     # ── Cache lookup ──────────────────────────────────────────────────────────
     if cache is not None and query_vec is not None:
@@ -160,8 +159,7 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
                 )
                 for i in range(len(cache_hits))
             ] + [
-                cl.Action(name="cache_pick", payload={"v": "context"}, label="[c] Use as context + run fresh"),
-                cl.Action(name="cache_pick", payload={"v": "skip"}, label="[d] Run full pipeline"),
+                cl.Action(name="cache_pick", payload={"v": "skip"}, label="[c] Run full pipeline"),
             ]
 
             res = await cl.AskActionMessage(
@@ -179,17 +177,14 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
                     content=f"*[Cached answer — similarity {sim:.2f}]*\n\n{entry.answer_summary}"
                 ).send()
                 return
-            elif choice == "context":
-                few_shot_entry = cache_hits[0][0]
 
     # ── LlamaIndex Workflow invocation ───────────────────────────────────────
-    few_shot_block = ""
-    if few_shot_entry is not None:
-        few_shot_block = (
-            f"Example of a similar past question and answer for context:\n"
-            f"Q: {few_shot_entry.question_text}\n"
-            f"A: {few_shot_entry.answer_summary}\n\n"
-        )
+    # Inject rated past examples as few-shot context (suppressed when < 3 rated entries exist)
+    few_shot_block = (
+        get_fewshot_context(query_vec, cache, k=3, min_rating=4) or ""
+        if query_vec is not None
+        else ""
+    )
 
     async with cl.Step(name="Pipeline", type="run") as step:
         step.input = query

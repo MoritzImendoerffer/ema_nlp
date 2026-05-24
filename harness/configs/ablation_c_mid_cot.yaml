@@ -2,6 +2,7 @@
 ablation: {}
 orchestration:
   strategy: simple_rag_cot
+  cache_inject: false
 benchmark:
   path: benchmark/benchmark.jsonl
 description: 'C: mid-tier × self-generated CoT'
