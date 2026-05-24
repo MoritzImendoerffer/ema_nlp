@@ -4,7 +4,6 @@ orchestration:
   strategy: simple_rag_zero
 benchmark:
   path: benchmark/benchmark.jsonl
-cache: false
 description: 'C: OLMo-3 × zero-shot'
 index:
   corpus: ~/Nextcloud/Datasets/ema_nlp/corpus/corpus.jsonl

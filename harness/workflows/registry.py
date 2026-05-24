@@ -11,7 +11,6 @@ Strategy inventory::
     simple_rag_few     retrieve → generate (few-shot SME examples)
     simple_rag_cot     retrieve → generate (chain-of-thought)
     react              ReAct native — hand-written loop, one @step per action (Phoenix spans)
-    react_legacy       ReAct FunctionAgent — LlamaIndex AgentWorkflow (no per-step spans)
     crag               retrieve → grade ⇄ rewrite → generate
     summarize_rag      retrieve → summarize → generate
     crag_summarize     CRAG loop → summarize → generate
@@ -72,11 +71,6 @@ def _build_react(index: Any, llm: Any, **kw: Any) -> Any:
     return build_react_native(index=index, llm=llm, **kw)
 
 
-def _build_react_legacy(index: Any, llm: Any, **kw: Any) -> Any:
-    from harness.workflows.react import build_react_workflow
-    return build_react_workflow(index=index, llm=llm, **kw)
-
-
 def _build_crag(index: Any, llm: Any, **kw: Any) -> Any:
     from harness.workflows.crag import build_crag
     return build_crag(index=index, llm=llm, **kw)
@@ -111,7 +105,6 @@ WORKFLOW_REGISTRY: dict[str, WorkflowBuilder] = {
     "simple_rag_few":   _build_simple_rag_few,
     "simple_rag_cot":   _build_simple_rag_cot,
     "react":            _build_react,           # native per-step workflow (Phoenix spans)
-    "react_legacy":     _build_react_legacy,    # FunctionAgent-based (no per-step spans)
     "crag":             _build_crag,
     "summarize_rag":    _build_summarize_rag,
     "crag_summarize":   _build_crag_summarize,

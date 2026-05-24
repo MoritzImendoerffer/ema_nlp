@@ -333,7 +333,7 @@ as `Workflow` or `FunctionAgent`/`AgentWorkflow` steps in `harness/workflows/`.
 | Index persistence / reload | **Used** | `StorageContext.persist_dir` + `load_index_from_storage()` |
 | Auto-instrumentation | **Used** | `LlamaIndexInstrumentor` → Arize Phoenix OTLP |
 | Workflow orchestration | **Used** | `Workflow` + typed `Event` subclasses (`harness/workflows/`) |
-| ReAct agent | **Used** | `ReActNativeWorkflow` (per-step spans) in `react_native.py`; `FunctionAgent` legacy in `react.py` |
+| ReAct agent | **Used** | `ReActNativeWorkflow` — hand-written think/act/observe loop in `react_native.py`; per-step Phoenix spans |
 | LLM calls | **Used** | LlamaIndex `Anthropic` LLM via `harness/llms.py` |
 | LLM synthesis via `as_query_engine()` | Not used | Claude called directly via LlamaIndex `Anthropic` LLM |
 | `DocumentSummaryIndex` | Not used | Page-level parent nodes built manually in `embed_hierarchical.py` |

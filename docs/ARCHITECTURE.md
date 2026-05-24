@@ -311,16 +311,16 @@ harness/workflows/
 ├── simple_rag.py       SimpleRAGWorkflow — retrieve → generate (zero/few/cot)
 ├── crag.py             CRAGWorkflow — retrieve → grade ⇄ rewrite → generate
 ├── summarize_rag.py    SummarizeRAGWorkflow — retrieve → summarize → generate
-├── react.py            _ReactRunner — FunctionAgent + AgentWorkflow (4 EMA tools)
+├── react_native.py     ReActNativeWorkflow — hand-written think/act/observe loop, per-step Phoenix spans
 ├── composites.py       CRAGSummarizeWorkflow, CRAGReviewWorkflow, ReactReviewWorkflow
 └── review.py           run_review_step() + ReviewMixin — faithfulness check via Judge
-harness/llms.py         get_llm("mid"|"frontier"|"olmo") — LlamaIndex LLM instances
+harness/llms.py         get_llm("agent"|"judge"|"reranker"…) — LlamaIndex LLM instances
 ```
 
 ### Workflow strategies
 
-All 9 strategies are registered in `WORKFLOW_REGISTRY` and accessible via
-`get_workflow(name, index=..., llm=..., tier_id=...)`:
+All strategies are registered in `WORKFLOW_REGISTRY` and accessible via
+`get_workflow(name, index=..., llm=...)`:
 
 | Strategy | Architecture | Description |
 |----------|-------------|-------------|

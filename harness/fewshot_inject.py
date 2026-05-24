@@ -1,11 +1,11 @@
 """
-Runtime few-shot injection for the ReActRAGAgent (TASK-027.7).
+Runtime few-shot injection from rated past interactions.
 
 Fetches the top-k rated past interactions from the query cache and formats
-them as a few-shot prefix that is injected into the ReActAgent system prompt
-before each run.  Phoenix is queried to enrich the examples with trajectory
-steps (tool calls) when available; falls back to question+answer format if
-Phoenix is unreachable or the trajectory was not stored.
+them as a few-shot prefix injected into the workflow system prompt before each
+run.  Phoenix is queried to enrich the examples with trajectory steps (tool
+calls) when available; falls back to question+answer format if Phoenix is
+unreachable or the trajectory was not stored.
 
 Injection is disabled when:
 - Fewer than *min_examples* rated interactions exist in the cache.
@@ -19,9 +19,7 @@ Usage::
 
     context = get_fewshot_context(query_vec, cache, k=3, min_rating=4)
     # context is None  → no injection (not enough rated examples)
-    # context is str   → prepend to agent system prompt
-
-    agent = ReActRAGAgent(index, fewshot_context=context)
+    # context is str   → pass as few_shot_context to WorkflowRunner.invoke()
 """
 
 from __future__ import annotations

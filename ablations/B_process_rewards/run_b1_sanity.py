@@ -1,7 +1,7 @@
 """
-B1 sanity check: run the ReActRAGAgent on 5 benchmark questions and save trajectories.
+B1 sanity check: run the react workflow on 5 benchmark questions and save trajectories.
 
-Selects 1 T1, 1 T2, 2 T3, 1 T4 from benchmark.jsonl and runs B1 (no process reward).
+Selects 1 T1, 1 T2, 2 T3, 1 T4 from benchmark.jsonl and runs the native ReAct workflow.
 Writes trajectories to ablations/B_process_rewards/b1_trajectories.jsonl.
 
 Usage::
@@ -15,6 +15,7 @@ Options:
     --index-dir PATH    path to FAISS index dir
     --dry-run           print selected questions, do not call the LLM
     --output PATH       output JSONL (default: ablations/B_process_rewards/b1_trajectories.jsonl)
+    --rate              prompt for 1-5 rating after each answer (for B3 labeling)
 """
 
 from __future__ import annotations
@@ -66,10 +67,9 @@ def _select_questions(items: dict[str, dict]) -> list[dict]:
 
 
 async def _run_questions(
-    agent: Any,
+    workflow: Any,
     questions: list[dict],
     output_path: Path,
-    model: str,
     *,
     rate_interactively: bool = False,
 ) -> list[dict]:
@@ -81,7 +81,11 @@ async def _run_questions(
             log.info("Running B1 on %s: %s", q["bench_id"], q["question"][:80])
             ts_start = datetime.now(UTC).isoformat()
             try:
-                ans = await agent.arun(q["question"])
+                result = await workflow.ainvoke({"question": q["question"]})
+                answer_text: str = result.get("answer_text", "")
+                cited_qa_ids: list = result.get("cited_qa_ids", [])
+                trajectory: list = result.get("trajectory", [])
+
                 record: dict[str, Any] = {
                     "bench_id": q["bench_id"],
                     "type": q["type"],
@@ -89,29 +93,28 @@ async def _run_questions(
                     "question": q["question"],
                     "gold_qa_ids": q["gold_qa_ids"],
                     "gold_sources": q.get("gold_sources", []),
-                    "agent_answer": ans.text,
-                    "cited_qa_ids": ans.cited_qa_ids,
-                    "trajectory": ans.trajectory,
+                    "agent_answer": answer_text,
+                    "cited_qa_ids": cited_qa_ids,
+                    "trajectory": trajectory,
                     "timestamp_start": ts_start,
                     "timestamp_end": datetime.now(UTC).isoformat(),
-                    "model": model,
                 }
-                # Interactive rating (TASK-027.8) — used for B3 trajectory labeling
+
                 if rate_interactively:
                     import uuid
-
                     from harness.rating import prompt_for_rating
                     run_id = str(uuid.uuid4())
-                    print(f"\n[{q['bench_id']}] Answer: {ans.text[:200]}")
+                    print(f"\n[{q['bench_id']}] Answer: {answer_text[:200]}")
                     rating = prompt_for_rating(
                         run_id=run_id,
                         question=q["question"],
-                        answer_text=ans.text,
-                        trajectory=ans.trajectory,
+                        answer_text=answer_text,
+                        trajectory=trajectory,
                         non_interactive=False,
                     )
                     record["rating"] = rating
                     record["run_id"] = run_id
+
             except Exception as exc:
                 log.error("Error on %s: %s", q["bench_id"], exc)
                 record = {
@@ -123,8 +126,8 @@ async def _run_questions(
                     "error": str(exc),
                     "timestamp_start": ts_start,
                     "timestamp_end": datetime.now(UTC).isoformat(),
-                    "model": model,
                 }
+
             out.write(json.dumps(record, ensure_ascii=False) + "\n")
             out.flush()
             records.append(record)
@@ -148,9 +151,9 @@ def run_b1_sanity(
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
     from config import CORPUS_PATH, INDEX_DIR
-    from harness.agents.react_agent import ReActRAGAgent
     from harness.embed import build_index
-    from harness.providers import configure_embed_model, get_llm_model
+    from harness.llms import get_llm
+    from harness.workflows.registry import get_workflow
 
     corpus = corpus_path or CORPUS_PATH
     index_d = index_dir or INDEX_DIR
@@ -168,19 +171,13 @@ def run_b1_sanity(
             print(f"  [{q['_sanity_label']}] {q['bench_id']}: {q['question']}")
         return []
 
-    configure_embed_model()
     index = build_index(corpus_path=Path(corpus), index_dir=Path(index_d))
+    llm = get_llm("agent")
+    workflow = get_workflow("react", index=index, llm=llm)
 
-    model = get_llm_model()
-    agent = ReActRAGAgent(
-        index,
-        retrieval_mode="hybrid",
-        model=model,
-        max_steps=8,
-        k=5,
+    records = asyncio.run(
+        _run_questions(workflow, questions, output_path, rate_interactively=rate_interactively)
     )
-
-    records = asyncio.run(_run_questions(agent, questions, output_path, model, rate_interactively=rate_interactively))
     log.info("B1 trajectories written to %s", output_path)
     return records
 
