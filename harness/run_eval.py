@@ -209,6 +209,8 @@ def run(config_path: Path) -> dict:
                         "type": item["type"],
                         "answer_text": result["answer_text"],
                         "prompt_strategy": result.get("prompt_strategy", orch_strategy),
+                        "trajectory": result.get("trajectory", []),
+                        "cited_qa_ids": result.get("cited_qa_ids", []),
                     }
                 except Exception as exc:
                     log.warning("Answer generation failed for %s: %s", item["bench_id"], exc)

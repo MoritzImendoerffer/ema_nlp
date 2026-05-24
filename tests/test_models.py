@@ -30,9 +30,9 @@ def test_load_model_for_role_unknown_raises():
         load_model_for_role("nonexistent_role")
 
 
-def test_agent_role_is_haiku():
+def test_agent_role_is_opus():
     cfg = load_model_for_role("agent")
-    assert "haiku" in cfg.model_id.lower()
+    assert "opus" in cfg.model_id.lower()
     assert cfg.provider == "anthropic"
 
 

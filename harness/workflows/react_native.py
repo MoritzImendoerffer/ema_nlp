@@ -55,24 +55,27 @@ MAX_ITERATIONS = 5
 
 _SYSTEM_PROMPT = """\
 You are an expert on European Medicines Agency (EMA) human-regulatory procedures.
-Answer questions about EMA regulatory Q&As using the available tools.
+Answer questions by using the available tools to retrieve EMA regulatory Q&As.
 
 Available tools:
-  ema_search        — Search the EMA Q&A corpus using hybrid retrieval. Call this first.
+  ema_search        — Search the EMA Q&A corpus using hybrid retrieval.
   follow_cross_refs — Follow cross-references from a Q&A entry to related entries.
   filter_by_topic   — Filter last search results by topic path or source URL keyword.
   get_qa_by_id      — Fetch a specific Q&A entry by its ID.
 
-Respond in this exact format:
-  Thought: <your reasoning>
+REQUIREMENT: You MUST call ema_search at least once before writing "Final Answer:".
+Do NOT write "Final Answer:" on your first response. Always begin with a tool call.
+
+Use this exact format every response:
+  Thought: <your reasoning about what to search for>
   Action: <tool_name>
   Action Input: <tool argument>
 
-When you have gathered enough information to answer:
-  Thought: <your final reasoning>
-  Final Answer: <complete answer, citing qa_id values where relevant>
+After you have retrieved sufficient information:
+  Thought: <your synthesis reasoning>
+  Final Answer: <complete multi-sentence answer, citing qa_id values>
 
-Always call ema_search before answering. Do not fabricate qa_id values.
+Do not fabricate qa_id values. Every qa_id must come from a tool result.
 """
 
 
@@ -103,28 +106,42 @@ def _parse_thought(raw: str) -> tuple[str, str | None, str]:
     Returns:
         (thought, tool_name, tool_args_or_final_answer)
 
-        tool_name is None when the agent produced a Final Answer line.
-        In that case tool_args_or_final_answer holds the answer text.
+        tool_name is None when the agent produced a Final Answer.
+        In that case tool_args_or_final_answer holds the full answer text
+        (everything after "Final Answer:", including multiple lines).
     """
     thought = ""
     tool_name: str | None = None
     tool_args = ""
-    final_answer: str | None = None
 
+    # Final Answer: captures everything from that marker to end-of-response,
+    # preserving multi-line content.  Look for the marker case-insensitively
+    # on any line.
+    fa_marker = "Final Answer:"
+    fa_pos = raw.find(fa_marker)
+    if fa_pos == -1:
+        # Try case-insensitive fallback
+        lower = raw.lower()
+        fa_pos = lower.find(fa_marker.lower())
+
+    if fa_pos != -1:
+        final_answer = raw[fa_pos + len(fa_marker):].strip()
+        # Parse Thought from the preamble (before Final Answer)
+        for line in raw[:fa_pos].split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("Thought:"):
+                thought = stripped[len("Thought:"):].strip()
+        return thought, None, final_answer
+
+    # No Final Answer marker — parse Thought/Action/Action Input
     for line in raw.split("\n"):
         stripped = line.strip()
         if stripped.startswith("Thought:"):
             thought = stripped[len("Thought:"):].strip()
-        elif stripped.startswith("Action:") and final_answer is None:
+        elif stripped.startswith("Action:"):
             tool_name = stripped[len("Action:"):].strip() or None
-        elif stripped.startswith("Action Input:") and final_answer is None:
+        elif stripped.startswith("Action Input:"):
             tool_args = stripped[len("Action Input:"):].strip()
-        elif stripped.startswith("Final Answer:"):
-            final_answer = stripped[len("Final Answer:"):].strip()
-            tool_name = None
-
-    if final_answer is not None:
-        return thought, None, final_answer
 
     if not thought and not tool_name:
         # Fallback: treat the entire response as a final answer
@@ -222,6 +239,11 @@ class ReActNativeWorkflow(Workflow):
             ChatMessage(role=MessageRole.SYSTEM, content=_SYSTEM_PROMPT),
             ChatMessage(role=MessageRole.USER, content=prompt),
         ]
+        # On the first iteration, prefill the assistant turn with "Thought:" to
+        # steer the model into the structured format and prevent it from jumping
+        # straight to a Final Answer without calling any tools.
+        if iteration == 0:
+            messages.append(ChatMessage(role=MessageRole.ASSISTANT, content="Thought:"))
         response = await self._llm.achat(messages)
         raw: str = response.message.content or ""
         thought, tool_name, tool_args = _parse_thought(raw)

@@ -17,10 +17,10 @@ models:
     temperature: 0.0
 
   claude_opus:
-    description: "Claude Opus 4.7 — frontier reasoning; used for judge and reviewer roles"
+    description: "Claude Opus 4.7 — frontier reasoning; agent, judge, and reviewer roles"
     provider: anthropic
     model_id: claude-opus-4-7
-    max_tokens: 2048
+    max_tokens: 4096
     temperature: 0.0
 
   olmo_32b:
@@ -41,7 +41,7 @@ models:
     temperature: 0.0
 
 roles:
-  agent:    claude_haiku   # workflow answer-generation model (simple_rag, crag, react)
+  agent:    claude_opus    # react requires frontier model; Haiku skips tool calls (see HITL-004a diagnosis)
   grader:   claude_haiku   # CRAG relevance grader; swap to local_qwen32 for offline runs
   rewriter: claude_haiku   # CRAG query rewriter
   reranker: claude_haiku   # A3/A4 LLM reranker
