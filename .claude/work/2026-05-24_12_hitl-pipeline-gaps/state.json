@@ -1,0 +1,204 @@
+{
+  "status": "implementing",
+  "current_task": "HITL-005",
+  "tasks": [
+    {
+      "id": "HITL-001",
+      "title": "Delete legacy react.py and react_legacy registry entry",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [],
+      "week": 1,
+      "priority": "high",
+      "estimated_hours": 0.5,
+      "files": [
+        "harness/workflows/react.py",
+        "harness/workflows/registry.py",
+        "docs/ARCHITECTURE.md",
+        "docs/RETRIEVAL_PIPELINE.md"
+      ],
+      "acceptance_criteria": [
+        "harness/workflows/react.py deleted",
+        "react_legacy entry removed from WORKFLOW_REGISTRY in registry.py",
+        "ARCHITECTURE.md: react.py/_ReactRunner references removed or replaced with react_native description",
+        "RETRIEVAL_PIPELINE.md: ReAct row shows only native implementation",
+        "No broken imports anywhere (grep for 'from harness.workflows.react import' returns nothing)",
+        "pytest tests/ passes"
+      ]
+    },
+    {
+      "id": "HITL-002",
+      "title": "Remove dead cache: field from all YAML configs",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [],
+      "week": 1,
+      "priority": "medium",
+      "estimated_hours": 0.25,
+      "files": [
+        "harness/configs/*.yaml",
+        "harness/run_eval.py"
+      ],
+      "acceptance_criteria": [
+        "cache: field removed from all 20 YAML configs under harness/configs/",
+        "Dead warning block in run_eval.py (lines 71-73) removed",
+        "pytest tests/ passes"
+      ]
+    },
+    {
+      "id": "HITL-003",
+      "title": "Fix broken import in run_b1_sanity.py",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [],
+      "week": 1,
+      "priority": "high",
+      "estimated_hours": 1.0,
+      "files": [
+        "ablations/B_process_rewards/run_b1_sanity.py",
+        "harness/agents/__init__.py"
+      ],
+      "acceptance_criteria": [
+        "run_b1_sanity.py no longer imports from harness.agents.react_agent",
+        "Agent constructed via get_workflow('react', index=index, llm=get_llm('agent'))",
+        "_run_questions updated to extract trajectory from WorkflowRunner result dict (result['trajectory'])",
+        "harness/agents/__init__.py deleted if react_agent.py truly does not exist",
+        "python -m ablations.B_process_rewards.run_b1_sanity --dry-run succeeds without ImportError",
+        "NOTE: full re-run to confirm trajectories is deferred to HITL-005 (after react fix)"
+      ]
+    },
+    {
+      "id": "HITL-004a",
+      "title": "Diagnose react workflow failure with Opus swap",
+      "type": "testing",
+      "status": "completed",
+      "dependencies": [],
+      "week": 1,
+      "priority": "high",
+      "estimated_hours": 1.5,
+      "files": [
+        "harness/configs/models.yaml",
+        "harness/configs/workflow_react.yaml"
+      ],
+      "acceptance_criteria": [
+        "models.yaml agent role temporarily changed to claude_opus (or claude_sonnet-4-6)",
+        "workflow_react.yaml run on 8 benchmark questions (2 per type: T1-001/T1-002, T2-001/T2-002, T3-001/T3-002, T4-001/T4-002)",
+        "Generated answers inspected: do they contain 'Final Answer:' with substantive content?",
+        "Per-sample correctness scores recorded (manual or judge)",
+        "Findings documented in .claude/work/2026-05-24_12_hitl-pipeline-gaps/react_diagnosis.md",
+        "Conclusion: (a) Opus fixes it → problem is model capacity; (b) Opus also fails → problem is prompt; (c) partial improvement → both"
+      ]
+    },
+    {
+      "id": "HITL-004b",
+      "title": "Fix react workflow based on diagnosis",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [
+        "HITL-004a"
+      ],
+      "week": 1,
+      "priority": "high",
+      "estimated_hours": 1.5,
+      "files": [
+        "harness/configs/models.yaml",
+        "harness/workflows/react_native.py"
+      ],
+      "acceptance_criteria": [
+        "If diagnosis shows model capacity issue: models.yaml agent role set to claude_opus permanently (or claude_sonnet as cost compromise); document in DECISIONS.md",
+        "If diagnosis shows prompt issue: _SYSTEM_PROMPT and _format_react_prompt in react_native.py revised; Haiku re-tested",
+        "Re-run 8-question sample: all 8 produce substantive 'Final Answer:' responses (no truncation/refusal)",
+        "DECISIONS.md updated with react model/prompt decision and reasoning"
+      ]
+    },
+    {
+      "id": "HITL-005",
+      "title": "Re-run b1_sanity and confirm trajectories populated",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": [
+        "HITL-003",
+        "HITL-004b"
+      ],
+      "week": 1,
+      "priority": "high",
+      "estimated_hours": 0.5,
+      "files": [
+        "ablations/B_process_rewards/b1_trajectories.jsonl"
+      ],
+      "acceptance_criteria": [
+        "python -m ablations.B_process_rewards.run_b1_sanity runs without error",
+        "b1_trajectories.jsonl has 5 rows with trajectory len > 0 for all entries",
+        "All 5 entries have non-empty answer field",
+        "Trajectories include at least one ema_search tool call per question"
+      ]
+    },
+    {
+      "id": "HITL-006",
+      "title": "Build harness/label_session.py — interactive labeling CLI",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "HITL-004b"
+      ],
+      "week": 2,
+      "priority": "medium",
+      "estimated_hours": 3.0,
+      "files": [
+        "harness/label_session.py"
+      ],
+      "acceptance_criteria": [
+        "python -m harness.label_session --workflow react --config harness/configs/workflow_react.yaml --n 20 --sample stratified runs end-to-end",
+        "--sample stratified draws 5 questions from each of T1/T2/T3/T4 (with replacement if type has fewer than 5)",
+        "--sample uniform is also supported (random N from full benchmark)",
+        "Checkpoint written to ~/Nextcloud/Datasets/ema_nlp/label_sessions/{session_id}.jsonl after each question",
+        "Re-running with same --session-id (or auto-detected from checkpoint) skips already-rated questions",
+        "Each question: displays answer + cited qa_ids, calls prompt_for_rating() from harness/rating.py",
+        "Skipped ratings (user presses Enter) are recorded as None, not as 0",
+        "End-of-session summary prints: total rated, skipped, avg rating, question type breakdown",
+        "Checkpoint file format: JSONL rows with {bench_id, type, question, answer_text, cited_qa_ids, rating, run_id, workflow, timestamp}",
+        "NOTE: --workflow can be any key in WORKFLOW_REGISTRY, not just react"
+      ]
+    },
+    {
+      "id": "HITL-007",
+      "title": "Wire get_fewshot_context() as shared adapter in app.py and run_eval.py",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "HITL-006"
+      ],
+      "week": 2,
+      "priority": "medium",
+      "estimated_hours": 2.0,
+      "files": [
+        "app.py",
+        "harness/run_eval.py",
+        "harness/configs/*.yaml"
+      ],
+      "acceptance_criteria": [
+        "app.py: few_shot_block built via get_fewshot_context(query_vec, cache, k=3, min_rating=4) instead of direct CacheEntry.answer_summary lookup",
+        "app.py: query_vec obtained from embed model (same embedding used for cache lookup) before calling get_fewshot_context",
+        "app.py: injection still fails closed (no injection if get_fewshot_context returns None)",
+        "run_eval.py: reads cache_inject: bool from config (default False)",
+        "run_eval.py: when cache_inject=True, calls get_fewshot_context() before WorkflowRunner.invoke and passes result as few_shot_context",
+        "run_eval.py: when cache_inject=False (default), few_shot_context is empty string (current behavior preserved)",
+        "cache_inject: false added to all eval YAML configs",
+        "No cache_inject field added to interactive app.py path (app.py always injects when cache has rated entries)",
+        "Unit test: get_fewshot_context called with mock cache having 0, 2, and 3+ rated entries — verifies None/None/str returns"
+      ]
+    }
+  ],
+  "completed_tasks": ["HITL-001", "HITL-002", "HITL-003", "HITL-004a", "HITL-004b"],
+  "next_available": [
+    "HITL-005",
+    "HITL-006"
+  ],
+  "notes": {
+    "HITL-001_and_002_parallel": "HITL-001 and HITL-002 are independent and can be done in a single session",
+    "HITL-003_partial": "HITL-003 makes the script runnable; HITL-005 confirms trajectories are good. Separated because HITL-004b (react fix) is required for meaningful trajectories.",
+    "HITL-004a_sample_size": "Diagnostic runs on 8 questions (2 per type) to limit Opus API cost. bench_ids: T1-001, T1-002, T2-001, T2-002, T3-001, T3-002, T4-001, T4-002",
+    "HITL-006_no_react_dep": "HITL-006 depends on HITL-004b for test quality, but the label_session --workflow flag supports CRAG or any other workflow. If react diagnosis takes time, P0.4 can start with --workflow crag.",
+    "HITL-007_replaces_app_logic": "P1.1 replaces the current app.py CacheEntry.answer_summary similarity-based injection with the rating-filtered get_fewshot_context() path. This is stricter (min 3 rated entries with rating>=4) so injection frequency drops until the labeling loop produces enough rated examples."
+  }
+}

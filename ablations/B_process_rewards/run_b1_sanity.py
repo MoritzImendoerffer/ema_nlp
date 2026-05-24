@@ -153,7 +153,10 @@ def run_b1_sanity(
     from config import CORPUS_PATH, INDEX_DIR
     from harness.embed import build_index
     from harness.llms import get_llm
+    from harness.providers import configure_embed_model
     from harness.workflows.registry import get_workflow
+
+    configure_embed_model()
 
     corpus = corpus_path or CORPUS_PATH
     index_d = index_dir or INDEX_DIR
