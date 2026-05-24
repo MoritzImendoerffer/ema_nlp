@@ -84,7 +84,7 @@ def _build_session_workflow(index: Any) -> Any:
     from harness.retrieve import RetrievalConfig
     from harness.workflows.registry import get_workflow
 
-    llm = get_llm("mid")
+    llm = get_llm("agent")
     cfg = RetrievalConfig(mode="hybrid", k=RETRIEVAL_K)
     return get_workflow(WORKFLOW_STRATEGY, index=index, llm=llm, retrieval_config=cfg)
 
