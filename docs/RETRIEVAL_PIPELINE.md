@@ -12,10 +12,10 @@ How a query becomes a ranked list of Q&A passages — from raw text to reranked 
 | `llama-index-embeddings-huggingface` | `HuggingFaceEmbedding` — wraps sentence-transformers |
 | `llama-index-vector-stores-faiss` | `FaissVectorStore` — wraps faiss-cpu |
 | `llama-index-retrievers-bm25` | `BM25Retriever` — wraps rank-bm25 |
-| `llama-index-llms-anthropic` | Declared dependency; **not currently used** — all Claude calls go through the `anthropic` SDK directly |
+| `llama-index-llms-anthropic` | `Anthropic` LLM wrapper — used by `harness/llms.py` for all synthesis, reranking, and agent steps |
 | `openinference-instrumentation-llama-index` | Auto-traces all LlamaIndex calls to Arize Phoenix via OTLP |
 
-LlamaIndex's `Settings.llm` is **explicitly set to `None`** everywhere. LlamaIndex is used purely as a retrieval layer; no LLM-mediated rewriting, synthesis, or agentic planning runs through LlamaIndex in the current codebase.
+LlamaIndex's `Settings.llm` is set to `None` in the **retrieval path** (`harness/embed.py`, `harness/retrieve.py`) — all retrieval steps are embedding-only. Synthesis, reranking, and agent planning all go through LlamaIndex Workflows (`harness/workflows/`) using the `Anthropic` LLM from `harness/llms.py`.
 
 ---
 
@@ -322,7 +322,7 @@ traces. 👍/👎 button clicks annotate the root span stored in `cl.user_sessio
 ## What LlamaIndex does and does NOT do here
 
 LlamaIndex handles both **retrieval and orchestration**. All strategies are implemented
-as `Workflow` or `FunctionAgent`/`AgentWorkflow` steps in `harness/workflows/`.
+as typed, event-driven `Workflow` steps in `harness/workflows/`.
 
 | Capability | Status | Implementation |
 |------------|--------|----------------|

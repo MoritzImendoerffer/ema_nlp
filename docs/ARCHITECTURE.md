@@ -297,7 +297,7 @@ The chat UI uses `flat` + `hybrid` by default (`PipelineConfig()` defaults). Abl
 
 The `harness/workflows/` package provides a LlamaIndex-native orchestration layer
 **on top of** the retrieval stack. Every strategy is implemented as a typed,
-event-driven `Workflow` (or `FunctionAgent`/`AgentWorkflow` for the ReAct strategy).
+event-driven `Workflow`.
 LlamaIndex is used for both retrieval and orchestration — LangChain and LangGraph
 are no longer in the stack.
 
@@ -327,7 +327,7 @@ All strategies are registered in `WORKFLOW_REGISTRY` and accessible via
 | `simple_rag_zero` | `Workflow` | retrieve → generate (zero-shot) |
 | `simple_rag_few` | `Workflow` | retrieve → generate (SME few-shot examples) |
 | `simple_rag_cot` | `Workflow` | retrieve → generate (chain-of-thought) |
-| `react` | `FunctionAgent` + `AgentWorkflow` | ReAct agent with 4 tools: `ema_search`, `follow_cross_refs`, `filter_by_topic`, `get_qa_by_id` |
+| `react` | `Workflow` | `ReActNativeWorkflow` — hand-written think/act/observe loop, per-step Phoenix spans; 4 tools: `ema_search`, `follow_cross_refs`, `filter_by_topic`, `get_qa_by_id` |
 | `crag` | `Workflow` | retrieve → grade ⇄ rewrite → generate (Corrective RAG) |
 | `summarize_rag` | `Workflow` | retrieve → summarize → generate |
 | `crag_summarize` | `Workflow` | CRAG loop → summarize → generate |
@@ -349,20 +349,29 @@ Every `runner` exposes `.invoke(inputs)` and `.ainvoke(inputs)` — the same
 interface regardless of whether the underlying strategy is a `Workflow` or
 a `FunctionAgent`.
 
-### Model tiers (`harness/configs/models.yaml`)
+### Model roles (`harness/configs/models.yaml`)
 
-| Tier | Model | Provider | Used for |
-|------|-------|----------|---------|
-| `mid` | `claude-haiku-4-5-20251001` | Anthropic | Fast/cheap baseline, rerankers, judge |
-| `frontier` | `claude-opus-4-7` | Anthropic | Highest quality reference |
-| `olmo` | `allenai/OLMo-2-1124-32B-Instruct` | Together AI | Contamination-verifiable open-weight |
+`models.yaml` separates model *definitions* from *roles*. Code calls `get_llm("agent")` etc.; the
+`roles:` block decides which model that resolves to. Swap a model for a role in one place.
+
+| Role | Default model | Used for |
+|------|--------------|---------|
+| `agent` | `claude-opus-4-7` | ReAct loop — Opus required; Haiku skips tool calls (HITL-004a) |
+| `grader` | `claude-haiku-4-5-20251001` | CRAG relevance grader |
+| `rewriter` | `claude-haiku-4-5-20251001` | CRAG query rewriter |
+| `reranker` | `claude-haiku-4-5-20251001` | A3/A4 LLM reranker |
+| `judge` | `claude-opus-4-7` | Faithfulness + correctness judge |
+| `reviewer` | `claude-opus-4-7` | Post-generation answer reviewer |
+
+Additional model definitions: `olmo_32b` (Together AI, contamination-auditable) and `local_qwen32`
+(OpenAI-compatible local server) — bind them to any role in `models.yaml` without code changes.
 
 ```python
 from harness.llms import get_llm
-llm = get_llm("frontier")   # returns LlamaIndex Anthropic LLM
+llm = get_llm("agent")   # returns LlamaIndex LLM for the agent role
 ```
 
-`olmo` requires `TOGETHER_API_KEY` in `~/.myenvs/ema_nlp.env`.
+`olmo_32b` requires `TOGETHER_API_KEY` in `~/.myenvs/ema_nlp.env`.
 
 ---
 
@@ -389,10 +398,12 @@ On session start the chat UI:
 2. Builds a `WorkflowRunner` for the configured strategy (stateless per turn)
 
 On each message:
-1. The LlamaIndex Workflow runs hybrid retrieval (top-10 results) and synthesis
-2. Synthesises an answer via the configured Claude model
-3. Shows sources in a side panel
-4. Records 👍/👎 feedback to Phoenix as span annotations
+1. Embeds the query (BGE-large-en); checks the semantic query cache for similar past questions
+2. If cache hits exist, prompts the user to use a cached answer or run fresh
+3. Calls `get_fewshot_context()` — automatically injects rated past examples when ≥ 3 rated entries exist
+4. The LlamaIndex Workflow runs hybrid retrieval (top-10 results) and synthesis
+5. Shows sources in a side panel
+6. Records 👍/👎 feedback to Phoenix as span annotations
 
 **Key env vars for the UI:**
 
@@ -425,16 +436,21 @@ Each YAML file is one run configuration:
 
 | Config | Description |
 |--------|-------------|
-| `baseline_a0.yaml` | Dense retrieval only |
-| `baseline_a0plus.yaml` | Hybrid retrieval (dense + BM25 + RRF) |
+| `baseline_a0.yaml` | Dense retrieval only (no orchestration — retrieval eval only) |
+| `baseline_a0plus.yaml` | Hybrid retrieval (dense + BM25 + RRF), no orchestration |
 | `ablation_a_a1.yaml` | + Query expansion (acronym disambiguation) |
 | `ablation_a_a2_keyword.yaml` | + Topic filter (keyword post-filter) |
 | `ablation_a_a2_concept.yaml` | + Topic filter (IDMP concept pre-filter) |
 | `ablation_a_a3.yaml` | + SME rubric reranker (Claude) |
 | `ablation_a_a4.yaml` | + Generic reranker (Claude) |
 | `ablation_a_a5.yaml` | + Combined A3+A4 rerankers |
+| `workflow_simple_rag.yaml` | A0+ retrieval + `simple_rag_zero` answer generation |
+| `workflow_crag.yaml` | A0+ retrieval + CRAG workflow |
+| `workflow_react.yaml` | A0+ retrieval + native ReAct workflow |
+| `workflow_crag_review.yaml` | A0+ retrieval + CRAG + faithfulness review |
+| `ablation_c_*.yaml` | Ablation C: prompting matrix (zero/few/cot) × model tiers |
 
-Config fields:
+Config fields (retrieval-only example — no `orchestration:` block):
 
 ```yaml
 run_id: baseline_a0
@@ -445,14 +461,21 @@ index:
   corpus: corpus/corpus.jsonl
   index_dir: harness/index
   embed_model: BAAI/bge-large-en-v1.5
-  force_rebuild: false  # set true to force index rebuild for this run
+  force_rebuild: false
 benchmark:
   path: benchmark/benchmark.jsonl
 judge:
-  enabled: false        # requires ANTHROPIC_API_KEY
-  model: claude-haiku-4-5-20251001
+  enabled: false
 results:
-  base_dir: results
+  base_dir: ~/Nextcloud/Datasets/ema_nlp/results
+```
+
+Configs with answer generation add an `orchestration:` block:
+
+```yaml
+orchestration:
+  strategy: react          # any key from WORKFLOW_REGISTRY
+  cache_inject: false      # true injects rated past examples as few-shot context
 ```
 
 ### Results structure

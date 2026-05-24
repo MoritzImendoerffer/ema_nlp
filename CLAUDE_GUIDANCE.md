@@ -1,262 +1,110 @@
-# Guidance for Claude Code working on `ema_nlp`
+# Instructions for Claude Code — prioritized fix list
 
-This document explains the project intent, the developer's working style, and
-the design rules that should hold across every change. Read this *before*
-proposing implementation plans. Read `DECISIONS.md` for *why* current
-choices were made and `ema_nlp_review.md` for *what* needs fixing.
+This document is the working brief for Claude Code on the `ema_nlp` project. Findings are listed in **criticality order** — work top-down. Each finding includes: the diagnosis, why it matters, the proposed fix, and what NOT to do.
 
----
+**Project stance:** Early-stage research code. Backwards compatibility is **not** required. Breaking changes are welcome if they simplify the system. Question legacy code aggressively.
 
-## 1. Project intent (the real one)
-
-The README says "tinkering with Graph RAG." That framing is misleading and
-will be corrected. The actual project is:
-
-**An evaluation toolkit for agentic RAG over EMA regulatory documents, with
-human-in-the-loop review of both reasoning chains and final answers.**
-
-Three goals in priority order:
-
-1. **Compare RAG strategies honestly.** From simple RAG through CRAG and ReAct
-   to composite workflows, measure where expert effort actually pays off.
-   Quantitative answers backed by the 45-item T1–T4 benchmark.
-2. **SME-in-the-loop for both step-level and answer-level review.** An SME
-   should be able to walk through an agent's thought chain post-hoc, label
-   individual steps (good / suboptimal / wrong, with reasons), and label the
-   final answer. Eventually the agent learns from these labels.
-3. **Eventually multi-hop reasoning across documents.** The corpus has
-   `cross_refs` between Q&As; T3 benchmark questions require traversing them.
-
-Out of scope for v1: graph databases, ontologies, biomedical literature
-beyond regulatory Q&A, multilingual content. See `DECISIONS.md`.
+**Working style requirements (from user preferences):**
+- Discuss design before writing code.
+- Start simple. Don't add features that weren't asked for.
+- Keep the user in the loop. Surface trade-offs.
 
 ---
 
-## 2. The developer
+## P1 — Architectural cleanup
 
-- **Domain background:** bioprocess chromatography, pharma manufacturing,
-  data science. Strong scientific Python. Newer to NLP / RAG specifics.
-- **Time budget:** evenings only. ~6–9 weeks for v1. Cadence is small
-  iterative deliverables, not large refactors in one go.
-- **Environment:** Ubuntu home PC with Nvidia RTX 3090 (Vienna), HP
-  EliteBook 845 G10 (Tyrol). Both run the project. State syncs through
-  Nextcloud.
-- **Preferences (encoded in chat settings, repeating here so they stick):**
-  - **Ask before writing code.** Discuss design choices first.
-  - **Start simple. Complexity arrives on its own.**
-  - **Keep him in the loop.** No surprise scope expansion.
-  - **No new features without asking.**
-  - **Honest critical assessment over sycophancy.** Push back when wrong.
-  - **Iterative deliverables.** Ship small, working pieces.
+### P1.1 Remove dead `judge.model` field from YAML configs
+
+**Diagnosis.** Several configs have `judge: model: claude-haiku-4-5-20251001`. The `Judge` class reads the `judge` role from `models.yaml` (currently `claude_opus`) and ignores this YAML field. It's dead weight and misleading.
+
+**Proposed fix.** Delete `judge.model` (or the entire `judge:` block where `enabled: false`) from all 20 YAML configs that contain it. Keep `judge.enabled` and `judge.sample_fraction` where used.
+
+**Do not.** Add model-field parsing to `Judge`. Role bindings in `models.yaml` are the single source of truth.
 
 ---
 
-## 3. Working rules
+## P2 — Polish and UX
 
-### 3.1 Always ask before coding
+### P2.1 Build a Streamlit/Gradio orchestration dashboard
 
-When given a task, the first response is **a design discussion**, not code.
-State:
-- What you understand the goal to be (one or two sentences).
-- The design decisions that need to be made before code is reasonable.
-- Your recommendation for each, with the tradeoff explicit.
-- What you'd touch (file paths, ~line counts) once the user approves.
+**Diagnosis.** No interactive UI for switching between workflows/retrieval modes/ablations. Chainlit runs one fixed workflow per session. The user explicitly wants this for "play with configurations" exploration.
 
-Only after the user confirms do you write code.
+**On n8n / visual workflow builders specifically:** ruled out. n8n is built for sync request/response between SaaS APIs, not for async LlamaIndex workflows with loops and in-memory state. Langflow/Flowise are closer but they're builders for new graphs, not visualizers for an existing typed registry.
 
-If a task is genuinely tiny (one-line fix, obvious refactor), say so and
-ask whether the design step is needed.
+**Recommendation: Streamlit.** Reads `WORKFLOW_REGISTRY` for the dropdown, exposes the same `RetrievalConfig` toggles as YAML configs, calls the existing `WorkflowRunner.invoke()`. ~300-500 lines.
 
-### 3.2 Read `DECISIONS.md` and `OPEN_QUESTIONS.md` before non-trivial work
+**Sketch:**
 
-These two files are the canonical record of *why* the project looks the way
-it does. If a proposed change would contradict a decision in `DECISIONS.md`,
-flag it explicitly and ask whether the decision should be revised. Don't
-silently work around it.
+```
+┌──────────────────────────────────────────────────────────┐
+│ Sidebar:                    │  Main:                     │
+│ ─────────────               │  ─────                     │
+│ Workflow [react ▾]          │  Question: [_____________] │
+│ Retrieval mode [hybrid ▾]   │            [Run]           │
+│ k = [10]                    │                            │
+│ Strategy [flat ▾]           │  Answer:                   │
+│                             │  ...                       │
+│ Ablations:                  │                            │
+│ ☐ A1 query expansion        │  Cited sources:            │
+│ ☐ A2 topic filter (keyword) │  - qa_id_1                 │
+│ ☐ A3 SME reranker           │  - qa_id_2                 │
+│                             │                            │
+│ ☐ Run on all 4 workflows    │  Trajectory (if ReAct):    │
+│   in parallel               │  Step 1: ema_search(...)   │
+│                             │  Step 2: get_qa_by_id(...) │
+│ Model tier [mid ▾]          │                            │
+│                             │  [Rate 1-5: ▢▢▢▢▢]         │
+└──────────────────────────────────────────────────────────┘
+```
 
-After any decision-level change, **update `DECISIONS.md`** with the new
-entry (date, what, why, references). Move resolved items out of
-`OPEN_QUESTIONS.md` into `DECISIONS.md`.
+**Design questions for the user before building:**
+1. Should this replace Chainlit or live alongside it? (Recommendation: replace. Chainlit's session-pinned workflow is the limitation we're trying to escape.)
+2. Should "run on all 4 in parallel" show all answers stacked, or a comparison table? (Probably stacked for v1.)
+3. Should it write rated runs back to the same query cache and Phoenix as the CLI? (Yes — single source of truth for HITL data.)
+4. Is there appetite to vendor the Phoenix trace tree view into the dashboard, or stay with the existing Phoenix UI in a side tab? (Probably side tab — don't reinvent Phoenix.)
 
-### 3.3 Watch for duplication traps
-
-The codebase has parallel paths from past iterations. Examples:
-
-- `harness/answer_gen.py` and `harness/workflows/simple_rag.py` do the same
-  thing through different APIs. **One should be deleted.**
-- `harness/judge.py` reads its own LLM config. The reranker code constructs
-  its own Anthropic client. The workflows use `harness/llms.py`. **All should
-  go through `get_llm("<role>")`** (see review §5.5).
-- The `Doc` dataclass exists to mimic LangChain's `Document` interface —
-  LangChain is gone. **It should be deleted; use `TextNode`.**
-
-When asked to "add a feature," check first whether the right move is to
-**consolidate** an existing duplicate rather than create a third version.
-If unsure, ask.
-
-### 3.4 Separation of code and data
-
-- **Code lives in the repo.** No large binaries, no traces, no labels, no
-  results, no corpus, no index.
-- **Data lives on Nextcloud** at `~/Nextcloud/Datasets/ema_nlp/`. This
-  includes the corpus JSONL, the FAISS index, the query cache, the
-  exported annotations, and (going forward) the eval results.
-- **Phoenix** is the live trace and label store, backed by its own
-  Postgres in a Docker volume on the home PC. Annotations are exported
-  *from* Phoenix *to* Nextcloud JSONL for downstream use.
-
-When adding any persistence:
-- Code-shaped (small, versioned, deterministic) → repo.
-- Data-shaped (large, generated, machine-specific, or user-input) → Nextcloud.
-
-The existing `results/<run_id>/` directory in the repo predates this rule
-and is scheduled to move. Don't add anything new under `results/` in the
-repo.
-
-### 3.5 The `harness/hitl/` package
-
-A new package (created in week 3 of the roadmap) holds HITL code. Examples:
-Phoenix annotation config setup, the `export_annotations.py` script, the
-runtime interrupt event helpers. **Keep code separate from data**: this
-package writes JSONL to Nextcloud, but the package itself is repo code.
-
-### 3.6 Don't expand scope silently
-
-If a task implies a feature that wasn't asked for (a new YAML key, a new
-endpoint, a new dependency), **stop and ask**. The developer specifically
-flagged "do not introduce new features without asking" — this includes
-"helpful" additions like rate limiting, retry logic, fancy logging,
-progress bars, etc.
-
-Specifically *do not* introduce:
-- New frameworks (LangChain, LangGraph, DSPy, etc.) — see §4 below.
-- New observability tools (Datadog, OpenTelemetry exporters beyond Phoenix).
-- New vector stores (Qdrant, Chroma, etc.) — FAISS is enough at 26k docs.
-- New embedding models without a re-embed plan.
-- New persistence layers (SQLite, additional Postgres).
-
-### 3.7 Ship in small, working iterations
-
-After every change set, the code should:
-- Pass `pytest tests/`.
-- Run `python -m harness.run_eval --config harness/configs/baseline_a0plus.yaml`
-  successfully.
-- Start `bash run_ui.sh` and answer a question.
-
-If a change breaks any of the three, fix it in the same change set or
-revert. Don't leave the tree broken between sessions — the developer might
-not come back for a day or two.
+**Do not.** Build this before the HITL loop produces enough labeled data to be worth exploring in the dashboard.
 
 ---
 
-## 4. Framework choices that are settled
+### P2.2 Annotation queue automation
 
-These are decided. Don't propose changes without serious cause:
-
-- **LlamaIndex Workflows for all orchestration.** Decided 2026-05-22. The
-  LangChain + LangGraph bridge experiment failed because of metadata
-  stripping. Don't bring them back.
-- **FAISS flat-L2 as the vector store.** 26k docs; HNSW/IVF buys nothing.
-- **BGE-large-en-v1.5 for embeddings.** Re-embedding is ~30 min on CPU; only
-  switch if benchmark numbers actually justify it.
-- **Phoenix + OpenInference for tracing.** Stays. Auto-instruments
-  LlamaIndex. Phoenix annotation queues are the SME labelling UI; no custom
-  trace explorer.
-- **Chainlit for the chat UI.** Stays. Don't propose Streamlit, Gradio, or
-  custom React.
-- **Anthropic API (Claude Haiku / Opus) for now.** With the role/model split
-  in week 2, the developer can swap any role to a local model on the 3090
-  via Ollama / vLLM. The configuration must support that; the default
-  models must not change without asking.
-- **Eval design: stacked, not orthogonal grid.** Ablation A (retrieval)
-  fixes the workflow at `simple_rag_zero`. A separate workflow comparison
-  axis fixes retrieval at `A0+`. Don't propose a full N×M grid.
+Phoenix has annotation queues. `docs/SETUP.md` describes creating them manually via the UI. Worth adding a script (`scripts/setup_phoenix_annotations.py`) that creates the annotation configs and queues via the Phoenix REST API — one-shot setup for new machines.
 
 ---
 
-## 5. The roadmap (mirror of review §7)
+## P3 — Optional, only if you have time
 
-If asked "what next," answer with the next item from this list. Don't skip
-ahead without checking.
+### P3.1 Lift computation harness
 
-1. **Week 1:** Wire `run_eval.py` to `harness.workflows.registry`. Add
-   `orchestration:` YAML block. Delete `harness/answer_gen.py`. Confirm
-   baseline numbers reproduce.
-2. **Week 2:** Fix the CRAG grader (per-doc + `missing_facts`). Refactor
-   `models.yaml` into model definitions + role assignments. Add
-   `openai_compatible` provider so the 3090 is a one-line config away.
-3. **Week 3:** Native ReAct Workflow with per-step Phoenix spans
-   (`harness/workflows/react_native.py`). Phoenix annotation configs for
-   step_quality / tool_choice / arg_quality / answer_quality.
-4. **Week 4:** `harness/hitl/export_annotations.py` to JSONL on Nextcloud.
-   First SME labelling session over 5 questions × N strategies. Decide
-   whether runtime interrupts are needed.
-5. **Week 5:** Cleanup pass — BM25 caching, drop `Doc` dataclass, rerankers
-   as `NodePostprocessor`, move EMA acronym hint to acronym dict, move
-   `results/` to Nextcloud.
-6. **Week 6:** Full ablation comparison run + write-up.
+`harness/compute_lift.py` works but requires manually pairing closed-book and open-book runs. A wrapper that runs the closed-book config automatically when given the open-book config (zeroing out retrieval) would be ergonomic.
 
-**v2:** Ablation B (process rewards), few-shot injection, DSPy at ≥50
-rated trajectories, graph RAG *only* if `cross_refs` traversal proves
-insufficient.
+### P3.2 Skip token in workflow generation
+
+When the LLM in `react_native.py` emits a malformed action, the agent eats an iteration. Add a "retry once with explicit format reminder" before counting it.
 
 ---
 
-## 6. Sensitive files
+## What to do first — concrete starting sequence
 
-Touch with extra care; ask before significant changes:
-
-- **`corpus/corpus.jsonl`** — versioned, 26k records. Don't rebuild unless
-  the developer asks; mention re-embed cost when relevant.
-- **`benchmark/benchmark.jsonl`** — 45 items, hand-curated by an SME.
-  Read-only from Claude Code's perspective unless explicitly asked.
-- **`harness/configs/*.yaml`** — every config is a documented run. Changing
-  the schema affects all of them. Migration must be coordinated.
-- **`DECISIONS.md`** and **`OPEN_QUESTIONS.md`** — append-only spirit;
-  don't rewrite history.
-- **`~/.myenvs/ema_nlp.env`** — credentials. Never read, never write,
-  never log.
-
-Fair game (the working surface):
-
-- `harness/workflows/`
-- `harness/retrieve.py`
-- `harness/run_eval.py`
-- `harness/llms.py`, `harness/models.py`
-- `harness/ablations/`
-- `harness/hitl/` (new, week 3+)
-- `app.py`
-- `tests/`
+1. **P1.1** — quick cleanup: delete stale `judge.model` field from configs.
+2. **P2.1** — Streamlit dashboard is the next high-value UX item. Discuss design with user first.
+3. **Build label session data** — run `harness/label_session.py` sessions to accumulate ≥ 50 rated examples. This unblocks Ablation B and DSPy.
 
 ---
 
-## 7. Communication style
+## Files Claude Code should treat as sensitive (read-only by default)
 
-- Push back when the developer's plan looks wrong. He explicitly prefers
-  honest assessment over sycophancy.
-- Don't soften disagreement with excessive hedging ("perhaps we might
-  consider possibly..."). State the case, give the reason, offer the
-  alternative.
-- When the developer is right, don't qualify it ("great question!" etc).
-  Just engage.
-- He has a biotech PhD and process-engineering background; analogies from
-  bioprocessing, chromatography, statistics, and Bayesian methods land
-  well. Don't dumb things down.
-- Write English; the developer is fluent. German is fine for pleasantries
-  but technical content should be English to match the codebase.
+- `corpus/corpus.jsonl` — versioned data, do not regenerate without user OK.
+- `benchmark/benchmark.jsonl` — the eval set. Modifying it invalidates all previous run comparisons. Absolutely do not touch.
+- `harness/judges/*.md` — judge prompts. Changing wording changes scores. Discuss before editing.
+- `harness/prompts/few_shot_examples.md`, `relevance_rubric_sme.md` — SME-authored content. Same caveat.
+- `~/.myenvs/ema_nlp.env` — credentials. Never read, never write.
 
----
+## Files Claude Code should feel free to refactor
 
-## 8. Quick reference
-
-| Question | Answer |
-| --- | --- |
-| Should I write code now? | No — design first, unless trivial. |
-| Should I add a new framework? | No. |
-| Should I add a new file under `results/` in the repo? | No — Nextcloud. |
-| Where do exported annotations go? | `~/Nextcloud/Datasets/ema_nlp/annotations/` |
-| Where does Phoenix store traces? | Phoenix's own Postgres (Docker volume on home PC). |
-| Which LLM does the agent use? | Whatever `roles.agent` resolves to in `models.yaml` (Claude Haiku by default in week 2+). |
-| Which LLM does the grader use? | Whatever `roles.grader` resolves to (independent of agent). |
-| Can I change a `DECISIONS.md` entry? | Add a new dated entry that supersedes it. Don't rewrite. |
-| What's the next task? | See §5 — start at the lowest unchecked week. |
+- Anything under `harness/workflows/` — the registry abstracts callers, refactors are local.
+- Anything under `harness/ablations/` — same.
+- `harness/run_eval.py` — but watch out for the comparison-report generator script which reads its output format.
+- Anything under `scripts/` except `scripts/sync_mongo.sh`, `scripts/setup.sh`, `scripts/tag_concepts.py`.
+- All YAML configs in `harness/configs/` — but if you delete a field, delete it from ALL configs.

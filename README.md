@@ -48,7 +48,7 @@ See `.claude/work/` for all work unit logs.
 | Layer | Choice |
 |-------|--------|
 | Retrieval framework | LlamaIndex (`VectorStoreIndex`, `BM25Retriever`, RRF fusion) |
-| Workflow orchestration | LlamaIndex Workflows (`Workflow`, `FunctionAgent`, `AgentWorkflow`) |
+| Workflow orchestration | LlamaIndex Workflows (`Workflow` + typed `Event` steps) |
 | Chat UI | Chainlit 2.11 — streaming answers, source sidebar, 👍/👎 |
 | Embeddings | BGE-large-en via sentence-transformers (local, no API key) |
 | Vector store | FAISS flat-L2 (document index + semantic query cache) |

@@ -29,8 +29,7 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Decided:** 2026-05-15  
 **What:** LlamaIndex is the retrieval and agent framework. Raw FAISS, sentence-transformers, and rank-bm25 are used as backends via LlamaIndex wrappers — they stay in `pyproject.toml` as direct deps.  
 **Why:** `DocumentSummaryIndex` directly implements the document-tree-with-summaries approach (PageIndex model) — each EMA source document gets a cheap summary node; Q&A pairs are leaf nodes. `NodeRelationship` models `cross_refs` without a graph DB. `ReActAgent` is the agent architecture for Ablation B. OpenInference instrumentation works at the LlamaIndex level so tracing is model-agnostic.  
-**Not chosen as the retrieval engine:** LangChain/LangGraph — better for prompt-chain-centric work; LlamaIndex is the superior choice for structured document retrieval and docstore indexing.  
-**Note:** LangChain + LangGraph were subsequently adopted for the chain orchestration layer on top of LlamaIndex (see decision below). The retrieval engine decision stands unchanged.  
+**Not chosen as the retrieval engine:** LangChain/LangGraph — better for prompt-chain-centric work; LlamaIndex is the superior choice for structured document retrieval and docstore indexing. LangChain/LangGraph were trialled for the orchestration layer and subsequently removed in favour of LlamaIndex Workflows (see decision below).  
 **Ref:** [`.claude/work/2026-05-15_04_agentic-memory-architecture/exploration.md`](.claude/work/2026-05-15_04_agentic-memory-architecture/exploration.md)
 
 ### FAISS as the vector store backend (v1)
@@ -110,9 +109,10 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 **What it is not:** A silent cache. The user always sees the similar questions and explicitly chooses to use a cached result or run fresh. Benchmark evaluation always runs with `cache: false`.
 
 ### Runtime few-shot injection from rated trajectories (no model training)
-**Decided:** 2026-05-15  
+**Decided:** 2026-05-15; wired 2026-05-24 (HITL-007)  
 **What:** At query time, the top-k highest-rated past trajectories (rating ≥ 4/5) for similar questions are fetched from the query cache and injected into the agent's planning prompt as few-shot examples. No weights updated. All learning is in-context.  
-**Why:** Standard few-shot prompting. Every injected example is traceable (its `run_id` links to a Phoenix trace), satisfying the reproducibility requirement.
+**Why:** Standard few-shot prompting. Every injected example is traceable (its `run_id` links to a Phoenix trace), satisfying the reproducibility requirement.  
+**Implementation:** `harness/fewshot_inject.py:get_fewshot_context(query_vec, cache, k=3, min_rating=4)` — injected via `app.py` (always, when ≥ 3 rated entries exist) and `run_eval.py` (opt-in via `cache_inject: true` in YAML). Suppresses injection when fewer than `min_examples` (default 3) rated entries exist — fails closed.
 
 ### DSPy deferred until ≥ 50 rated examples exist
 **Decided:** 2026-05-15  
