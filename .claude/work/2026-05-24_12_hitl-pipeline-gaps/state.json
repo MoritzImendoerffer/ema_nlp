@@ -1,6 +1,6 @@
 {
-  "status": "implementing",
-  "current_task": "HITL-005",
+  "status": "complete",
+  "current_task": null,
   "tasks": [
     {
       "id": "HITL-001",
@@ -115,7 +115,7 @@
       "id": "HITL-005",
       "title": "Re-run b1_sanity and confirm trajectories populated",
       "type": "testing",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "HITL-003",
         "HITL-004b"
@@ -137,7 +137,7 @@
       "id": "HITL-006",
       "title": "Build harness/label_session.py — interactive labeling CLI",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "HITL-004b"
       ],
@@ -164,7 +164,7 @@
       "id": "HITL-007",
       "title": "Wire get_fewshot_context() as shared adapter in app.py and run_eval.py",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "HITL-006"
       ],
@@ -189,11 +189,8 @@
       ]
     }
   ],
-  "completed_tasks": ["HITL-001", "HITL-002", "HITL-003", "HITL-004a", "HITL-004b"],
-  "next_available": [
-    "HITL-005",
-    "HITL-006"
-  ],
+  "completed_tasks": ["HITL-001", "HITL-002", "HITL-003", "HITL-004a", "HITL-004b", "HITL-005", "HITL-006", "HITL-007"],
+  "next_available": [],
   "notes": {
     "HITL-001_and_002_parallel": "HITL-001 and HITL-002 are independent and can be done in a single session",
     "HITL-003_partial": "HITL-003 makes the script runnable; HITL-005 confirms trajectories are good. Separated because HITL-004b (react fix) is required for meaningful trajectories.",
