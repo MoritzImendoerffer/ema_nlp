@@ -341,3 +341,19 @@ as typed, event-driven `Workflow` steps in `harness/workflows/`.
 | Node post-processors / rerankers | **Used** | `SMERerankerPostprocessor` (A3) + `GenericRerankerPostprocessor` (A4) implement `BaseNodePostprocessor`; tuple-based `rerank()` also available |
 | `NodeRelationship.RELATED` | Not used | Cross-refs stored as plain `metadata["cross_refs"]` list (metadata edges, not graph DB); `follow_cross_refs()` does docstore lookup |
 | Streaming retriever | Not used | Retrieval is synchronous; synthesis streams inside the Workflow step |
+
+### Shared retrieval factory (`build_retrieve_fn`)
+
+As of 2026-05-25, the ablation stack is built once via `build_retrieve_fn()` in `harness/retrieve.py` rather than as an inline closure in `run_eval.py`. This ensures `app.py` (Chainlit) and `run_eval.py` use exactly the same callable for any given config, and that any orchestration workflow (CRAG, ReAct, etc.) can compose with the full ablation stack.
+
+```python
+from harness.retrieve import AblationConfig, RetrievalConfig, build_retrieve_fn
+
+abl_config = AblationConfig.from_yaml(cfg.get("ablation", {}))
+retrieve_fn = build_retrieve_fn(ret_config, abl_config, index)
+# retrieve_fn.ablation_config → the AblationConfig, for span stamping
+```
+
+`AblationConfig` is a dataclass separate from `RetrievalConfig`. The YAML `retrieval:` and `ablation:` sections remain independent; they are combined only inside `build_retrieve_fn`.
+
+**Workflows that accept `retrieve_fn`:** `SimpleRAGWorkflow`, `CRAGWorkflow`, `ReActNativeWorkflow`, `SummarizeRAGWorkflow`, `CRAGSummarizeWorkflow`, `CRAGReviewWorkflow`, `ReactReviewWorkflow`. When `retrieve_fn` is not provided, all workflows fall back to `retrieve_with_config(self._config, self._index, question)` for backward compatibility.

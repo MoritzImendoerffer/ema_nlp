@@ -5,17 +5,20 @@ Adding a new strategy requires only:
 1. Implementing the workflow (returns WorkflowRunner or compatible object)
 2. Adding a builder to WORKFLOW_REGISTRY
 
+Adding a new prompt variant requires only:
+1. Adding the prompt file under harness/prompts/
+2. Adding an entry to _PROMPT_FILES in harness/workflows/utils.py
+3. Setting orchestration.prompt_strategy: <name> in the YAML config
+
 Strategy inventory::
 
-    simple_rag_zero    retrieve → generate (zero-shot)
-    simple_rag_few     retrieve → generate (few-shot SME examples)
-    simple_rag_cot     retrieve → generate (chain-of-thought)
-    react              ReAct native — hand-written loop, one @step per action (Phoenix spans)
-    crag               retrieve → grade ⇄ rewrite → generate
-    summarize_rag      retrieve → summarize → generate
-    crag_summarize     CRAG loop → summarize → generate
-    crag_review        CRAG loop → generate → review
-    react_review       react (native) → review (score only; no revision)
+    simple_rag     retrieve → generate (prompt variant from orchestration.prompt_strategy)
+    react          ReAct native — hand-written loop, one @step per action (Phoenix spans)
+    crag           retrieve → grade ⇄ rewrite → generate
+    summarize_rag  retrieve → summarize → generate
+    crag_summarize CRAG loop → summarize → generate
+    crag_review    CRAG loop → generate → review
+    react_review   react (native) → review (score only; no revision)
 
 Usage::
 
@@ -28,6 +31,9 @@ Usage::
 
     runner = get_workflow("crag_review", index=index, llm=llm)
     result = runner.invoke({"question": "What is the AI for NDMA?"})
+
+    # With explicit prompt strategy:
+    runner = get_workflow("simple_rag", index=index, llm=llm, prompt_strategy="cot_self")
 
     print(list_workflows())
 
@@ -51,19 +57,9 @@ WorkflowBuilder = Any
 # Builder functions
 # ---------------------------------------------------------------------------
 
-def _build_simple_rag_zero(index: Any, llm: Any, **kw: Any) -> Any:
+def _build_simple_rag(index: Any, llm: Any, **kw: Any) -> Any:
     from harness.workflows.simple_rag import build_simple_rag
-    return build_simple_rag("zero_shot", index=index, llm=llm, **kw)
-
-
-def _build_simple_rag_few(index: Any, llm: Any, **kw: Any) -> Any:
-    from harness.workflows.simple_rag import build_simple_rag
-    return build_simple_rag("few_shot", index=index, llm=llm, **kw)
-
-
-def _build_simple_rag_cot(index: Any, llm: Any, **kw: Any) -> Any:
-    from harness.workflows.simple_rag import build_simple_rag
-    return build_simple_rag("cot_self", index=index, llm=llm, **kw)
+    return build_simple_rag(index=index, llm=llm, **kw)
 
 
 def _build_react(index: Any, llm: Any, **kw: Any) -> Any:
@@ -101,15 +97,13 @@ def _build_react_review(index: Any, llm: Any, **kw: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 WORKFLOW_REGISTRY: dict[str, WorkflowBuilder] = {
-    "simple_rag_zero":  _build_simple_rag_zero,
-    "simple_rag_few":   _build_simple_rag_few,
-    "simple_rag_cot":   _build_simple_rag_cot,
-    "react":            _build_react,           # native per-step workflow (Phoenix spans)
-    "crag":             _build_crag,
-    "summarize_rag":    _build_summarize_rag,
-    "crag_summarize":   _build_crag_summarize,
-    "crag_review":      _build_crag_review,
-    "react_review":     _build_react_review,
+    "simple_rag":    _build_simple_rag,
+    "react":         _build_react,        # native per-step workflow (Phoenix spans)
+    "crag":          _build_crag,
+    "summarize_rag": _build_summarize_rag,
+    "crag_summarize": _build_crag_summarize,
+    "crag_review":   _build_crag_review,
+    "react_review":  _build_react_review,
 }
 
 
@@ -119,6 +113,8 @@ def get_workflow(
     index: Any,
     llm: Any | None = None,
     retrieval_config: RetrievalConfig | None = None,
+    prompt_strategy: str | None = None,
+    retrieve_fn: Any | None = None,
     **kwargs: Any,
 ) -> Any:
     """
@@ -133,7 +129,13 @@ def get_workflow(
         index:            LlamaIndex VectorStoreIndex.
         llm:              Pre-built LlamaIndex LLM; auto-built from 'agent' role if None.
         retrieval_config: Override retrieval settings.
-        **kwargs:         Passed to the builder (e.g. strategy="cot_self" for CRAG).
+        prompt_strategy:  Prompt variant ("zero_shot" | "few_shot" | "cot_self").
+                          Passed to builders that support it (simple_rag, crag, etc.).
+        retrieve_fn:      Pre-built retrieval callable from build_retrieve_fn().
+                          When provided, workflows use it instead of building one from
+                          retrieval_config alone.  The callable must have a
+                          .ablation_config attribute for span stamping.
+        **kwargs:         Passed to the builder.
 
     Raises:
         ValueError: If name is not in WORKFLOW_REGISTRY.
@@ -150,6 +152,12 @@ def get_workflow(
 
     if retrieval_config is not None:
         kwargs.setdefault("retrieval_config", retrieval_config)
+
+    if prompt_strategy is not None:
+        kwargs.setdefault("prompt_strategy", prompt_strategy)
+
+    if retrieve_fn is not None:
+        kwargs.setdefault("retrieve_fn", retrieve_fn)
 
     return WORKFLOW_REGISTRY[name](index, llm, **kwargs)
 

@@ -88,80 +88,16 @@ def run(config_path: Path) -> dict:
         index = build_index(corpus_path, index_dir, force=False)
 
     # ---------- Build retriever ----------
-    from harness.retrieve import RetrievalConfig, make_raw_retriever
+    from harness.retrieve import RetrievalConfig
 
     ret_section = cfg["retrieval"]
     ret_config = RetrievalConfig.from_yaml_section(ret_section)
     k: int = ret_config.k
 
-    # ---------- Ablation config ----------
-    abl_cfg: dict = cfg.get("ablation", {})
-    _query_exp_cfg: dict = abl_cfg.get("query_expansion", {})
-    _topic_cfg: dict = abl_cfg.get("topic_filter", {})
-    _reranker_name: str | None = abl_cfg.get("reranker", None)
-    _reranker_max_chunks: int = abl_cfg.get("reranker_max_chunks", 5)
-
-    _expander = None
-    if _query_exp_cfg.get("enabled", False):
-        from harness.ablations.a1_query_expansion import QueryExpander
-        _dict_path_str: str | None = _query_exp_cfg.get("acronym_dict")
-        _dict_path = _resolve(_dict_path_str) if _dict_path_str else None
-        _expander = QueryExpander(_dict_path) if _dict_path else QueryExpander()
-        log.info("A1 query expansion enabled (dict: %s)", _expander)
-
-    _topic_filter_mode: str | None = _topic_cfg.get("mode") if _topic_cfg.get("enabled", False) else None
-    if _topic_filter_mode:
-        log.info("A2 topic filter enabled (mode: %s)", _topic_filter_mode)
-
-    if _reranker_name:
-        log.info("Reranker enabled: %s (max_chunks=%d, model from reranker role)", _reranker_name, _reranker_max_chunks)
-
-    # Load hierarchical index if needed
-    _hier_index = None
-    if ret_config.strategy == "hierarchical":
-        hier_dir = ret_config.hierarchical.summary_index_dir
-        if hier_dir:
-            try:
-                from harness.embed_hierarchical import load_hierarchical_index
-                _hier_index = load_hierarchical_index(Path(hier_dir).expanduser())
-                log.info("Hierarchical index loaded from %s", hier_dir)
-            except Exception as exc:
-                log.warning("Could not load hierarchical index from %s: %s — falling back to flat", hier_dir, exc)
-
-    _base_retriever = make_raw_retriever(ret_config, index, hier_index=_hier_index)
-
-    def retrieve_fn(query: str):
-        # A1 — optional query expansion
-        expanded = _expander.expand(query) if _expander else query
-        if expanded != query:
-            log.debug("A1 expanded: %r → %r", query, expanded)
-
-        results = _base_retriever(expanded)
-
-        # A2 — optional topic filter
-        if _topic_filter_mode == "keyword":
-            from harness.ablations.a2_topic_filter import filter_by_topic_keyword
-            results = filter_by_topic_keyword(results, query)
-        elif _topic_filter_mode == "concept":
-            from harness.ablations.a2_topic_filter import make_concept_retriever
-            retriever = make_concept_retriever(index, query, k=k)
-            from harness.retrieve import _results_from_nodes
-            try:
-                results = _results_from_nodes(retriever.retrieve(expanded))
-            except (ValueError, NotImplementedError) as _exc:
-                log.warning(
-                    "A2 concept filter unavailable (%s) — falling back to base retrieval", _exc
-                )
-
-        # A3/A4 — optional LLM reranker (model from 'reranker' role in models.yaml)
-        if _reranker_name == "sme":
-            import harness.ablations.a3_reranker as _a3
-            results = _a3.rerank(results, query, index, max_chunks=_reranker_max_chunks)
-        elif _reranker_name == "generic":
-            import harness.ablations.a4_reranker as _a4
-            results = _a4.rerank(results, query, index, max_chunks=_reranker_max_chunks)
-
-        return results
+    # ---------- Ablation config + shared retrieve_fn ----------
+    from harness.retrieve import AblationConfig, build_retrieve_fn
+    abl_config = AblationConfig.from_yaml(cfg.get("ablation", {}))
+    retrieve_fn = build_retrieve_fn(ret_config, abl_config, index)
 
     # ---------- Retrieval eval ----------
     from harness.eval_retrieval import run_eval as eval_retrieval
@@ -187,11 +123,20 @@ def run(config_path: Path) -> dict:
         from harness.llms import get_llm
         from harness.workflows.registry import get_workflow
         orch_strategy = orch_cfg["strategy"]
-        log.info("Orchestration enabled: strategy=%s (agent role)", orch_strategy)
+        orch_prompt_strategy: str | None = orch_cfg.get("prompt_strategy") or None
+        log.info(
+            "Orchestration enabled: strategy=%s prompt_strategy=%s (agent role)",
+            orch_strategy, orch_prompt_strategy or "default",
+        )
 
         llm = get_llm("agent")
         workflow = get_workflow(
-            orch_strategy, index=index, llm=llm, retrieval_config=ret_config
+            orch_strategy,
+            index=index,
+            llm=llm,
+            retrieval_config=ret_config,
+            prompt_strategy=orch_prompt_strategy,
+            retrieve_fn=retrieve_fn,
         )
 
         cache_inject: bool = orch_cfg.get("cache_inject", False)
@@ -218,7 +163,12 @@ def run(config_path: Path) -> dict:
                             dtype=np.float32,
                         )
                         few_shot_context = get_fewshot_context(q_vec, _eval_cache, k=3, min_rating=4) or ""
-                    result = workflow.invoke({"question": item["question"], "few_shot_context": few_shot_context})
+                    result = workflow.invoke({
+                        "question": item["question"],
+                        "few_shot_context": few_shot_context,
+                        "run_id": cfg["run_id"],
+                        "source": "eval",
+                    })
                     generated_answers[item["bench_id"]] = result["answer_text"]
                     docs_cache[item["bench_id"]] = result.get("docs", [])
                     row = {

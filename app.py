@@ -33,36 +33,34 @@ load_dotenv(Path.home() / ".myenvs" / "ema_nlp.env", override=False)
 
 PHOENIX_URL = os.getenv("PHOENIX_URL", "http://localhost:6006")
 PHOENIX_DISABLED = os.getenv("PHOENIX_DISABLED", "").lower() in ("1", "true", "yes")
-WORKFLOW_STRATEGY = os.getenv("EMA_WORKFLOW_STRATEGY", "simple_rag_zero")
+WORKFLOW_STRATEGY = os.getenv("EMA_WORKFLOW_STRATEGY", "simple_rag")
 RETRIEVAL_K = 10
 SOURCES_SHOWN = 5
 
 log = logging.getLogger(__name__)
 
-# ── Workflow profile → strategy mapping ──────────────────────────────────────
+# ── Workflow profile → (strategy, prompt_strategy) mapping ───────────────────
 
-_PROFILE_STRATEGY: dict[str, str] = {
-    "Simple RAG (zero-shot)": "simple_rag_zero",
-    "Simple RAG (few-shot)":  "simple_rag_few",
-    "Simple RAG (CoT)":       "simple_rag_cot",
-    "ReAct":                  "react",
-    "CRAG":                   "crag",
-    "Summarize RAG":          "summarize_rag",
-    "CRAG + Summarize":       "crag_summarize",
-    "CRAG + Review":          "crag_review",
-    "ReAct + Review":         "react_review",
+_PROFILE_STRATEGY: dict[str, tuple[str, str | None]] = {
+    "Simple RAG (zero-shot)": ("simple_rag", "zero_shot"),
+    "Simple RAG (few-shot)":  ("simple_rag", "few_shot"),
+    "Simple RAG (CoT)":       ("simple_rag", "cot_self"),
+    "ReAct":                  ("react",         None),
+    "CRAG":                   ("crag",          None),
+    "Summarize RAG":          ("summarize_rag", None),
+    "CRAG + Summarize":       ("crag_summarize", None),
+    "CRAG + Review":          ("crag_review",    None),
+    "ReAct + Review":         ("react_review",   None),
 }
 
 _PROFILE_DESCRIPTIONS: dict[str, str] = {
-    "simple_rag_zero": "Retrieve → generate (zero-shot)",
-    "simple_rag_few":  "Retrieve → generate (few-shot examples)",
-    "simple_rag_cot":  "Retrieve → generate (chain-of-thought)",
-    "react":           "ReAct loop with per-step Phoenix spans",
-    "crag":            "Retrieve → grade ⇄ rewrite → generate",
-    "summarize_rag":   "Retrieve → summarize → generate",
-    "crag_summarize":  "CRAG loop → summarize → generate",
-    "crag_review":     "CRAG loop → generate → reviewer pass",
-    "react_review":    "ReAct → reviewer (score only)",
+    "simple_rag":    "Retrieve → generate (prompt variant set by profile)",
+    "react":         "ReAct loop with per-step Phoenix spans",
+    "crag":          "Retrieve → grade ⇄ rewrite → generate",
+    "summarize_rag": "Retrieve → summarize → generate",
+    "crag_summarize":"CRAG loop → summarize → generate",
+    "crag_review":   "CRAG loop → generate → reviewer pass",
+    "react_review":  "ReAct → reviewer (score only)",
 }
 
 # ── SQLite schema (created on first run via on_app_startup) ───────────────────
@@ -194,7 +192,7 @@ async def set_chat_profiles(user: cl.User | None) -> list[cl.ChatProfile]:
             markdown_description=_PROFILE_DESCRIPTIONS.get(strategy, strategy),
             default=(strategy == WORKFLOW_STRATEGY),
         )
-        for display_name, strategy in _PROFILE_STRATEGY.items()
+        for display_name, (strategy, _prompt_strategy) in _PROFILE_STRATEGY.items()
     ]
 
 
@@ -225,17 +223,22 @@ def _build_session_workflow(
     index: Any,
     *,
     strategy: str = WORKFLOW_STRATEGY,
+    prompt_strategy: str | None = None,
     model_name: str = "claude_opus",
     temperature: float = 0.0,
     retrieval_k: int = RETRIEVAL_K,
 ) -> Any:
     from harness.llms import get_llm_for_model
-    from harness.retrieve import RetrievalConfig
+    from harness.retrieve import AblationConfig, RetrievalConfig, build_retrieve_fn
     from harness.workflows.registry import get_workflow
 
     llm = get_llm_for_model(model_name, temperature_override=temperature)
     cfg = RetrievalConfig(mode="hybrid", k=retrieval_k)
-    return get_workflow(strategy, index=index, llm=llm, retrieval_config=cfg)
+    retrieve_fn = build_retrieve_fn(cfg, AblationConfig(), index)
+    return get_workflow(
+        strategy, index=index, llm=llm, retrieval_config=cfg,
+        prompt_strategy=prompt_strategy, retrieve_fn=retrieve_fn,
+    )
 
 
 # ── Settings helpers ──────────────────────────────────────────────────────────
@@ -295,11 +298,11 @@ async def on_chat_start() -> None:
     log.info("Session started: %s", session_id)
 
     profile_name = cl.user_session.get("chat_profile")
-    strategy = _PROFILE_STRATEGY.get(profile_name or "", WORKFLOW_STRATEGY)
-    log.info("Strategy: %s (profile: %s)", strategy, profile_name)
+    strategy, prompt_strategy = _PROFILE_STRATEGY.get(profile_name or "", (WORKFLOW_STRATEGY, None))
+    log.info("Strategy: %s prompt_strategy: %s (profile: %s)", strategy, prompt_strategy, profile_name)
 
     pipeline = await asyncio.to_thread(
-        _build_session_workflow, index, strategy=strategy,
+        _build_session_workflow, index, strategy=strategy, prompt_strategy=prompt_strategy,
         **_settings_to_pipeline_kwargs(_DEFAULT_SETTINGS),
     )
 
@@ -314,6 +317,7 @@ async def on_chat_start() -> None:
     cl.user_session.set("pipeline", pipeline)
     cl.user_session.set("cache", cache)
     cl.user_session.set("strategy", strategy)
+    cl.user_session.set("prompt_strategy", prompt_strategy)
     cl.user_session.set("settings", _DEFAULT_SETTINGS.copy())
     cl.user_session.set("msg_counter", 0)
 
@@ -328,8 +332,8 @@ async def on_chat_resume(thread: dict) -> None:
     # auto_tag_thread=true means the profile name is stored as a tag
     tags = thread.get("tags") or []
     profile_name = next((t for t in tags if t in _PROFILE_STRATEGY), None)
-    strategy = _PROFILE_STRATEGY.get(profile_name or "", WORKFLOW_STRATEGY)
-    log.info("Resuming thread %s — strategy=%s", thread.get("id"), strategy)
+    strategy, prompt_strategy = _PROFILE_STRATEGY.get(profile_name or "", (WORKFLOW_STRATEGY, None))
+    log.info("Resuming thread %s — strategy=%s prompt_strategy=%s", thread.get("id"), strategy, prompt_strategy)
 
     try:
         index = await asyncio.to_thread(_load_index_sync)
@@ -338,7 +342,7 @@ async def on_chat_resume(thread: dict) -> None:
         raise
 
     pipeline = await asyncio.to_thread(
-        _build_session_workflow, index, strategy=strategy,
+        _build_session_workflow, index, strategy=strategy, prompt_strategy=prompt_strategy,
         **_settings_to_pipeline_kwargs(_DEFAULT_SETTINGS),
     )
 
@@ -356,6 +360,7 @@ async def on_chat_resume(thread: dict) -> None:
     cl.user_session.set("pipeline", pipeline)
     cl.user_session.set("cache", cache)
     cl.user_session.set("strategy", strategy)
+    cl.user_session.set("prompt_strategy", prompt_strategy)
     cl.user_session.set("settings", _DEFAULT_SETTINGS.copy())
     cl.user_session.set("msg_counter", step_count)
 
@@ -371,8 +376,9 @@ async def on_settings_update(settings: dict) -> None:
         return
 
     strategy = cl.user_session.get("strategy", WORKFLOW_STRATEGY)
+    prompt_strategy = cl.user_session.get("prompt_strategy")
     pipeline = await asyncio.to_thread(
-        _build_session_workflow, index, strategy=strategy,
+        _build_session_workflow, index, strategy=strategy, prompt_strategy=prompt_strategy,
         **_settings_to_pipeline_kwargs(settings),
     )
     cl.user_session.set("pipeline", pipeline)
@@ -449,11 +455,15 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
         else ""
     )
 
+    run_id = str(uuid.uuid4())
     async with cl.Step(name="Pipeline", type="run") as step:
         step.input = query
-        result: dict = await pipeline.ainvoke(
-            {"question": query, "few_shot_context": few_shot_block},
-        )
+        result: dict = await pipeline.ainvoke({
+            "question": query,
+            "few_shot_context": few_shot_block,
+            "run_id": run_id,
+            "source": "chainlit",
+        })
         step.output = f"Done: {len(result.get('answer_text', ''))} chars"
 
     answer_text: str = result.get("answer_text", "No answer generated.")
@@ -483,7 +493,6 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
 
     # ── Store in cache ────────────────────────────────────────────────────────
     if cache is not None and query_vec is not None and answer_text:
-        run_id = str(uuid.uuid4())
         cited_ids = result.get("cited_qa_ids", [])
         await asyncio.to_thread(
             cache.add_entry,
@@ -493,7 +502,7 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
             cited_ids,
             query_vec,
         )
-        cl.user_session.set("last_run_id", run_id)
+    cl.user_session.set("last_run_id", run_id)
 
     # ── Rating actions ────────────────────────────────────────────────────────
     await cl.Message(

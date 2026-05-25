@@ -181,6 +181,7 @@ class ReActNativeWorkflow(Workflow):
         index: Any,
         llm: Any,
         retrieval_config: RetrievalConfig | None = None,
+        retrieve_fn: Any | None = None,
         max_iterations: int = MAX_ITERATIONS,
         **kwargs: Any,
     ) -> None:
@@ -188,6 +189,7 @@ class ReActNativeWorkflow(Workflow):
         self._index = index
         self._llm = llm
         self._config = retrieval_config or RetrievalConfig()
+        self._retrieve_fn = retrieve_fn
         self._max_iterations = max_iterations
         # Apply A1 acronym expansion on ema_search queries (handles AI→Acceptable Intake etc.)
         try:
@@ -195,6 +197,20 @@ class ReActNativeWorkflow(Workflow):
             self._expander: Any = QueryExpander()
         except Exception:
             self._expander = None
+
+    def config_attributes(self) -> dict:
+        abl = getattr(self._retrieve_fn, "ablation_config", None)
+        return {
+            "ema.orchestration.strategy": "react",
+            "ema.orchestration.prompt_strategy": "react_native",
+            "ema.retrieval.strategy": self._config.strategy,
+            "ema.retrieval.mode": self._config.mode,
+            "ema.retrieval.k": self._config.k,
+            "ema.retrieval.reranker": abl.reranker or "none" if abl else "none",
+            "ema.retrieval.query_expansion": abl.query_expansion_enabled if abl else False,
+            "ema.retrieval.topic_filter": abl.topic_filter_mode or "none" if abl else "none",
+            "ema.react.max_iterations": self._max_iterations,
+        }
 
     # ------------------------------------------------------------------
     # Step 1: Think
@@ -351,9 +367,12 @@ class ReActNativeWorkflow(Workflow):
     ) -> tuple[str, list, list]:
         if tool_name == "ema_search":
             query = tool_args.strip()
-            if self._expander is not None:
-                query = self._expander.expand(query)
-            results = retrieve_with_config(self._config, self._index, query)
+            if self._retrieve_fn is not None:
+                results = self._retrieve_fn(query)
+            else:
+                if self._expander is not None:
+                    query = self._expander.expand(query)
+                results = retrieve_with_config(self._config, self._index, query)
             docs = results_to_docs(results, self._index)
             return _format_docs(docs), docs, cited_qa_ids
 
@@ -398,6 +417,7 @@ def build_react_native(
     index: Any,
     llm: Any,
     retrieval_config: RetrievalConfig | None = None,
+    retrieve_fn: Any | None = None,
     max_iterations: int = MAX_ITERATIONS,
 ) -> WorkflowRunner:
     """Factory function matching the registry interface."""
@@ -405,6 +425,7 @@ def build_react_native(
         index=index,
         llm=llm,
         retrieval_config=retrieval_config,
+        retrieve_fn=retrieve_fn,
         max_iterations=max_iterations,
         timeout=300,
     )

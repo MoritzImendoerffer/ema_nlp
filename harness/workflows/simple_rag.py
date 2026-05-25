@@ -52,7 +52,7 @@ class SimpleRAGWorkflow(Workflow):
     Args:
         index:            LlamaIndex VectorStoreIndex.
         llm:              LlamaIndex LLM (from harness.llms.get_llm).
-        strategy:         "zero_shot" | "few_shot" | "cot_self".
+        prompt_strategy:  "zero_shot" | "few_shot" | "cot_self".
         retrieval_config: RetrievalConfig (defaults to flat hybrid k=10).
     """
 
@@ -61,25 +61,44 @@ class SimpleRAGWorkflow(Workflow):
         *,
         index: Any,
         llm: Any,
-        strategy: str = "zero_shot",
+        prompt_strategy: str = "zero_shot",
         retrieval_config: RetrievalConfig | None = None,
+        retrieve_fn: Any | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        if strategy not in _VALID_STRATEGIES:
-            raise ValueError(f"Unknown strategy {strategy!r}. Choose from: {_VALID_STRATEGIES}")
+        if prompt_strategy not in _VALID_STRATEGIES:
+            raise ValueError(f"Unknown prompt_strategy {prompt_strategy!r}. Choose from: {_VALID_STRATEGIES}")
         self._index = index
         self._llm = llm
-        self._strategy = strategy
+        self._prompt_strategy = prompt_strategy
         self._config = retrieval_config or RetrievalConfig()
-        self._system_prompt = load_system_prompt(strategy)
+        self._retrieve_fn = retrieve_fn
+        self._system_prompt = load_system_prompt(prompt_strategy)
+
+    def config_attributes(self) -> dict:
+        abl = getattr(self._retrieve_fn, "ablation_config", None)
+        return {
+            "ema.orchestration.strategy": "simple_rag",
+            "ema.orchestration.prompt_strategy": self._prompt_strategy,
+            "ema.retrieval.strategy": self._config.strategy,
+            "ema.retrieval.mode": self._config.mode,
+            "ema.retrieval.k": self._config.k,
+            "ema.retrieval.reranker": abl.reranker or "none" if abl else "none",
+            "ema.retrieval.query_expansion": abl.query_expansion_enabled if abl else False,
+            "ema.retrieval.topic_filter": abl.topic_filter_mode or "none" if abl else "none",
+        }
 
     @step
     async def retrieve_and_generate(self, ctx: Context, ev: StartEvent) -> StopEvent:
         question: str = ev.get("question", "")
         few_shot_context: str = ev.get("few_shot_context", "")
 
-        results = retrieve_with_config(self._config, self._index, question)
+        results = (
+            self._retrieve_fn(question)
+            if self._retrieve_fn is not None
+            else retrieve_with_config(self._config, self._index, question)
+        )
         docs = results_to_docs(results, self._index)
         context_str = format_docs(docs)
 
@@ -88,28 +107,30 @@ class SimpleRAGWorkflow(Workflow):
         )
         response = await self._llm.achat(messages)
         raw: str = response.message.content or ""
-        answer_text = extract_answer(raw, self._strategy)
+        answer_text = extract_answer(raw, self._prompt_strategy)
 
         return StopEvent(result={
             "answer_text": answer_text,
             "docs": docs,
-            "prompt_strategy": self._strategy,
+            "prompt_strategy": self._prompt_strategy,
         })
 
 
 def build_simple_rag(
-    strategy: str,
     *,
     index: Any,
     llm: Any,
+    prompt_strategy: str = "zero_shot",
     retrieval_config: RetrievalConfig | None = None,
+    retrieve_fn: Any | None = None,
 ) -> WorkflowRunner:
     """Factory function matching the registry interface."""
     wf = SimpleRAGWorkflow(
         index=index,
         llm=llm,
-        strategy=strategy,
+        prompt_strategy=prompt_strategy,
         retrieval_config=retrieval_config,
+        retrieve_fn=retrieve_fn,
         timeout=120,
     )
     return WorkflowRunner(wf)

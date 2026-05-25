@@ -1,7 +1,8 @@
 # C: OLMo-3 × self-generated CoT
 ablation: {}
 orchestration:
-  strategy: simple_rag_cot
+  strategy: simple_rag
+  prompt_strategy: cot_self
   cache_inject: false
 benchmark:
   path: benchmark/benchmark.jsonl

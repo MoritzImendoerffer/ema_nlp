@@ -18,7 +18,7 @@ class TestListWorkflows:
 
     def test_contains_all_strategies(self):
         expected = {
-            "simple_rag_zero", "simple_rag_few", "simple_rag_cot",
+            "simple_rag",
             "react", "crag", "summarize_rag",
             "crag_summarize", "crag_review", "react_review",
         }
@@ -80,7 +80,7 @@ class TestGetWorkflow:
         mock_llm = MagicMock()
         mock_llm.achat = achat
 
-        runner = get_workflow("simple_rag_zero", index=index, llm=mock_llm)
+        runner = get_workflow("simple_rag", index=index, llm=mock_llm)
         assert hasattr(runner, "invoke")
         assert hasattr(runner, "ainvoke")
 
@@ -97,4 +97,4 @@ class TestGetWorkflow:
         try:
             get_workflow("bad", index=MagicMock(), llm=MagicMock())
         except ValueError as exc:
-            assert "simple_rag_zero" in str(exc)
+            assert "simple_rag" in str(exc)

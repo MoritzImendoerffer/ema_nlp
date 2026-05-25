@@ -1,7 +1,8 @@
 # C: OLMo-3 × zero-shot
 ablation: {}
 orchestration:
-  strategy: simple_rag_zero
+  strategy: simple_rag
+  prompt_strategy: zero_shot
   cache_inject: false
 benchmark:
   path: benchmark/benchmark.jsonl

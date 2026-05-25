@@ -174,3 +174,21 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 **What:** `scripts/sync_mongo.sh export` dumps the local `ema_scraper` database to `~/Nextcloud/Datasets/mongo_sync/ema_scraper.archive`. The other machine imports it after Nextcloud syncs the file. A live SSH pull via Tailscale is also available when both machines are online simultaneously.  
 **Why:** Free, symmetric, works asynchronously. No MongoDB Atlas or other managed database service required.  
 **Ref:** [`docs/SETUP.md`](docs/SETUP.md) §5
+
+### Workflow registry collapsed: prompt_strategy as YAML field (Change 3 of harness refactoring)
+**Decided:** 2026-05-25  
+**What:** The three `simple_rag_zero/few/cot` registry entries were removed and replaced with a single `simple_rag` entry. The prompt variant is now driven by `orchestration.prompt_strategy: zero_shot|few_shot|cot_self` in the YAML config rather than by the registry key. All workflow constructors renamed their `strategy` parameter to `prompt_strategy` to disambiguate it from `orchestration.strategy` (the registry key). No backward-compatibility aliases.  
+**Why:** Adding a fourth prompt variant previously required three new registry entries, three builder functions, and equivalent expansion for every other strategy that supports prompts. The coupling between "orchestration shape" and "prompt variant" was artificial. Separating them means a new prompt file + one `_PROMPT_FILES` entry + a YAML change suffices.  
+**Ref:** [`HARNESS_REFACTORS.md`](HARNESS_REFACTORS.md) Change 3
+
+### Phoenix span attribute stamping via config_attributes() (Change 1 of harness refactoring)
+**Decided:** 2026-05-25  
+**What:** `WorkflowRunner.ainvoke` now stamps the active configuration onto the current OTel root span before delegating to the underlying workflow. Each workflow class exposes a `config_attributes() → dict[str, ...]` method. The `ema.*` namespace is used for all project-specific keys (e.g. `ema.orchestration.strategy`, `ema.retrieval.reranker`). `run_id` and `source` are passed through the inputs dict and stamped as `ema.run.id` / `ema.run.source`. Stamping is a silent no-op when Phoenix is disabled (non-recording span) or when a workflow lacks `config_attributes()` (warning once, then continues).  
+**Why:** Without configuration on spans, Phoenix could not answer "show me all CRAG + reranker=sme runs below 0.6 faithfulness". For a project whose central purpose is comparing configurations, this was a blocker.  
+**Ref:** [`HARNESS_REFACTORS.md`](HARNESS_REFACTORS.md) Change 1, [`tests/test_span_attributes.py`](tests/test_span_attributes.py)
+
+### Shared retrieval factory build_retrieve_fn (Change 2 of harness refactoring)
+**Decided:** 2026-05-25  
+**What:** The inline `retrieve_fn` closure that was built inside `run_eval.py` (applying A1→base→A2→A3/A4 in order) was extracted into `build_retrieve_fn(ret_config, abl_config, index)` in `harness/retrieve.py`. A new `AblationConfig` dataclass carries query expansion, topic filter, and reranker settings parsed from the `ablation:` YAML section. All workflows accept an optional `retrieve_fn` parameter; when provided they call it instead of `retrieve_with_config()`. The factory attaches `.ablation_config` to the callable so `config_attributes()` can report the active ablation flags on the span.  
+**Why:** The reranker (A3) could not compose with CRAG or ReAct because the ablation closure was only applied in `run_eval.py`'s retrieval eval loop, not in workflow execution. This is a real architectural limit. The factory also eliminates the drift between `app.py` and `run_eval.py` retrieval paths.  
+**Ref:** [`HARNESS_REFACTORS.md`](HARNESS_REFACTORS.md) Change 2, [`docs/RETRIEVAL_PIPELINE.md`](docs/RETRIEVAL_PIPELINE.md)

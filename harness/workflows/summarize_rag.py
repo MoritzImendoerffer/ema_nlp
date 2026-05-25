@@ -54,24 +54,43 @@ class SummarizeRAGWorkflow(Workflow):
         *,
         index: Any,
         llm: Any,
-        strategy: str = "zero_shot",
+        prompt_strategy: str = "zero_shot",
         retrieval_config: RetrievalConfig | None = None,
+        retrieve_fn: Any | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._index = index
         self._llm = llm
-        self._strategy = strategy
+        self._prompt_strategy = prompt_strategy
         self._config = retrieval_config or RetrievalConfig()
-        self._system_prompt = load_system_prompt(strategy)
+        self._retrieve_fn = retrieve_fn
+        self._system_prompt = load_system_prompt(prompt_strategy)
         self._summarize_prompt = (_PROMPTS_DIR / "system_summarize.md").read_text(encoding="utf-8")
+
+    def config_attributes(self) -> dict:
+        abl = getattr(self._retrieve_fn, "ablation_config", None)
+        return {
+            "ema.orchestration.strategy": "summarize_rag",
+            "ema.orchestration.prompt_strategy": self._prompt_strategy,
+            "ema.retrieval.strategy": self._config.strategy,
+            "ema.retrieval.mode": self._config.mode,
+            "ema.retrieval.k": self._config.k,
+            "ema.retrieval.reranker": abl.reranker or "none" if abl else "none",
+            "ema.retrieval.query_expansion": abl.query_expansion_enabled if abl else False,
+            "ema.retrieval.topic_filter": abl.topic_filter_mode or "none" if abl else "none",
+        }
 
     @step
     async def retrieve(self, ctx: Context, ev: StartEvent) -> RetrievedEvent:
         question: str = ev.get("question", "")
         few_shot_context: str = ev.get("few_shot_context", "")
 
-        results = retrieve_with_config(self._config, self._index, question)
+        results = (
+            self._retrieve_fn(question)
+            if self._retrieve_fn is not None
+            else retrieve_with_config(self._config, self._index, question)
+        )
         docs = results_to_docs(results, self._index)
 
         return RetrievedEvent(
@@ -120,13 +139,13 @@ class SummarizeRAGWorkflow(Workflow):
         )
         response = await self._llm.achat(messages)
         raw: str = response.message.content or ""
-        answer_text = extract_answer(raw, self._strategy)
+        answer_text = extract_answer(raw, self._prompt_strategy)
 
         return StopEvent(result={
             "answer_text": answer_text,
             "docs": ev.docs,
             "summary": ev.summary,
-            "prompt_strategy": f"summarize_{self._strategy}",
+            "prompt_strategy": f"summarize_{self._prompt_strategy}",
         })
 
 
@@ -134,15 +153,17 @@ def build_summarize_rag(
     *,
     index: Any,
     llm: Any,
-    strategy: str = "zero_shot",
+    prompt_strategy: str = "zero_shot",
     retrieval_config: RetrievalConfig | None = None,
+    retrieve_fn: Any | None = None,
 ) -> WorkflowRunner:
     """Factory function matching the registry interface."""
     wf = SummarizeRAGWorkflow(
         index=index,
         llm=llm,
-        strategy=strategy,
+        prompt_strategy=prompt_strategy,
         retrieval_config=retrieval_config,
+        retrieve_fn=retrieve_fn,
         timeout=180,
     )
     return WorkflowRunner(wf)

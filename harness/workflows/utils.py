@@ -123,11 +123,39 @@ class WorkflowRunner:
     interface used by app.py and the workflow registry.
     """
 
+    _warned_no_config_attrs: set[str] = set()
+
     def __init__(self, workflow: Any) -> None:
         self._wf = workflow
 
+    def _stamp_span(self, inputs: dict) -> None:
+        """Stamp workflow config attributes onto the current OTel span (silent no-op if disabled)."""
+        try:
+            import opentelemetry.trace as otel_trace
+            span = otel_trace.get_current_span()
+            if not span.is_recording():
+                return
+            config_fn = getattr(self._wf, "config_attributes", None)
+            if config_fn is None:
+                wf_name = type(self._wf).__name__
+                if wf_name not in WorkflowRunner._warned_no_config_attrs:
+                    log.warning(
+                        "Workflow %s has no config_attributes() — skipping span stamp", wf_name
+                    )
+                    WorkflowRunner._warned_no_config_attrs.add(wf_name)
+            else:
+                for k, v in config_fn().items():
+                    span.set_attribute(k, v)
+            if run_id := inputs.get("run_id"):
+                span.set_attribute("ema.run.id", str(run_id))
+            if source := inputs.get("source"):
+                span.set_attribute("ema.run.source", str(source))
+        except Exception:
+            pass  # Phoenix disabled or OTel not installed — never raise from here
+
     async def ainvoke(self, inputs: dict) -> dict:
         """Async invocation — preferred from async contexts (e.g. Chainlit)."""
+        self._stamp_span(inputs)
         return await self._wf.run(**inputs)
 
     def invoke(self, inputs: dict) -> dict:

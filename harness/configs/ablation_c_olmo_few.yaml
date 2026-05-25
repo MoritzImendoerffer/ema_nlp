@@ -1,7 +1,8 @@
 # C: OLMo-3 × SME few-shot
 ablation: {}
 orchestration:
-  strategy: simple_rag_few
+  strategy: simple_rag
+  prompt_strategy: few_shot
   cache_inject: false
 benchmark:
   path: benchmark/benchmark.jsonl

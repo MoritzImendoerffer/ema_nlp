@@ -1,6 +1,6 @@
-# Workflow axis: simple_rag_zero on A0+ retrieval
+# Workflow axis: simple_rag (zero-shot) on A0+ retrieval
 run_id: workflow_simple_rag
-description: "Workflow comparison: simple_rag_zero answer gen on A0+ hybrid retrieval"
+description: "Workflow comparison: simple_rag zero-shot answer gen on A0+ hybrid retrieval"
 
 retrieval:
   strategy: flat
@@ -8,7 +8,8 @@ retrieval:
   k: 10
 
 orchestration:
-  strategy: simple_rag_zero
+  strategy: simple_rag
+  prompt_strategy: zero_shot
   cache_inject: false
 
 index:

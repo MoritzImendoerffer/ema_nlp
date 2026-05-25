@@ -84,21 +84,37 @@ class CRAGSummarizeWorkflow(Workflow):
         *,
         index: Any,
         llm: Any,
-        strategy: str = "zero_shot",
+        prompt_strategy: str = "zero_shot",
         retrieval_config: RetrievalConfig | None = None,
+        retrieve_fn: Any | None = None,
         max_cycles: int = MAX_CYCLES,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._index = index
         self._llm = llm
-        self._strategy = strategy
+        self._prompt_strategy = prompt_strategy
         self._config = retrieval_config or RetrievalConfig()
+        self._retrieve_fn = retrieve_fn
         self._max_cycles = max_cycles
-        self._system_prompt = load_system_prompt(strategy)
+        self._system_prompt = load_system_prompt(prompt_strategy)
         from pathlib import Path
         _prompts = Path(__file__).parent.parent / "prompts"
         self._summarize_prompt = (_prompts / "system_summarize.md").read_text(encoding="utf-8")
+
+    def config_attributes(self) -> dict:
+        abl = getattr(self._retrieve_fn, "ablation_config", None)
+        return {
+            "ema.orchestration.strategy": "crag_summarize",
+            "ema.orchestration.prompt_strategy": self._prompt_strategy,
+            "ema.retrieval.strategy": self._config.strategy,
+            "ema.retrieval.mode": self._config.mode,
+            "ema.retrieval.k": self._config.k,
+            "ema.retrieval.reranker": abl.reranker or "none" if abl else "none",
+            "ema.retrieval.query_expansion": abl.query_expansion_enabled if abl else False,
+            "ema.retrieval.topic_filter": abl.topic_filter_mode or "none" if abl else "none",
+            "ema.crag.max_cycles": self._max_cycles,
+        }
 
     @step
     async def retrieve(self, ctx: Context, ev: StartEvent | _SumQueryEvent) -> RetrievedEvent:
@@ -110,7 +126,11 @@ class CRAGSummarizeWorkflow(Workflow):
             question = ev.question
             few_shot_context = ev.few_shot_context
             rewrite_cycles = ev.rewrite_cycles
-        results = retrieve_with_config(self._config, self._index, question)
+        results = (
+            self._retrieve_fn(question)
+            if self._retrieve_fn is not None
+            else retrieve_with_config(self._config, self._index, question)
+        )
         docs = results_to_docs(results, self._index)
         return RetrievedEvent(
             question=question, few_shot_context=few_shot_context,
@@ -164,12 +184,12 @@ class CRAGSummarizeWorkflow(Workflow):
         )
         response = await self._llm.achat(messages)
         raw: str = response.message.content or ""
-        answer_text = extract_answer(raw, self._strategy)
+        answer_text = extract_answer(raw, self._prompt_strategy)
         return StopEvent(result={
             "answer_text": answer_text,
             "docs": ev.docs,
             "summary": ev.summary,
-            "prompt_strategy": f"crag_summarize_{self._strategy}",
+            "prompt_strategy": f"crag_summarize_{self._prompt_strategy}",
         })
 
     @step
@@ -213,8 +233,9 @@ class CRAGReviewWorkflow(Workflow):
         *,
         index: Any,
         llm: Any,
-        strategy: str = "zero_shot",
+        prompt_strategy: str = "zero_shot",
         retrieval_config: RetrievalConfig | None = None,
+        retrieve_fn: Any | None = None,
         max_cycles: int = MAX_CYCLES,
         review_threshold: float = 0.6,
         **kwargs: Any,
@@ -222,11 +243,26 @@ class CRAGReviewWorkflow(Workflow):
         super().__init__(**kwargs)
         self._index = index
         self._llm = llm
-        self._strategy = strategy
+        self._prompt_strategy = prompt_strategy
         self._config = retrieval_config or RetrievalConfig()
+        self._retrieve_fn = retrieve_fn
         self._max_cycles = max_cycles
         self._review_threshold = review_threshold
-        self._system_prompt = load_system_prompt(strategy)
+        self._system_prompt = load_system_prompt(prompt_strategy)
+
+    def config_attributes(self) -> dict:
+        abl = getattr(self._retrieve_fn, "ablation_config", None)
+        return {
+            "ema.orchestration.strategy": "crag_review",
+            "ema.orchestration.prompt_strategy": self._prompt_strategy,
+            "ema.retrieval.strategy": self._config.strategy,
+            "ema.retrieval.mode": self._config.mode,
+            "ema.retrieval.k": self._config.k,
+            "ema.retrieval.reranker": abl.reranker or "none" if abl else "none",
+            "ema.retrieval.query_expansion": abl.query_expansion_enabled if abl else False,
+            "ema.retrieval.topic_filter": abl.topic_filter_mode or "none" if abl else "none",
+            "ema.crag.max_cycles": self._max_cycles,
+        }
 
     @step
     async def retrieve(self, ctx: Context, ev: StartEvent | _RevQueryEvent) -> RetrievedEvent:
@@ -238,7 +274,11 @@ class CRAGReviewWorkflow(Workflow):
             question = ev.question
             few_shot_context = ev.few_shot_context
             rewrite_cycles = ev.rewrite_cycles
-        results = retrieve_with_config(self._config, self._index, question)
+        results = (
+            self._retrieve_fn(question)
+            if self._retrieve_fn is not None
+            else retrieve_with_config(self._config, self._index, question)
+        )
         docs = results_to_docs(results, self._index)
         return RetrievedEvent(
             question=question, few_shot_context=few_shot_context,
@@ -276,12 +316,12 @@ class CRAGReviewWorkflow(Workflow):
         )
         response = await self._llm.achat(messages)
         raw: str = response.message.content or ""
-        answer_text = extract_answer(raw, self._strategy)
+        answer_text = extract_answer(raw, self._prompt_strategy)
         return GeneratedEvent(
             answer_text=answer_text,
             docs=ev.docs,
             question=ev.question,
-            prompt_strategy=f"crag_review_{self._strategy}",
+            prompt_strategy=f"crag_review_{self._prompt_strategy}",
         )
 
     @step
@@ -322,6 +362,7 @@ class ReactReviewWorkflow(Workflow):
         index: Any,
         llm: Any,
         retrieval_config: RetrievalConfig | None = None,
+        retrieve_fn: Any | None = None,
         review_threshold: float = 0.6,
         max_iterations: int = 10,
         **kwargs: Any,
@@ -332,9 +373,25 @@ class ReactReviewWorkflow(Workflow):
             index=index,
             llm=llm,
             retrieval_config=retrieval_config,
+            retrieve_fn=retrieve_fn,
             max_iterations=max_iterations,
         )
         self._review_threshold = review_threshold
+        self._config = retrieval_config or RetrievalConfig()
+        self._retrieve_fn = retrieve_fn
+
+    def config_attributes(self) -> dict:
+        abl = getattr(self._retrieve_fn, "ablation_config", None)
+        return {
+            "ema.orchestration.strategy": "react_review",
+            "ema.orchestration.prompt_strategy": "react_native",
+            "ema.retrieval.strategy": self._config.strategy,
+            "ema.retrieval.mode": self._config.mode,
+            "ema.retrieval.k": self._config.k,
+            "ema.retrieval.reranker": abl.reranker or "none" if abl else "none",
+            "ema.retrieval.query_expansion": abl.query_expansion_enabled if abl else False,
+            "ema.retrieval.topic_filter": abl.topic_filter_mode or "none" if abl else "none",
+        }
 
     @step
     async def run_react(self, ctx: Context, ev: StartEvent) -> GeneratedEvent:
@@ -367,12 +424,13 @@ def build_crag_summarize(
     *,
     index: Any,
     llm: Any,
-    strategy: str = "zero_shot",
+    prompt_strategy: str = "zero_shot",
     retrieval_config: RetrievalConfig | None = None,
+    retrieve_fn: Any | None = None,
 ) -> WorkflowRunner:
     wf = CRAGSummarizeWorkflow(
-        index=index, llm=llm, strategy=strategy,
-        retrieval_config=retrieval_config, timeout=300,
+        index=index, llm=llm, prompt_strategy=prompt_strategy,
+        retrieval_config=retrieval_config, retrieve_fn=retrieve_fn, timeout=300,
     )
     return WorkflowRunner(wf)
 
@@ -381,13 +439,14 @@ def build_crag_review(
     *,
     index: Any,
     llm: Any,
-    strategy: str = "zero_shot",
+    prompt_strategy: str = "zero_shot",
     retrieval_config: RetrievalConfig | None = None,
+    retrieve_fn: Any | None = None,
     review_threshold: float = 0.6,
 ) -> WorkflowRunner:
     wf = CRAGReviewWorkflow(
-        index=index, llm=llm, strategy=strategy,
-        retrieval_config=retrieval_config,
+        index=index, llm=llm, prompt_strategy=prompt_strategy,
+        retrieval_config=retrieval_config, retrieve_fn=retrieve_fn,
         review_threshold=review_threshold,
         timeout=300,
     )
@@ -399,11 +458,12 @@ def build_react_review(
     index: Any,
     llm: Any,
     retrieval_config: RetrievalConfig | None = None,
+    retrieve_fn: Any | None = None,
     review_threshold: float = 0.6,
 ) -> WorkflowRunner:
     wf = ReactReviewWorkflow(
         index=index, llm=llm,
-        retrieval_config=retrieval_config,
+        retrieval_config=retrieval_config, retrieve_fn=retrieve_fn,
         review_threshold=review_threshold,
         timeout=300,
     )

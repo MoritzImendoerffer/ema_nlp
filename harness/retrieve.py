@@ -409,3 +409,126 @@ def make_raw_retriever(
     def _fn(query: str) -> list[RetrievalResult]:
         return retrieve_with_config(config, index, query, hier_index=hier_index, embed_model=embed_model)
     return _fn
+
+
+# ---------------------------------------------------------------------------
+# Ablation configuration + shared factory
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AblationConfig:
+    """
+    Ablation flags parsed from the ``ablation:`` YAML section.
+
+    Kept separate from RetrievalConfig so retrieval semantics (strategy, mode, k)
+    remain independent of the ablation stack (query expansion, topic filter, reranker).
+    """
+    query_expansion: dict = field(default_factory=dict)
+    topic_filter: dict = field(default_factory=dict)
+    reranker: str | None = None
+    reranker_max_chunks: int = 5
+
+    @classmethod
+    def from_yaml(cls, abl_dict: dict) -> "AblationConfig":
+        """Parse the ``ablation:`` YAML section into an AblationConfig."""
+        return cls(
+            query_expansion=abl_dict.get("query_expansion", {}),
+            topic_filter=abl_dict.get("topic_filter", {}),
+            reranker=abl_dict.get("reranker") or None,
+            reranker_max_chunks=int(abl_dict.get("reranker_max_chunks", 5)),
+        )
+
+    @property
+    def query_expansion_enabled(self) -> bool:
+        return bool(self.query_expansion.get("enabled", False))
+
+    @property
+    def topic_filter_mode(self) -> str | None:
+        if not self.topic_filter.get("enabled", False):
+            return None
+        return self.topic_filter.get("mode") or None
+
+
+def build_retrieve_fn(
+    ret_config: RetrievalConfig,
+    abl_config: "AblationConfig",
+    index: Any,
+    hier_index: Any = None,
+) -> Callable[[str], list[RetrievalResult]]:
+    """
+    Build a retrieval callable that applies the full ablation stack in order:
+      A1 — optional query expansion
+      base — retrieval per ret_config (strategy, mode, k)
+      A2 — optional topic filter
+      A3/A4 — optional LLM reranker
+
+    The returned callable exposes a ``.ablation_config`` attribute pointing to
+    *abl_config*, which workflows can read to populate ``config_attributes()``.
+
+    Both ``app.py`` (once per session) and ``run_eval.py`` (once per run) should
+    call this factory so retrieval is provably the same callable in both paths.
+    """
+    # Build query expander once (expensive: loads acronym dict)
+    _expander = None
+    if abl_config.query_expansion_enabled:
+        try:
+            from harness.ablations.a1_query_expansion import QueryExpander
+            dict_path_str: str | None = abl_config.query_expansion.get("acronym_dict")
+            if dict_path_str:
+                from pathlib import Path as _Path
+                _expander = QueryExpander(_Path(dict_path_str).expanduser())
+            else:
+                _expander = QueryExpander()
+            log.info("A1 query expansion enabled (dict: %s)", _expander)
+        except Exception as exc:
+            log.warning("A1 query expansion unavailable: %s", exc)
+
+    # Load hierarchical index if needed and not already provided
+    _hier_index = hier_index
+    if _hier_index is None and ret_config.strategy == "hierarchical":
+        hier_dir = ret_config.hierarchical.summary_index_dir
+        if hier_dir:
+            try:
+                from harness.embed_hierarchical import load_hierarchical_index
+                _hier_index = load_hierarchical_index(Path(hier_dir).expanduser())
+                log.info("Hierarchical index loaded from %s", hier_dir)
+            except Exception as exc:
+                log.warning("Could not load hierarchical index: %s — falling back to flat", exc)
+
+    _base = make_raw_retriever(ret_config, index, hier_index=_hier_index)
+    _topic_filter_mode = abl_config.topic_filter_mode
+    _reranker_name = abl_config.reranker
+    _reranker_max_chunks = abl_config.reranker_max_chunks
+
+    def retrieve_fn(query: str) -> list[RetrievalResult]:
+        # A1 — optional query expansion
+        expanded = _expander.expand(query) if _expander else query
+        if expanded != query:
+            log.debug("A1 expanded: %r → %r", query, expanded)
+
+        results = _base(expanded)
+
+        # A2 — optional topic filter
+        if _topic_filter_mode == "keyword":
+            from harness.ablations.a2_topic_filter import filter_by_topic_keyword
+            results = filter_by_topic_keyword(results, query)
+        elif _topic_filter_mode == "concept":
+            from harness.ablations.a2_topic_filter import make_concept_retriever
+            retriever = make_concept_retriever(index, query, k=ret_config.k)
+            try:
+                results = _results_from_nodes(retriever.retrieve(expanded))
+            except (ValueError, NotImplementedError) as exc:
+                log.warning("A2 concept filter unavailable (%s) — falling back to base retrieval", exc)
+
+        # A3/A4 — optional LLM reranker
+        if _reranker_name == "sme":
+            import harness.ablations.a3_reranker as _a3
+            results = _a3.rerank(results, query, index, max_chunks=_reranker_max_chunks)
+        elif _reranker_name == "generic":
+            import harness.ablations.a4_reranker as _a4
+            results = _a4.rerank(results, query, index, max_chunks=_reranker_max_chunks)
+
+        return results
+
+    retrieve_fn.ablation_config = abl_config  # type: ignore[attr-defined]
+    return retrieve_fn

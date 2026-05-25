@@ -1,0 +1,357 @@
+{
+  "status": "complete",
+  "current_task": null,
+  "tasks": [
+    {
+      "id": "TRACE-001",
+      "title": "Collapse registry: rename strategy\u2192prompt_strategy in workflows + remove simple_rag_* builders",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [],
+      "priority": "high",
+      "estimated_hours": 2,
+      "change": 3,
+      "files": [
+        "harness/workflows/simple_rag.py",
+        "harness/workflows/crag.py",
+        "harness/workflows/summarize_rag.py",
+        "harness/workflows/composites.py",
+        "harness/workflows/registry.py"
+      ],
+      "acceptance_criteria": [
+        "SimpleRAGWorkflow.__init__ parameter renamed from 'strategy' to 'prompt_strategy'",
+        "CRAGWorkflow.__init__ parameter renamed from 'strategy' to 'prompt_strategy'",
+        "SummarizeRAGWorkflow.__init__ parameter renamed from 'strategy' to 'prompt_strategy'",
+        "CompositeWorkflows (crag_summarize, crag_review) propagate prompt_strategy",
+        "Registry reduced from 9 to 7 entries: simple_rag, crag, react, summarize_rag, crag_summarize, crag_review, react_review",
+        "_build_simple_rag_zero/few/cot removed; _build_simple_rag accepts prompt_strategy kwarg",
+        "get_workflow() accepts prompt_strategy kwarg and forwards it",
+        "python -m harness.workflows.registry --list shows exactly the 7 new entries",
+        "pytest tests/ passes"
+      ]
+    },
+    {
+      "id": "TRACE-002",
+      "title": "Update run_eval.py + app.py to read orchestration.prompt_strategy from YAML",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [
+        "TRACE-001"
+      ],
+      "priority": "high",
+      "estimated_hours": 1,
+      "change": 3,
+      "files": [
+        "harness/run_eval.py",
+        "app.py"
+      ],
+      "acceptance_criteria": [
+        "run_eval.py reads orch_cfg.get('prompt_strategy', 'zero_shot') and passes to get_workflow()",
+        "app.py builds workflow with prompt_strategy derived from ChatProfile selection",
+        "No reference to simple_rag_zero/few/cot registry keys anywhere in Python code",
+        "run_eval.py smoke test on ablation_c_mid_zero.yaml succeeds"
+      ]
+    },
+    {
+      "id": "TRACE-003",
+      "title": "Rewrite 10 YAML configs to use orchestration.strategy: simple_rag + prompt_strategy field",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [
+        "TRACE-002"
+      ],
+      "priority": "high",
+      "estimated_hours": 1,
+      "change": 3,
+      "files": [
+        "harness/configs/ablation_c_mid_zero.yaml",
+        "harness/configs/ablation_c_mid_few.yaml",
+        "harness/configs/ablation_c_mid_cot.yaml",
+        "harness/configs/ablation_c_frontier_zero.yaml",
+        "harness/configs/ablation_c_frontier_few.yaml",
+        "harness/configs/ablation_c_frontier_cot.yaml",
+        "harness/configs/ablation_c_olmo_zero.yaml",
+        "harness/configs/ablation_c_olmo_few.yaml",
+        "harness/configs/ablation_c_olmo_cot.yaml",
+        "harness/configs/workflow_simple_rag.yaml"
+      ],
+      "acceptance_criteria": [
+        "All 9 ablation_c configs have orchestration.strategy: simple_rag + orchestration.prompt_strategy: zero_shot/few_shot/cot_self",
+        "workflow_simple_rag.yaml has orchestration.strategy: simple_rag + orchestration.prompt_strategy: zero_shot",
+        "No YAML file references simple_rag_zero, simple_rag_few, or simple_rag_cot",
+        "DECISIONS.md updated with registry collapse entry",
+        "All configs run without ValueError from get_workflow()"
+      ]
+    },
+    {
+      "id": "TRACE-004",
+      "title": "Add config_attributes() method to all 6 workflow classes",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [
+        "TRACE-001"
+      ],
+      "priority": "high",
+      "estimated_hours": 2,
+      "change": 1,
+      "files": [
+        "harness/workflows/simple_rag.py",
+        "harness/workflows/crag.py",
+        "harness/workflows/react_native.py",
+        "harness/workflows/summarize_rag.py",
+        "harness/workflows/composites.py",
+        "harness/workflows/review.py"
+      ],
+      "acceptance_criteria": [
+        "SimpleRAGWorkflow.config_attributes() returns ema.orchestration.strategy='simple_rag', ema.orchestration.prompt_strategy, ema.retrieval.strategy, ema.retrieval.mode, ema.retrieval.k",
+        "CRAGWorkflow.config_attributes() returns above + ema.crag.max_cycles",
+        "ReActNativeWorkflow.config_attributes() returns ema.orchestration.strategy='react', ema.retrieval.* fields",
+        "SummarizeRAGWorkflow.config_attributes() returns its own orchestration strategy key",
+        "Composite workflows (crag_summarize, crag_review, react_review) return outer+inner keys",
+        "All return dict[str, str | int | float | bool]",
+        "All keys use ema.orchestration.*, ema.retrieval.*, ema.llm.* namespaces"
+      ]
+    },
+    {
+      "id": "TRACE-005",
+      "title": "Modify WorkflowRunner.ainvoke to stamp config_attributes() onto current OTel span",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [
+        "TRACE-004"
+      ],
+      "priority": "high",
+      "estimated_hours": 1,
+      "change": 1,
+      "files": [
+        "harness/workflows/utils.py"
+      ],
+      "acceptance_criteria": [
+        "WorkflowRunner.ainvoke reads config_attributes() from wrapped workflow if method exists",
+        "Attributes stamped onto opentelemetry.trace.get_current_span() before delegating to self._wf.run()",
+        "If current span is non-recording (Phoenix disabled), stamping is a silent no-op",
+        "If config_attributes() is absent on a workflow, logs a warning once and continues",
+        "No AttributeError, no RuntimeError when PHOENIX_DISABLED=1",
+        "ema.run.source stamped from inputs dict if present"
+      ]
+    },
+    {
+      "id": "TRACE-006",
+      "title": "Pass run_id + source tag through workflow inputs in app.py and run_eval.py",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [
+        "TRACE-005"
+      ],
+      "priority": "high",
+      "estimated_hours": 1,
+      "change": 1,
+      "files": [
+        "app.py",
+        "harness/run_eval.py"
+      ],
+      "acceptance_criteria": [
+        "app.py ainvoke call passes run_id=run_id and source='chainlit' in inputs dict",
+        "run_eval.py ainvoke/invoke call passes run_id=cfg['run_id'] and source='eval' in inputs dict",
+        "WorkflowRunner stamps ema.run.id and ema.run.source from these inputs",
+        "Existing thumbs-up/down feedback flow in app.py continues unchanged",
+        "Existing retrieval-only runs (no orchestration) are unaffected"
+      ]
+    },
+    {
+      "id": "TRACE-007",
+      "title": "Add pytest test: verify config_attributes() are stamped on root span",
+      "type": "testing",
+      "status": "completed",
+      "dependencies": [
+        "TRACE-005"
+      ],
+      "priority": "medium",
+      "estimated_hours": 2,
+      "change": 1,
+      "files": [
+        "tests/test_span_attributes.py"
+      ],
+      "acceptance_criteria": [
+        "Test mocks opentelemetry.trace.get_current_span() to return a recording span mock",
+        "Runs WorkflowRunner.ainvoke with a minimal SimpleRAGWorkflow (mocked LLM + index)",
+        "Asserts set_attribute called with ema.orchestration.strategy='simple_rag'",
+        "Asserts set_attribute called with ema.retrieval.mode='dense'",
+        "Second test sets PHOENIX_DISABLED=1 (non-recording span) \u2014 asserts no exception raised",
+        "Third test: workflow without config_attributes() \u2014 asserts warning logged, no crash",
+        "All three tests pass with pytest tests/test_span_attributes.py"
+      ]
+    },
+    {
+      "id": "TRACE-008",
+      "title": "Define AblationConfig dataclass + build_retrieve_fn factory in harness/retrieve.py",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [
+        "TRACE-003"
+      ],
+      "priority": "high",
+      "estimated_hours": 2,
+      "change": 2,
+      "files": [
+        "harness/retrieve.py"
+      ],
+      "acceptance_criteria": [
+        "AblationConfig dataclass with fields: query_expansion (dict), topic_filter (dict), reranker (str|None), reranker_max_chunks (int)",
+        "AblationConfig.from_yaml(abl_dict) classmethod parses the ablation: YAML section",
+        "build_retrieve_fn(ret_config, abl_config, index, hier_index=None) returns Callable[[str], list]",
+        "Returned callable applies A1 \u2192 base retrieval \u2192 A2 \u2192 A3/A4 in order (matching existing run_eval.py closure exactly)",
+        "Returned callable has .ablation_config attribute pointing to the AblationConfig",
+        "BM25 retriever caching in retrieve.py still functions (cache key still hits)",
+        "AblationConfig() with all defaults produces same results as no ablation (A0 baseline)"
+      ]
+    },
+    {
+      "id": "TRACE-009",
+      "title": "Thread retrieve_fn into all workflow __init__ methods with fallback",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [
+        "TRACE-008"
+      ],
+      "priority": "high",
+      "estimated_hours": 2,
+      "change": 2,
+      "files": [
+        "harness/workflows/simple_rag.py",
+        "harness/workflows/crag.py",
+        "harness/workflows/react_native.py",
+        "harness/workflows/summarize_rag.py",
+        "harness/workflows/composites.py"
+      ],
+      "acceptance_criteria": [
+        "Each workflow __init__ accepts optional retrieve_fn: Callable[[str], list] | None = None",
+        "When retrieve_fn is provided, retrieve step calls retrieve_fn(question) instead of retrieve_with_config()",
+        "When retrieve_fn is None, workflow falls back to existing retrieve_with_config() behaviour",
+        "Existing tests remain green (fallback path unchanged)",
+        "retrieve_fn is stored as self._retrieve_fn and used in all retrieve steps"
+      ]
+    },
+    {
+      "id": "TRACE-010",
+      "title": "Update registry get_workflow() + run_eval.py + app.py to build and pass retrieve_fn",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [
+        "TRACE-009"
+      ],
+      "priority": "high",
+      "estimated_hours": 2,
+      "change": 2,
+      "files": [
+        "harness/workflows/registry.py",
+        "harness/run_eval.py",
+        "app.py"
+      ],
+      "acceptance_criteria": [
+        "registry.get_workflow() accepts and forwards retrieve_fn kwarg",
+        "run_eval.py replaces inline retrieve_fn closure with build_retrieve_fn(ret_config, abl_config, index) call",
+        "Same retrieve_fn passed to both retrieval eval loop and get_workflow() in run_eval.py",
+        "app.py calls build_retrieve_fn once at session start (on_chat_start) with default AblationConfig",
+        "A YAML config with orchestration.strategy=crag + ablation.reranker=sme runs end-to-end",
+        "Existing A0-A5 ablation configs produce same retrieval metrics as before (within tolerance)"
+      ]
+    },
+    {
+      "id": "TRACE-011",
+      "title": "Expose AblationConfig in config_attributes() + update TRACE-007 test",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [
+        "TRACE-010",
+        "TRACE-004"
+      ],
+      "priority": "medium",
+      "estimated_hours": 1,
+      "change": 2,
+      "files": [
+        "harness/workflows/simple_rag.py",
+        "harness/workflows/crag.py",
+        "harness/workflows/react_native.py",
+        "harness/workflows/summarize_rag.py",
+        "tests/test_span_attributes.py"
+      ],
+      "acceptance_criteria": [
+        "When retrieve_fn has .ablation_config attribute, config_attributes() reads it for ema.retrieval.reranker, ema.retrieval.query_expansion, ema.retrieval.topic_filter",
+        "When retrieve_fn is None or lacks .ablation_config, config_attributes() uses RetrievalConfig defaults",
+        "Phoenix span for CRAG + sme reranker shows ema.retrieval.reranker='sme'",
+        "Test in test_span_attributes.py updated to assert ablation attributes on span"
+      ]
+    },
+    {
+      "id": "TRACE-012",
+      "title": "Update docs/RETRIEVAL_PIPELINE.md + DECISIONS.md for Changes 1-3",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [
+        "TRACE-011"
+      ],
+      "priority": "low",
+      "estimated_hours": 1,
+      "change": "all",
+      "files": [
+        "docs/RETRIEVAL_PIPELINE.md",
+        "DECISIONS.md"
+      ],
+      "acceptance_criteria": [
+        "RETRIEVAL_PIPELINE.md 'Ablation stack' section updated to describe build_retrieve_fn factory and AblationConfig",
+        "RETRIEVAL_PIPELINE.md documents that retrieve_fn is shared across app.py and run_eval.py",
+        "DECISIONS.md entry for Change 1: Phoenix span attributes strategy and ema.* namespace choice",
+        "DECISIONS.md entry for Change 2: retrieve_fn factory replacing inline closure in run_eval.py",
+        "DECISIONS.md entry for Change 3: registry collapse and prompt_strategy YAML field"
+      ]
+    }
+  ],
+  "completed_tasks": [
+    "TRACE-001",
+    "TRACE-002",
+    "TRACE-003",
+    "TRACE-004",
+    "TRACE-005",
+    "TRACE-006",
+    "TRACE-007",
+    "TRACE-008",
+    "TRACE-009",
+    "TRACE-010",
+    "TRACE-011",
+    "TRACE-012"
+  ],
+  "next_available": [],
+  "change_summary": {
+    "change_3": {
+      "description": "Collapse simple_rag_* registry entries; prompt_strategy as YAML field",
+      "tasks": [
+        "TRACE-001",
+        "TRACE-002",
+        "TRACE-003"
+      ],
+      "estimated_hours": 4
+    },
+    "change_1": {
+      "description": "Stamp configuration onto Phoenix span attributes",
+      "tasks": [
+        "TRACE-004",
+        "TRACE-005",
+        "TRACE-006",
+        "TRACE-007"
+      ],
+      "estimated_hours": 6
+    },
+    "change_2": {
+      "description": "Push retrieval ablations into shared build_retrieve_fn factory",
+      "tasks": [
+        "TRACE-008",
+        "TRACE-009",
+        "TRACE-010",
+        "TRACE-011",
+        "TRACE-012"
+      ],
+      "estimated_hours": 8
+    }
+  }
+}

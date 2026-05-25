@@ -177,7 +177,7 @@ class TestSimpleRAGWorkflow:
         from harness.workflows.simple_rag import SimpleRAGWorkflow
 
         llm = _make_fake_llm("NDMA AI is 96 ng/day.")
-        wf = SimpleRAGWorkflow(index=index, llm=llm, strategy="zero_shot", timeout=30)
+        wf = SimpleRAGWorkflow(index=index, llm=llm, prompt_strategy="zero_shot", timeout=30)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "What is the AI for NDMA?"})
         assert "answer_text" in result
@@ -190,7 +190,7 @@ class TestSimpleRAGWorkflow:
 
         expected = "The AI for NDMA is 96 ng/day per ICH M7."
         llm = _make_fake_llm(expected)
-        wf = SimpleRAGWorkflow(index=index, llm=llm, strategy="zero_shot", timeout=30)
+        wf = SimpleRAGWorkflow(index=index, llm=llm, prompt_strategy="zero_shot", timeout=30)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "NDMA limit?"})
         assert result["answer_text"] == expected
@@ -199,7 +199,7 @@ class TestSimpleRAGWorkflow:
         from harness.workflows.simple_rag import SimpleRAGWorkflow
         from llama_index.core.schema import TextNode
 
-        wf = SimpleRAGWorkflow(index=index, llm=_make_fake_llm(), strategy="zero_shot", timeout=30)
+        wf = SimpleRAGWorkflow(index=index, llm=_make_fake_llm(), prompt_strategy="zero_shot", timeout=30)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "ASMF?"})
         assert isinstance(result["docs"], list)
@@ -211,7 +211,7 @@ class TestSimpleRAGWorkflow:
     def test_few_shot_strategy_accepted(self, index):
         from harness.workflows.simple_rag import SimpleRAGWorkflow
 
-        wf = SimpleRAGWorkflow(index=index, llm=_make_fake_llm(), strategy="few_shot", timeout=30)
+        wf = SimpleRAGWorkflow(index=index, llm=_make_fake_llm(), prompt_strategy="few_shot", timeout=30)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "ASMF?"})
         assert result["prompt_strategy"] == "few_shot"
@@ -219,8 +219,8 @@ class TestSimpleRAGWorkflow:
     def test_invalid_strategy_raises(self, index):
         from harness.workflows.simple_rag import SimpleRAGWorkflow
 
-        with pytest.raises(ValueError, match="Unknown strategy"):
-            SimpleRAGWorkflow(index=index, llm=_make_fake_llm(), strategy="bad_strategy")
+        with pytest.raises(ValueError, match="Unknown prompt_strategy"):
+            SimpleRAGWorkflow(index=index, llm=_make_fake_llm(), prompt_strategy="bad_strategy")
 
     def test_few_shot_context_forwarded(self, index):
         """The LLM receives few_shot_context in the system prompt."""
@@ -236,7 +236,7 @@ class TestSimpleRAGWorkflow:
         mock_llm = MagicMock()
         mock_llm.achat = achat
 
-        wf = SimpleRAGWorkflow(index=index, llm=mock_llm, strategy="zero_shot", timeout=30)
+        wf = SimpleRAGWorkflow(index=index, llm=mock_llm, prompt_strategy="zero_shot", timeout=30)
         runner = WorkflowRunner(wf)
         runner.invoke({"question": "test", "few_shot_context": "EXAMPLE: ..."})
 
