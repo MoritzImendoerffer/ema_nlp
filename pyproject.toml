@@ -12,8 +12,12 @@ dependencies = [
     "pymupdf4llm>=1.27.2",
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
+    "trafilatura>=1.12",
     # Database
     "pymongo>=4.17",
+    "psycopg[binary]>=3.2",
+    "psycopg_pool>=3.2",
+    "pgvector>=0.3",
     # RAG framework — LlamaIndex core + backends
     "llama-index-core>=0.12",
     "llama-index-embeddings-huggingface>=0.4",   # wraps sentence-transformers
