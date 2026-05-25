@@ -29,3 +29,13 @@ rdf_file_path = rdf_path.joinpath(rdf_file_name)
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 MONGO_DB = "ema_scraper"
 MONGO_COL = "web_items"
+
+# Postgres + pgvector — used by harness.embed_pg / harness.retrieve_pg.
+# Real DSN (with secret) belongs in ~/.myenvs/ema_nlp.env; the default below
+# matches the Docker compose stack under deploy/postgres/ for first-run dev.
+PG_DSN = os.getenv("PG_DSN", "postgresql://ema_nlp:ema_nlp@localhost:5432/ema_nlp")
+
+# Retriever dispatch: "faiss" (legacy FAISS over Q&A corpus.jsonl) or
+# "pgvector" (chunks table in Postgres; full EMA narrative corpus).
+# Flipped to "pgvector" by NARR-028 once the new path is validated.
+EMA_RETRIEVER = os.getenv("EMA_RETRIEVER", "faiss")
