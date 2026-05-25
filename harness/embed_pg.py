@@ -131,7 +131,8 @@ def _iter_pdf_docs(limit: int | None) -> Iterator[dict[str, Any]]:
 
     client = MongoClient(MONGO_URI)
     col = client[MONGO_DB]["parsed_pdfs"]
-    cursor = col.find({"error": ""}, no_cursor_timeout=False)
+    # Sort by _id (URL) for deterministic --limit slices across runs (NARR-008).
+    cursor = col.find({"error": ""}, no_cursor_timeout=False).sort("_id", 1)
     if limit is not None:
         cursor = cursor.limit(limit)
     try:
@@ -148,7 +149,7 @@ def _iter_html_docs(limit: int | None) -> Iterator[dict[str, Any]]:
 
     client = MongoClient(MONGO_URI)
     col = client[MONGO_DB]["web_items"]
-    cursor = col.find({"content_type": "text/html"}, no_cursor_timeout=False)
+    cursor = col.find({"content_type": "text/html"}, no_cursor_timeout=False).sort("_id", 1)
     if limit is not None:
         cursor = cursor.limit(limit)
     try:
