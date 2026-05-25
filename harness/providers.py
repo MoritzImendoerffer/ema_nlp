@@ -26,8 +26,21 @@ _DEFAULT_EMBED = "BAAI/bge-large-en-v1.5"
 _DEFAULT_PROVIDER = "huggingface"
 
 
-def configure_embed_model(model_name: str | None = None) -> None:
-    """Set LlamaIndex Settings.embed_model. Call once at startup."""
+def configure_embed_model(
+    model_name: str | None = None,
+    *,
+    device: str | None = None,
+    embed_batch_size: int | None = None,
+) -> None:
+    """Set LlamaIndex Settings.embed_model. Call once at startup.
+
+    Args:
+        model_name: override the default embed model name.
+        device: torch device string ('cuda', 'cuda:0', 'cpu'). Only honoured by
+            the huggingface backend. None preserves the prior CPU default.
+        embed_batch_size: HuggingFaceEmbedding batch size; defaults to the
+            class default (10) when None.
+    """
     name = model_name or os.getenv("EMA_EMBED_MODEL", _DEFAULT_EMBED)
     provider = os.getenv("EMA_EMBED_PROVIDER", _DEFAULT_PROVIDER)
 
@@ -36,7 +49,12 @@ def configure_embed_model(model_name: str | None = None) -> None:
 
         Settings.embed_model = OpenAIEmbedding(model=name)
     else:
-        Settings.embed_model = HuggingFaceEmbedding(model_name=name)
+        kwargs: dict = {"model_name": name}
+        if device is not None:
+            kwargs["device"] = device
+        if embed_batch_size is not None:
+            kwargs["embed_batch_size"] = embed_batch_size
+        Settings.embed_model = HuggingFaceEmbedding(**kwargs)
 
     Settings.llm = None  # retrieval-only; no LLM node needed
 
