@@ -1,7 +1,7 @@
 {
   "status": "implementing",
   "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
-  "current_task": "NARR-022",
+  "current_task": "NARR-023",
   "tasks": [
     {
       "id": "NARR-001",
@@ -330,7 +330,7 @@
       "id": "NARR-022",
       "title": "Env-var dispatch in run_eval.py + Phoenix backend attribute",
       "type": "integration",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-021"],
       "acceptance_criteria": [
         "harness/run_eval.py honours EMA_RETRIEVER the same way as app.py",
@@ -436,9 +436,9 @@
     "NARR-009",
     "NARR-010", "NARR-012", "NARR-013", "NARR-014", "NARR-015",
     "NARR-016", "NARR-017", "NARR-018", "NARR-019", "NARR-020",
-    "NARR-021"
+    "NARR-021", "NARR-022"
   ],
-  "next_available": ["NARR-011", "NARR-022"],
+  "next_available": ["NARR-011", "NARR-023"],
   "phase_groups": {
     "A_postgres_bringup":       ["NARR-001", "NARR-002", "NARR-003"],
     "B_pdf_ingest":             ["NARR-004", "NARR-005", "NARR-006", "NARR-007", "NARR-008"],

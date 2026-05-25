@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -167,6 +168,10 @@ class WorkflowRunner:
                 span.set_attribute("ema.run.id", str(run_id))
             if source := inputs.get("source"):
                 span.set_attribute("ema.run.source", str(source))
+            span.set_attribute(
+                "ema.retrieval.backend",
+                os.getenv("EMA_RETRIEVER", "faiss").lower(),
+            )
         except Exception:
             pass  # Phoenix disabled or OTel not installed — never raise from here
 

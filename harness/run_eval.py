@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import shutil
 import sys
 from datetime import UTC, datetime
@@ -33,6 +34,12 @@ import yaml
 log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).parent.parent
+
+EMA_RETRIEVER = os.getenv("EMA_RETRIEVER", "faiss").lower()
+if EMA_RETRIEVER not in ("faiss", "pgvector"):
+    raise ValueError(
+        f"EMA_RETRIEVER must be 'faiss' or 'pgvector', got {EMA_RETRIEVER!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -69,35 +76,51 @@ def run(config_path: Path) -> dict:
     log.info("=== Run %s [%s] ===", run_id, timestamp)
 
     # ---------- Build / reload index ----------
-    from harness.embed import build_index
     from harness.providers import configure_embed_model
 
     idx_cfg = cfg["index"]
-    corpus_path = _resolve(idx_cfg["corpus"])
-    index_dir = _resolve(idx_cfg["index_dir"])
     embed_model_name: str | None = idx_cfg.get("embed_model")
-    force_rebuild = idx_cfg.get("force_rebuild", False)
+    # Always resolved: also used by QueryCache (few-shot injection) regardless of backend.
+    index_dir = _resolve(idx_cfg["index_dir"])
 
-    configure_embed_model(embed_model_name)
+    log.info("EMA_RETRIEVER=%s", EMA_RETRIEVER)
 
-    if force_rebuild or not (index_dir / "docstore.json").exists():
-        log.info("Building index from %s", corpus_path)
-        index = build_index(corpus_path, index_dir, force=True)
-    else:
-        log.info("Loading existing index from %s", index_dir)
-        index = build_index(corpus_path, index_dir, force=False)
-
-    # ---------- Build retriever ----------
+    # ---------- Retrieval config (YAML) ----------
+    # Legacy RetrievalConfig is kept for workflow config_attributes() span
+    # stamping in both backends; the pgvector retrieve_fn ignores it and
+    # consults RetrievalConfigPG instead. Mirrors app.py NARR-021 dispatch.
     from harness.retrieve import RetrievalConfig
 
     ret_section = cfg["retrieval"]
     ret_config = RetrievalConfig.from_yaml_section(ret_section)
     k: int = ret_config.k
 
-    # ---------- Ablation config + shared retrieve_fn ----------
-    from harness.retrieve import AblationConfig, build_retrieve_fn
-    abl_config = AblationConfig.from_yaml(cfg.get("ablation", {}))
-    retrieve_fn = build_retrieve_fn(ret_config, abl_config, index)
+    if EMA_RETRIEVER == "pgvector":
+        configure_embed_model(embed_model_name)
+        log.info("EMA_RETRIEVER=pgvector — skipping FAISS index load")
+        index = None
+
+        from harness.retrieve_pg import RetrievalConfigPG, build_retrieve_fn_pg
+        ret_config_pg = RetrievalConfigPG.from_yaml_section(ret_section)
+        retrieve_fn = build_retrieve_fn_pg(ret_config_pg)
+    else:
+        from harness.embed import build_index
+
+        corpus_path = _resolve(idx_cfg["corpus"])
+        force_rebuild = idx_cfg.get("force_rebuild", False)
+
+        configure_embed_model(embed_model_name)
+
+        if force_rebuild or not (index_dir / "docstore.json").exists():
+            log.info("Building index from %s", corpus_path)
+            index = build_index(corpus_path, index_dir, force=True)
+        else:
+            log.info("Loading existing index from %s", index_dir)
+            index = build_index(corpus_path, index_dir, force=False)
+
+        from harness.retrieve import AblationConfig, build_retrieve_fn
+        abl_config = AblationConfig.from_yaml(cfg.get("ablation", {}))
+        retrieve_fn = build_retrieve_fn(ret_config, abl_config, index)
 
     # ---------- Retrieval eval ----------
     from harness.eval_retrieval import run_eval as eval_retrieval
