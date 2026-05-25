@@ -1,7 +1,7 @@
 {
-  "status": "planning_complete",
+  "status": "implementing",
   "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
-  "current_task": null,
+  "current_task": "NARR-001",
   "tasks": [
     {
       "id": "NARR-001",
