@@ -55,6 +55,19 @@ chmod 600 ~/.myenvs/ema_nlp.env
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+### Chat UI variables
+
+```bash
+# JWT secret for Chainlit session signing — REQUIRED to run app.py.
+# Generate once per machine with: python3 -c "import secrets; print(secrets.token_hex(32))"
+# Without this, Chainlit raises: ValueError: You must provide a JWT secret...
+CHAINLIT_AUTH_SECRET=<64-char hex string>
+
+# Login password for the chat UI (default: "dev").
+# Override to set a stronger password for shared/exposed instances.
+# UI_PASSWORD=dev
+```
+
 ### Optional variables
 
 ```bash

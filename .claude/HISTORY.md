@@ -7,6 +7,7 @@ Do not load this file at session start — read it only when the user asks.
 
 | Date | Summary | Changed | Phase | Work unit |
 |------|---------|---------|-------|-----------|
+| 2026-05-25 | Fixed "View traces" link 404 in chat UI by resolving Phoenix project node ID via /v1/projects instead of using raw name in URL | `app.py` | Phase 1 | — |
 | 2026-05-22 | Created implementation plan for advanced retrieval strategies (recursive, hierarchical, adaptive); documented 4 architecture inconsistencies found during review | `.claude/work/2026-05-22_advanced-retrieval/` | Phase 3/4 | [advanced-retrieval](.claude/work/2026-05-22_advanced-retrieval/implementation-plan.md) |
 | 2026-05-22 | Architecture assessment: LangGraph+LlamaIndex integration reviewed; created 11-task migration plan to drop LangChain entirely in favour of LlamaIndex Workflows | `.claude/work/2026-05-22_10_llamaindex-langgraph-assessment/` | Phase 2/3 | [WF migration](./work/2026-05-22_10_llamaindex-langgraph-assessment/implementation-plan.md) |
 | 2026-05-22 | Updated documentation to reflect actual project state: README stack table, ARCHITECTURE.md (chains layer, retrieval strategies, LangSmith), RETRIEVAL_PIPELINE.md (strategies, EMARetriever), DECISIONS.md (LangChain/LangGraph, LangSmith decisions) | `README.md`, `docs/ARCHITECTURE.md`, `docs/RETRIEVAL_PIPELINE.md`, `DECISIONS.md` | Phase 3/4 | — |

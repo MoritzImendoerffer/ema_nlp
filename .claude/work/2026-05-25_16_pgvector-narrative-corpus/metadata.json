@@ -1,0 +1,9 @@
+{
+  "id": "2026-05-25_16_pgvector-narrative-corpus",
+  "topic": "Pivot RAG corpus from Q&A pairs to full EMA narrative (PDFs + HTML) with pgvector + link graph",
+  "status": "planning_complete",
+  "created_at": "2026-05-25",
+  "requirement_type": "architecture_change",
+  "phase": "Phase 1 (corpus) + Phase 2/3 (retrieval) — scope expansion",
+  "next_step": "/next to claim NARR-001 (Postgres + pgvector bring-up)"
+}

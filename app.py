@@ -150,6 +150,34 @@ if not PHOENIX_DISABLED:
         PHOENIX_DISABLED = True
 
 
+# Phoenix's UI uses base64-encoded node IDs in /projects/<id>, not raw names —
+# resolve the ID lazily on first use (project is created server-side only after
+# the first trace arrives) and cache it.
+_PHOENIX_PROJECT_URL: str | None = None
+
+
+async def _phoenix_project_url() -> str:
+    global _PHOENIX_PROJECT_URL
+    if _PHOENIX_PROJECT_URL:
+        return _PHOENIX_PROJECT_URL
+
+    def _fetch() -> str | None:
+        import json
+        import urllib.request
+        try:
+            with urllib.request.urlopen(f"{PHOENIX_URL}/v1/projects", timeout=2) as r:
+                for p in json.load(r).get("data", []):
+                    if p.get("name") == "ema-nlp":
+                        return f"{PHOENIX_URL}/projects/{p['id']}"
+        except Exception as exc:
+            log.warning("Phoenix project lookup failed: %s", exc)
+        return None
+
+    url = await asyncio.to_thread(_fetch)
+    _PHOENIX_PROJECT_URL = url or f"{PHOENIX_URL}/projects"
+    return _PHOENIX_PROJECT_URL
+
+
 # ── Schema init (runs once at app startup) ────────────────────────────────────
 
 @cl.on_app_startup
@@ -488,7 +516,7 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
         source_elements.append(cl.Text(name=f"Q{msg_num} · Src {i}", content=card, display="side"))
 
     # ── Final message ─────────────────────────────────────────────────────────
-    footer = f"\n\n[View traces →]({PHOENIX_URL}/projects/ema-nlp)" if not PHOENIX_DISABLED else ""
+    footer = f"\n\n[View traces →]({await _phoenix_project_url()})" if not PHOENIX_DISABLED else ""
     await cl.Message(content=answer_text + footer, elements=source_elements).send()
 
     # ── Store in cache ────────────────────────────────────────────────────────

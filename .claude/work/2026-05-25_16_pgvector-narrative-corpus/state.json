@@ -1,0 +1,458 @@
+{
+  "status": "planning_complete",
+  "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
+  "current_task": null,
+  "tasks": [
+    {
+      "id": "NARR-001",
+      "title": "Provision Postgres 16 + pgvector locally",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Either apt-installed postgres-16 + postgresql-16-pgvector on the dev host, OR a docker-compose.yml under deploy/postgres/ that brings the same stack up",
+        "pg_isready returns 0 against the configured PG_DSN",
+        "SELECT extversion FROM pg_extension WHERE extname='vector' returns >= '0.5.0' (HNSW support)",
+        "Database 'ema_nlp' exists; superuser role for ingest documented in deploy/postgres/README.md",
+        "PG_DSN entry added to ~/.myenvs/ema_nlp.env example (without secrets)"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-002",
+      "title": "Schema DDL + idempotent init script",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": ["NARR-001"],
+      "acceptance_criteria": [
+        "corpus/pg_schema.sql contains the three-table schema from exploration.md §Schema (documents, chunks, links) including documents.committee column and HNSW + GIN indexes",
+        "scripts/init_db.py runs the DDL idempotently (CREATE … IF NOT EXISTS); --reset flag drops and re-creates tables",
+        "After running init_db, \\dt shows documents/chunks/links; \\d chunks confirms the HNSW index and the tsvector generated column",
+        "config.py exposes PG_DSN from env with a safe default for local dev"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-003",
+      "title": "Python deps + connection pool + pgvector type registration",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": ["NARR-002"],
+      "acceptance_criteria": [
+        "pyproject.toml adds: psycopg[binary], psycopg_pool, pgvector, trafilatura",
+        "harness/pg/conn.py exposes get_pool() with lazy psycopg_pool init and registers the pgvector type on every new connection",
+        "harness/pg/queries.py skeleton contains parameterised SQL string constants used by later tasks (no logic yet)",
+        "Smoke test passes: a Python REPL can connect, run SELECT 1, and round-trip a 1024-dim vector"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-004",
+      "title": "Configurable LlamaIndex-backed chunker",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["NARR-003"],
+      "acceptance_criteria": [
+        "corpus/ingestion/chunker.py exposes ChunkConfig(parser, max_tokens, overlap, min_chunk_chars) and chunk_markdown(text, config) -> list[Chunk]",
+        "parser='markdown' uses LlamaIndex MarkdownNodeParser with SentenceSplitter fallback for nodes over max_tokens",
+        "parser='sentence' uses SentenceSplitter directly; parser='hierarchical' uses HierarchicalNodeParser",
+        "Chunks below min_chunk_chars are dropped",
+        "Each returned Chunk carries text, heading_path, token_count, chunk_index",
+        "Unit test on a fixture EMA PDF markdown emits ≥2 chunks with heading_path populated"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-005",
+      "title": "PDF document normaliser + metadata extraction",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["NARR-003"],
+      "acceptance_criteria": [
+        "corpus/ingestion/pdf_normaliser.py exposes normalise_pdf_doc(mongo_doc) -> DocumentInput",
+        "DocumentInput captures: source_url, title (H1 or filename fallback), reference_number (regex EMA/.../YYYY), committee (parsed from reference_number; CHMP/PRAC/CVMP/COMP/PDCO/CAT), revision, last_updated, topic_path (URL path segment)",
+        "Returns None gracefully when markdown is empty or error field non-empty",
+        "Unit test on a fixture mongo doc returns expected DocumentInput; missing-fields case yields safe defaults"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-006",
+      "title": "BGE embedder wrapper (LlamaIndex on CUDA)",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["NARR-003"],
+      "acceptance_criteria": [
+        "harness/embed_pg.py::Embedder uses harness/providers.py to configure BGE-large-en-v1.5 via LlamaIndex Settings",
+        "Autodetects CUDA; logs the device used at startup",
+        "Batch encode method takes list[str] and returns list[list[float]] of 1024-dim",
+        "Smoke test: encodes a batch of 8 strings; tensor shape and dtype as expected"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-007",
+      "title": "Ingest pipeline: PDFs → chunks → embeddings → upsert",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["NARR-004", "NARR-005", "NARR-006"],
+      "acceptance_criteria": [
+        "harness/embed_pg.py exposes ingest_source(source: Literal['pdfs','html'], batch_size, limit, force)",
+        "CLI: python -m harness.embed_pg --source pdfs [--batch-size N] [--limit N] [--force]",
+        "Streams parsed_pdfs from MongoDB (filter {error: ''}), normalises, chunks, embeds in batches, bulk-upserts into documents + chunks",
+        "chunk_id is sha256(doc_id || chunk_index || normalised_text); INSERT ON CONFLICT (chunk_id) DO NOTHING",
+        "tqdm progress bar; per-document try/except so one bad doc does not kill the run",
+        "Limit-10 dry run completes successfully and produces at least 10 rows in documents and ≥10 rows in chunks"
+      ],
+      "estimated_hours": 4,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-008",
+      "title": "Resume + dedup verification + --force semantics",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": ["NARR-007"],
+      "acceptance_criteria": [
+        "Re-running the same --limit N command produces zero new chunks (ON CONFLICT verified)",
+        "--force deletes all chunks for the affected source URLs before re-inserting",
+        "After --force, chunks counts match a fresh run on the same slice",
+        "Integration test scripts/test_ingest_resume.py covers both paths"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium"
+    },
+    {
+      "id": "NARR-009",
+      "title": "HTML normaliser via trafilatura",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["NARR-004"],
+      "acceptance_criteria": [
+        "corpus/ingestion/html_normaliser.py exposes normalise_html(html, url) -> DocumentInput | None",
+        "Uses trafilatura.extract with output_format='markdown', include_links=True, with_metadata=True",
+        "Returns None for landing/nav pages where extracted text < 200 chars",
+        "Title and date come from trafilatura metadata when available; fallback to URL path segment",
+        "Unit test: a content fixture HTML returns markdown ≥200 chars; a nav-only fixture returns None"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-010",
+      "title": "Extend ingest pipeline to HTML source",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["NARR-007", "NARR-009"],
+      "acceptance_criteria": [
+        "ingest_source(source='html') reads from web_items where content_type='text/html'",
+        "Pipes html_raw → html_normaliser → chunker → embedder → upsert (same path as PDFs)",
+        "Skipped landing pages are logged with URL and reason",
+        "Limit-10 dry run produces documents with source_type='html' in Postgres"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-011",
+      "title": "Timing + scaling notes",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": ["NARR-008", "NARR-010"],
+      "acceptance_criteria": [
+        "Run --source pdfs --limit 100 and --source html --limit 100 on the 3090 machine",
+        ".claude/work/2026-05-25_16_pgvector-narrative-corpus/timing_notes.md captures: GPU memory, throughput (docs/min), extrapolated full-run wall time, disk usage of pgvector index",
+        "Doc names the bottleneck (embedding vs. SQL upsert vs. chunking)"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium"
+    },
+    {
+      "id": "NARR-012",
+      "title": "Link extractor module",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["NARR-003"],
+      "acceptance_criteria": [
+        "corpus/ingestion/link_extractor.py exposes Link dataclass (tgt_url, link_type, anchor) and three extractors:",
+        "  - extract_from_markdown(md) returns Links with link_type='hyperlink' from [text](url) patterns",
+        "  - extract_from_html(html, base_url) walks <a href>, resolves relative URLs against base_url",
+        "  - extract_reference_numbers(text) regex-extracts EMA/.../YYYY codes as link_type='reference_number'",
+        "  - extract_see_qa(text) regex-extracts 'see Q&A N' / 'see question N' patterns as link_type='see_qa'",
+        "Unit tests cover each extractor with positive + negative cases"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-013",
+      "title": "Wire link extraction into ingest",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["NARR-010", "NARR-012"],
+      "acceptance_criteria": [
+        "ingest_source runs all extractors on each document and bulk-inserts into links",
+        "Each link row carries src_doc_id and the chunk_id of the chunk that contained the link (best-effort)",
+        "INSERT … ON CONFLICT (src_doc_id, tgt_url, link_type) DO NOTHING; rerun is a no-op",
+        "After ingesting a small slice, SELECT link_type, COUNT(*) FROM links GROUP BY 1 shows non-zero rows for hyperlink and reference_number"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-014",
+      "title": "Reference-number → URL resolution pass",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["NARR-013"],
+      "acceptance_criteria": [
+        "scripts/resolve_links.py fills links.tgt_doc_id where it is NULL",
+        "Resolution rules: tgt_url that matches documents.source_url; tgt_url (reference code) that matches documents.reference_number",
+        "Idempotent — re-running updates only rows still NULL",
+        "Reports counts: resolved hyperlinks, resolved references, remaining unresolved (with sample)",
+        "Documented expectation: hyperlink resolution >= 30% on a full ingest (many links point off-site)"
+      ],
+      "estimated_hours": 3,
+      "priority": "medium"
+    },
+    {
+      "id": "NARR-015",
+      "title": "RetrievalConfigPG + LlamaIndex adapter scaffolding",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["NARR-013"],
+      "acceptance_criteria": [
+        "harness/retrieve_pg.py defines RetrievalConfigPG, PrefilterConfig (topic_path_prefix, committee, date_range), TraversalConfig (mode, max_hops, link_types)",
+        "RetrievalConfigPG.from_yaml_section reads the retrieval: block from a config YAML and round-trips through a unit test",
+        "harness/pg/adapter.py converts a list[RetrievalResult] from pg into LlamaIndex NodeWithScore objects so existing workflows accept them",
+        "Adapter exposes get_node_by_id(chunk_id) that hits chunks table on demand — replaces VectorStoreIndex.docstore.get_node"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-016",
+      "title": "Dense retrieval over pgvector",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["NARR-015"],
+      "acceptance_criteria": [
+        "retrieve_dense_pg(query, config) embeds the query, runs an HNSW kNN search via the <=> operator, joins documents for metadata",
+        "Pre-filter clauses (topic_path_prefix LIKE, committee = ANY, last_updated BETWEEN) are applied in the WHERE before LIMIT",
+        "Returns ordered list[RetrievalResult] = (chunk_id, score, metadata) where score is 1 - cosine_distance",
+        "p50 latency ≤ 200 ms for k=10 on the full corpus (measured in NARR-011 follow-up)",
+        "Unit test against a seeded test DB returns expected top-k for a known fixture"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-017",
+      "title": "BM25 retrieval via Postgres tsvector",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["NARR-015"],
+      "acceptance_criteria": [
+        "retrieve_bm25_pg(query, config) uses ts_rank_cd(text_tsv, plainto_tsquery('english', $query)) and the same prefilter machinery as NARR-016",
+        "Returns ordered list[RetrievalResult]",
+        "Unit test against the same seeded test DB returns sensible results for a keyword-heavy query"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-018",
+      "title": "Hybrid (RRF) + dispatcher + build_retrieve_fn_pg",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["NARR-016", "NARR-017"],
+      "acceptance_criteria": [
+        "retrieve_hybrid_pg runs dense + bm25 retrievers concurrently and RRF-fuses with K=60 (same constant as harness/retrieve.py)",
+        "retrieve_with_config_pg(config, query) is the single entry point that dispatches on config.mode",
+        "build_retrieve_fn_pg(config) returns a callable matching the signature of harness.retrieve.build_retrieve_fn (drop-in)",
+        "Unit test confirms hybrid output length ≤ k and contains a union of dense + bm25 hits"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-019",
+      "title": "Auto-traversal (recursive CTE over links)",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["NARR-018", "NARR-014"],
+      "acceptance_criteria": [
+        "When TraversalConfig.mode='auto', initial top-k seeds a recursive CTE that walks links up to max_hops, filtered by link_types whitelist",
+        "Walk returns chunks for neighbour docs (one chunk per neighbour, highest-scoring or first); deduplicated by chunk_id",
+        "Initial top-k preserved at the front of the returned list; expanded neighbours appended",
+        "Unit test on a fixture link graph confirms 1-hop expansion behaves as designed; max_hops=0 is a no-op"
+      ],
+      "estimated_hours": 3,
+      "priority": "medium"
+    },
+    {
+      "id": "NARR-020",
+      "title": "follow_links agent tool for ReAct workflows",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["NARR-019"],
+      "acceptance_criteria": [
+        "harness/pg/tools.py exposes follow_links(chunk_id: str, link_types: list[str] | None, k: int) -> list[RetrievalResult]",
+        "Registered as a LlamaIndex FunctionTool consumed by harness/workflows/react_native.py when TraversalConfig.mode='agent_tool'",
+        "Tool docstring describes the contract clearly (input shape, return shape, when to use)",
+        "Smoke test: ReAct workflow runs end-to-end on one question, optionally invokes follow_links, no crash"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium"
+    },
+    {
+      "id": "NARR-021",
+      "title": "Env-var dispatch in app.py",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["NARR-018"],
+      "acceptance_criteria": [
+        "EMA_RETRIEVER env var (default 'faiss') switches between harness.retrieve.build_retrieve_fn and harness.retrieve_pg.build_retrieve_fn_pg",
+        "When 'pgvector': skip build_index (no FAISS load), still satisfy the workflow signature via the adapter",
+        "EMA_RETRIEVER=faiss chainlit run app.py works exactly as before (back-compat check)",
+        "EMA_RETRIEVER=pgvector chainlit run app.py loads without index files and answers a sample question end-to-end"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-022",
+      "title": "Env-var dispatch in run_eval.py + Phoenix backend attribute",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["NARR-021"],
+      "acceptance_criteria": [
+        "harness/run_eval.py honours EMA_RETRIEVER the same way as app.py",
+        "All workflows include a new Phoenix span attribute ema.retrieval.backend = 'faiss' | 'pgvector'",
+        "Run a small eval slice (≤5 questions) under both backends; both produce valid results/<run_id>/ outputs"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-023",
+      "title": "End-to-end smoke test: simple_rag on pgvector",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": ["NARR-022"],
+      "acceptance_criteria": [
+        "Run simple_rag against 5 benchmark questions using EMA_RETRIEVER=pgvector",
+        "5/5 produce a non-empty answer",
+        "Phoenix project shows traces with ema.retrieval.backend='pgvector'",
+        "Spot check: at least one answer cites a chunk whose source_url is NOT in corpus.jsonl (confirms narrative coverage)"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-024",
+      "title": "Expose prefilter + traversal in YAML configs",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["NARR-023"],
+      "acceptance_criteria": [
+        "RetrievalConfigPG.from_yaml_section reads retrieval.prefilter.{topic_path_prefix,committee,date_range} and retrieval.traversal.{mode,max_hops,link_types}",
+        "harness/configs/example_chmp_only.yaml ships as a reference",
+        "Eval run with committee=['CHMP'] returns only chunks whose documents.committee='CHMP' (verified by SQL count post-run)"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium"
+    },
+    {
+      "id": "NARR-025",
+      "title": "Unit test suite — chunker, normalisers, link extractor",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": ["NARR-004", "NARR-005", "NARR-009", "NARR-012"],
+      "acceptance_criteria": [
+        "tests/test_chunker.py, tests/test_pdf_normaliser.py, tests/test_html_normaliser.py, tests/test_link_extractor.py all green",
+        "Fixtures live under tests/fixtures/ema_pdf_sample.md, ema_html_sample.html, ema_nav_landing.html",
+        "Coverage on the four new modules ≥ 80% (measured via pytest-cov)",
+        "pytest -q runs in < 30 s for these tests"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-026",
+      "title": "Integration test — retrieve_pg end-to-end",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": ["NARR-019"],
+      "acceptance_criteria": [
+        "tests/test_retrieve_pg.py uses a dedicated test database (env: PG_DSN_TEST) populated by a tiny fixture corpus of ~10 chunks across 3 documents with 2 links",
+        "Tests cover: dense top-k correctness, bm25 keyword hit, hybrid RRF combination, prefilter (committee), traversal mode='auto'",
+        "Test setup/teardown leaves no residue; tests are reentrant",
+        "CI documentation in docs/RETRIEVAL_PG.md notes how to provision the test DB"
+      ],
+      "estimated_hours": 4,
+      "priority": "high"
+    },
+    {
+      "id": "NARR-027",
+      "title": "Documentation — CLAUDE.md + RETRIEVAL_PG.md",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": ["NARR-023"],
+      "acceptance_criteria": [
+        "CLAUDE.md §Data sources and §V1 scope locks updated: retrieval is over Postgres chunks; corpus.jsonl is benchmark-only; full narrative corpus is in scope",
+        "New docs/RETRIEVAL_PG.md covers: Postgres setup, env vars (PG_DSN, EMA_RETRIEVER), schema overview, ingest CLI, retrieval modes, traversal modes, sub-corpus filters, troubleshooting",
+        "docs/SETUP.md cross-links docs/RETRIEVAL_PG.md",
+        ".claude/HISTORY.md gets one row summarising the pivot"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium"
+    },
+    {
+      "id": "NARR-028",
+      "title": "Switch default EMA_RETRIEVER to pgvector",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["NARR-026", "NARR-027"],
+      "acceptance_criteria": [
+        "Default for EMA_RETRIEVER becomes 'pgvector' in config.py / app.py / run_eval.py",
+        "FAISS path remains available as 'faiss' and is marked legacy in its docstrings",
+        "All tests pass on the new default",
+        ".claude/HISTORY.md updated with the cutover date"
+      ],
+      "estimated_hours": 1,
+      "priority": "low"
+    }
+  ],
+  "completed_tasks": [],
+  "next_available": ["NARR-001"],
+  "phase_groups": {
+    "A_postgres_bringup":       ["NARR-001", "NARR-002", "NARR-003"],
+    "B_pdf_ingest":             ["NARR-004", "NARR-005", "NARR-006", "NARR-007", "NARR-008"],
+    "C_html_ingest":            ["NARR-009", "NARR-010", "NARR-011"],
+    "D_link_graph":             ["NARR-012", "NARR-013", "NARR-014"],
+    "E_retrieval":              ["NARR-015", "NARR-016", "NARR-017", "NARR-018", "NARR-019", "NARR-020"],
+    "F_wiring":                 ["NARR-021", "NARR-022", "NARR-023"],
+    "G_filters":                ["NARR-024"],
+    "H_tests_docs_cutover":     ["NARR-025", "NARR-026", "NARR-027", "NARR-028"]
+  },
+  "totals": {
+    "task_count": 28,
+    "estimated_hours": 71,
+    "critical_path": [
+      "NARR-001", "NARR-002", "NARR-003",
+      "NARR-004", "NARR-005", "NARR-006", "NARR-007",
+      "NARR-009", "NARR-010",
+      "NARR-012", "NARR-013",
+      "NARR-015", "NARR-016", "NARR-017", "NARR-018",
+      "NARR-021", "NARR-022", "NARR-023",
+      "NARR-026", "NARR-027", "NARR-028"
+    ]
+  }
+}
