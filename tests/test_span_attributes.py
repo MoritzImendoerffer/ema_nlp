@@ -15,8 +15,6 @@ import logging
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from harness.workflows.utils import WorkflowRunner
 
 
@@ -55,7 +53,14 @@ class _NoAttrsWorkflow:
 # ---------------------------------------------------------------------------
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # Use a fresh loop instead of asyncio.get_event_loop() — the latter is
+    # deprecated on 3.10+ and raises when other tests have closed the
+    # default loop (test order dependency).
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 # ---------------------------------------------------------------------------
@@ -167,3 +172,43 @@ def test_ablation_config_reflected_in_span_attributes():
     attrs = {call.args[0]: call.args[1] for call in mock_span.set_attribute.call_args_list}
     assert attrs["ema.retrieval.reranker"] == "sme"
     assert attrs["ema.retrieval.query_expansion"] is True
+
+
+# ---------------------------------------------------------------------------
+# Test 5 (NARR-023 regression): live OTel SDK path — attributes must land on
+# the runner's wrapper span, not a no-op span. Catches the bug where stamping
+# happened before any workflow span existed.
+# ---------------------------------------------------------------------------
+
+def test_live_otel_sdk_records_attributes_on_wrapper_span(monkeypatch):
+    """End-to-end with a real OTel TracerProvider + in-memory exporter."""
+    import opentelemetry.trace as otel_trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    monkeypatch.setattr(otel_trace, "_TRACER_PROVIDER", None, raising=False)
+    monkeypatch.setattr(otel_trace, "_TRACER_PROVIDER_SET_ONCE", None, raising=False)
+    monkeypatch.setattr(otel_trace, "get_tracer_provider", lambda: provider)
+    monkeypatch.setenv("EMA_RETRIEVER", "pgvector")
+
+    runner = WorkflowRunner(_MinimalWorkflow())
+    result = _run(runner.ainvoke({"question": "q", "run_id": "rid", "source": "eval"}))
+    assert result["answer_text"] == "ok"
+    provider.force_flush()
+
+    spans = exporter.get_finished_spans()
+    wrapper = [s for s in spans if s.name == "_MinimalWorkflow.invoke"]
+    assert wrapper, f"expected a wrapper span, got: {[s.name for s in spans]}"
+    attrs = dict(wrapper[0].attributes)
+    assert attrs.get("ema.retrieval.backend") == "pgvector"
+    assert attrs.get("ema.run.id") == "rid"
+    assert attrs.get("ema.run.source") == "eval"
+    assert attrs.get("ema.orchestration.strategy") == "simple_rag"
+    assert attrs.get("ema.retrieval.mode") == "dense"

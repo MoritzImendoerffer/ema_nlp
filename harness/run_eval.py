@@ -41,6 +41,23 @@ if EMA_RETRIEVER not in ("faiss", "pgvector"):
         f"EMA_RETRIEVER must be 'faiss' or 'pgvector', got {EMA_RETRIEVER!r}"
     )
 
+# Phoenix registration MUST run before any SDK imports so auto-instrument can
+# wrap LlamaIndex / Anthropic at import time. Mirrors app.py.
+PHOENIX_URL = os.getenv("PHOENIX_URL", "http://localhost:6006")
+PHOENIX_DISABLED = os.getenv("PHOENIX_DISABLED", "").lower() in ("1", "true", "yes")
+if not PHOENIX_DISABLED:
+    try:
+        from phoenix.otel import register as _phoenix_register
+        _phoenix_register(
+            project_name="ema-nlp",
+            auto_instrument=True,
+            endpoint=f"{PHOENIX_URL}/v1/traces",
+        )
+        log.info("Phoenix tracing → %s", PHOENIX_URL)
+    except Exception as exc:
+        log.warning("Phoenix setup failed (%s) — tracing disabled", exc)
+        PHOENIX_DISABLED = True
+
 
 # ---------------------------------------------------------------------------
 # Config loading

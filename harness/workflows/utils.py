@@ -176,9 +176,25 @@ class WorkflowRunner:
             pass  # Phoenix disabled or OTel not installed — never raise from here
 
     async def ainvoke(self, inputs: dict) -> dict:
-        """Async invocation — preferred from async contexts (e.g. Chainlit)."""
-        self._stamp_span(inputs)
-        return await self._wf.run(**inputs)
+        """Async invocation — preferred from async contexts (e.g. Chainlit).
+
+        Opens an explicit OTel span so the `ema.*` config attributes have a
+        recording span to land on. LlamaIndex auto-instrumentation's own
+        workflow spans become children of this one. When Phoenix is disabled
+        (no-op tracer), `start_as_current_span` returns a non-recording span
+        and `_stamp_span` silently no-ops, matching the previous behaviour.
+        """
+        try:
+            import opentelemetry.trace as otel_trace
+            tracer = otel_trace.get_tracer("ema_nlp.workflow")
+            wf_name = type(self._wf).__name__
+            with tracer.start_as_current_span(f"{wf_name}.invoke"):
+                self._stamp_span(inputs)
+                return await self._wf.run(**inputs)
+        except ImportError:
+            # OTel not installed at all — run without tracing
+            self._stamp_span(inputs)
+            return await self._wf.run(**inputs)
 
     def invoke(self, inputs: dict) -> dict:
         """Synchronous invocation — for eval scripts and tests."""
