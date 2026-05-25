@@ -41,6 +41,7 @@ dependencies = [
 ui = [
     "chainlit>=2.11,<3",
     "openinference-instrumentation-anthropic>=0.1",
+    "aiosqlite>=0.20",
 ]
 dev = [
     "pytest>=9.0",

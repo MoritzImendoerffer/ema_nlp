@@ -1,0 +1,69 @@
+{
+  "status": "implementing",
+  "current_task": null,
+  "tasks": [
+    {
+      "id": "UI2-001",
+      "title": "Workflow profile selector (ChatProfile dropdown)",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Profile dropdown appears before first message in a new thread",
+        "Selecting CRAG builds CRAG pipeline (logged strategy=crag)",
+        "All 9 strategies listed and selectable",
+        "EMA_WORKFLOW_STRATEGY env var still sets the default profile"
+      ],
+      "estimated_hours": 1.5,
+      "priority": "high"
+    },
+    {
+      "id": "UI2-002",
+      "title": "Model and parameter settings panel (right sidebar)",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Settings panel visible in right sidebar after chat loads",
+        "Changing model select uses new model for next query (check log)",
+        "Changing k slider changes RetrievalConfig.k for next query",
+        "Disabling cache prevents cache lookup on next query",
+        "Defaults match current hardcoded values"
+      ],
+      "estimated_hours": 2.5,
+      "priority": "high"
+    },
+    {
+      "id": "UI2-003",
+      "title": "SQLite chat history persistence + password auth",
+      "type": "integration",
+      "status": "completed",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Login prompt on first visit; UI_PASSWORD env var grants access",
+        "After a query, thread appears in left sidebar",
+        "Threads persist across chainlit restart",
+        "chat_history.db created and .gitignored",
+        "Phoenix tracing and thumbs feedback continue to work"
+      ],
+      "estimated_hours": 2.5,
+      "priority": "medium"
+    },
+    {
+      "id": "UI2-004",
+      "title": "Thread resume handler (on_chat_resume)",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": ["UI2-003"],
+      "acceptance_criteria": [
+        "Clicking prior thread in sidebar resumes without re-embedding",
+        "pipeline and cache session vars set correctly after resume",
+        "Subsequent queries in resumed thread work normally"
+      ],
+      "estimated_hours": 1.0,
+      "priority": "medium"
+    }
+  ],
+  "completed_tasks": ["UI2-001", "UI2-002", "UI2-003", "UI2-004"],
+  "next_available": []
+}

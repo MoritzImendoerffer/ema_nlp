@@ -21,10 +21,11 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 from llama_index.core.llms import LLM
 
-from harness.models import ModelConfig, load_model_for_role
+from harness.models import load_model_for_role
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +65,48 @@ def get_llm(role_name: str) -> LLM:
             f"Unknown provider '{cfg.provider}' for role '{role_name}'. "
             "Expected 'anthropic', 'together_ai', or 'openai_compatible'."
         )
+
+
+def get_llm_for_model(model_name: str, temperature_override: float | None = None) -> LLM:
+    """Build a LlamaIndex LLM from a model name key in models.yaml.
+
+    Useful when the caller knows the model name directly rather than a role.
+
+    Args:
+        model_name:          Key in the models: section of models.yaml.
+        temperature_override: Replaces the temperature from models.yaml if given.
+
+    Raises:
+        ValueError:      If model_name is not in models.yaml.
+        EnvironmentError: If required API key is missing.
+    """
+    import yaml
+
+    models_yaml = Path(__file__).parent / "configs" / "models.yaml"
+    with models_yaml.open(encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
+
+    models: dict = raw.get("models", {})
+    if model_name not in models:
+        raise ValueError(f"Unknown model '{model_name}'. Available: {sorted(models)}")
+
+    d = models[model_name]
+    temp = temperature_override if temperature_override is not None else float(d["temperature"])
+    model_id = d["model_id"]
+    max_tokens = int(d["max_tokens"])
+    provider = d["provider"]
+
+    if provider == "anthropic":
+        return _make_anthropic(model_id, temp, max_tokens)
+    elif provider == "together_ai":
+        return _make_together(model_id, temp, max_tokens)
+    elif provider == "openai_compatible":
+        return _make_openai_compatible(
+            model_id, temp, max_tokens,
+            api_base=d.get("api_base", "http://localhost:8000/v1"),
+            api_key_env=d.get("api_key_env", "OPENAI_API_KEY"),
+        )
+    raise ValueError(f"Unknown provider '{provider}' for model '{model_name}'.")
 
 
 def _make_anthropic(model_id: str, temperature: float, max_tokens: int) -> LLM:

@@ -4,15 +4,16 @@ EMA Q&A Chat UI — Chainlit 2.11
 Browser chat with hybrid RAG retrieval, LlamaIndex Workflow pipeline,
 Arize Phoenix trace integration, and per-step 👍/👎 feedback.
 
-Each chat session builds a fresh WorkflowRunner (stateless per turn;
-session context is managed by the cache, not by workflow state).
+Features:
+  - Left sidebar:   persistent chat history (SQLite); login with UI_PASSWORD env var
+  - Right sidebar:  model + parameter settings (model, temperature, k, cache toggle)
+  - ChatProfile:    workflow strategy selector (9 LlamaIndex strategies)
 
 Usage:
     chainlit run app.py
     PHOENIX_DISABLED=1 chainlit run app.py           # tracing off
-    EMA_INDEX_PATH=/path/to/index chainlit run app.py
-    EMA_CORPUS_PATH=/path/to/corpus.jsonl chainlit run app.py
-    EMA_WORKFLOW_STRATEGY=crag chainlit run app.py   # default: simple_rag_zero
+    UI_PASSWORD=secret chainlit run app.py           # override login password (default: dev)
+    EMA_WORKFLOW_STRATEGY=crag chainlit run app.py   # set default profile
 """
 
 from __future__ import annotations
@@ -38,8 +39,105 @@ SOURCES_SHOWN = 5
 
 log = logging.getLogger(__name__)
 
-# ── Phoenix registration MUST come before any SDK imports (anthropic, llama_index)
-# so auto_instrument=True can patch them at import time, not after the fact.
+# ── Workflow profile → strategy mapping ──────────────────────────────────────
+
+_PROFILE_STRATEGY: dict[str, str] = {
+    "Simple RAG (zero-shot)": "simple_rag_zero",
+    "Simple RAG (few-shot)":  "simple_rag_few",
+    "Simple RAG (CoT)":       "simple_rag_cot",
+    "ReAct":                  "react",
+    "CRAG":                   "crag",
+    "Summarize RAG":          "summarize_rag",
+    "CRAG + Summarize":       "crag_summarize",
+    "CRAG + Review":          "crag_review",
+    "ReAct + Review":         "react_review",
+}
+
+_PROFILE_DESCRIPTIONS: dict[str, str] = {
+    "simple_rag_zero": "Retrieve → generate (zero-shot)",
+    "simple_rag_few":  "Retrieve → generate (few-shot examples)",
+    "simple_rag_cot":  "Retrieve → generate (chain-of-thought)",
+    "react":           "ReAct loop with per-step Phoenix spans",
+    "crag":            "Retrieve → grade ⇄ rewrite → generate",
+    "summarize_rag":   "Retrieve → summarize → generate",
+    "crag_summarize":  "CRAG loop → summarize → generate",
+    "crag_review":     "CRAG loop → generate → reviewer pass",
+    "react_review":    "ReAct → reviewer (score only)",
+}
+
+# ── SQLite schema (created on first run via on_app_startup) ───────────────────
+
+_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS users (
+    "id" TEXT PRIMARY KEY,
+    "identifier" TEXT UNIQUE NOT NULL,
+    "createdAt" TEXT,
+    "metadata" TEXT
+);
+CREATE TABLE IF NOT EXISTS threads (
+    "id" TEXT PRIMARY KEY,
+    "createdAt" TEXT,
+    "name" TEXT,
+    "userId" TEXT,
+    "userIdentifier" TEXT,
+    "tags" TEXT,
+    "metadata" TEXT
+);
+CREATE TABLE IF NOT EXISTS steps (
+    "id" TEXT PRIMARY KEY,
+    "threadId" TEXT,
+    "parentId" TEXT,
+    "name" TEXT,
+    "type" TEXT,
+    "command" TEXT,
+    "modes" TEXT,
+    "streaming" INTEGER,
+    "waitForAnswer" INTEGER,
+    "isError" INTEGER,
+    "metadata" TEXT,
+    "tags" TEXT,
+    "input" TEXT,
+    "output" TEXT,
+    "createdAt" TEXT,
+    "start" TEXT,
+    "end" TEXT,
+    "generation" TEXT,
+    "showInput" TEXT,
+    "defaultOpen" INTEGER,
+    "autoCollapse" INTEGER,
+    "language" TEXT,
+    "icon" TEXT,
+    "feedback" TEXT
+);
+CREATE TABLE IF NOT EXISTS elements (
+    "id" TEXT PRIMARY KEY,
+    "threadId" TEXT,
+    "type" TEXT,
+    "chainlitKey" TEXT,
+    "path" TEXT,
+    "url" TEXT,
+    "objectKey" TEXT,
+    "name" TEXT,
+    "display" TEXT,
+    "size" TEXT,
+    "language" TEXT,
+    "page" INTEGER,
+    "props" TEXT,
+    "autoPlay" INTEGER,
+    "playerConfig" TEXT,
+    "forId" TEXT,
+    "mime" TEXT
+);
+CREATE TABLE IF NOT EXISTS feedbacks (
+    "id" TEXT PRIMARY KEY,
+    "forId" TEXT,
+    "value" REAL,
+    "threadId" TEXT,
+    "comment" TEXT
+);
+"""
+
+# ── Phoenix registration MUST come before any SDK imports ────────────────────
 if not PHOENIX_DISABLED:
     try:
         from phoenix.otel import register as _phoenix_register
@@ -54,7 +152,53 @@ if not PHOENIX_DISABLED:
         PHOENIX_DISABLED = True
 
 
-# ── Index loading (runs in a thread pool worker) ──────────────────────────────
+# ── Schema init (runs once at app startup) ────────────────────────────────────
+
+@cl.on_app_startup
+async def on_app_startup() -> None:
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    engine = create_async_engine("sqlite+aiosqlite:///chat_history.db")
+    async with engine.begin() as conn:
+        for stmt in _SCHEMA_SQL.strip().split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                await conn.execute(text(stmt))
+    await engine.dispose()
+
+
+# ── Auth + data layer ─────────────────────────────────────────────────────────
+
+@cl.password_auth_callback
+def auth_callback(username: str, password: str) -> cl.User | None:
+    expected = os.getenv("UI_PASSWORD", "dev")
+    if password == expected:
+        return cl.User(identifier=username, metadata={"role": "user"})
+    return None
+
+
+@cl.data_layer
+def get_data_layer():
+    from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
+    return SQLAlchemyDataLayer("sqlite+aiosqlite:///chat_history.db")
+
+
+# ── Chat profiles (workflow strategy selector) ────────────────────────────────
+
+@cl.set_chat_profiles
+async def set_chat_profiles(user: cl.User | None) -> list[cl.ChatProfile]:
+    return [
+        cl.ChatProfile(
+            name=display_name,
+            markdown_description=_PROFILE_DESCRIPTIONS.get(strategy, strategy),
+            default=(strategy == WORKFLOW_STRATEGY),
+        )
+        for display_name, strategy in _PROFILE_STRATEGY.items()
+    ]
+
+
+# ── Index loading ─────────────────────────────────────────────────────────────
 
 def _load_index_sync():
     from harness.embed import DEFAULT_CORPUS as _DEFAULT_CORPUS
@@ -68,7 +212,6 @@ def _load_index_sync():
 
 
 def _embed_query_sync(query: str) -> np.ndarray | None:
-    """Embed a query string using the globally configured LlamaIndex embed model."""
     try:
         from llama_index.core import Settings
         vec = Settings.embed_model.get_text_embedding(query)
@@ -78,15 +221,61 @@ def _embed_query_sync(query: str) -> np.ndarray | None:
         return None
 
 
-def _build_session_workflow(index: Any) -> Any:
-    """Build a WorkflowRunner for a single browser session."""
-    from harness.llms import get_llm
+def _build_session_workflow(
+    index: Any,
+    *,
+    strategy: str = WORKFLOW_STRATEGY,
+    model_name: str = "claude_opus",
+    temperature: float = 0.0,
+    retrieval_k: int = RETRIEVAL_K,
+) -> Any:
+    from harness.llms import get_llm_for_model
     from harness.retrieve import RetrievalConfig
     from harness.workflows.registry import get_workflow
 
-    llm = get_llm("agent")
-    cfg = RetrievalConfig(mode="hybrid", k=RETRIEVAL_K)
-    return get_workflow(WORKFLOW_STRATEGY, index=index, llm=llm, retrieval_config=cfg)
+    llm = get_llm_for_model(model_name, temperature_override=temperature)
+    cfg = RetrievalConfig(mode="hybrid", k=retrieval_k)
+    return get_workflow(strategy, index=index, llm=llm, retrieval_config=cfg)
+
+
+# ── Settings helpers ──────────────────────────────────────────────────────────
+
+def _make_chat_settings() -> cl.ChatSettings:
+    return cl.ChatSettings([
+        cl.input_widget.Select(
+            id="agent_model",
+            label="Agent model",
+            values=["claude_haiku", "claude_opus", "olmo_32b", "local_qwen32"],
+            initial_value="claude_opus",
+        ),
+        cl.input_widget.Slider(
+            id="temperature", label="Temperature",
+            min=0.0, max=1.0, step=0.05, initial=0.0,
+        ),
+        cl.input_widget.Slider(
+            id="retrieval_k", label="Retrieval k",
+            min=3, max=20, step=1, initial=float(RETRIEVAL_K),
+        ),
+        cl.input_widget.Switch(
+            id="cache_enabled", label="Semantic cache", initial=True,
+        ),
+    ])
+
+
+def _settings_to_pipeline_kwargs(settings: dict) -> dict:
+    return {
+        "model_name":  str(settings.get("agent_model", "claude_opus")),
+        "temperature": float(settings.get("temperature", 0.0)),
+        "retrieval_k": int(settings.get("retrieval_k", RETRIEVAL_K)),
+    }
+
+
+_DEFAULT_SETTINGS: dict = {
+    "agent_model": "claude_opus",
+    "temperature": 0.0,
+    "retrieval_k": float(RETRIEVAL_K),
+    "cache_enabled": True,
+}
 
 
 # ── Chainlit lifecycle ────────────────────────────────────────────────────────
@@ -102,27 +291,102 @@ async def on_chat_start() -> None:
         await cl.Message(content=f"Index load failed: {exc}").send()
         raise
 
-    # Session identity — printed to server log and stored for MemorySaver thread_id
     session_id = str(uuid.uuid4())
     log.info("Session started: %s", session_id)
-    cl.user_session.set("session_id", session_id)
 
-    # Build LlamaIndex Workflow runner for this session
-    pipeline = await asyncio.to_thread(_build_session_workflow, index)
-    cl.user_session.set("pipeline", pipeline)
+    profile_name = cl.user_session.get("chat_profile")
+    strategy = _PROFILE_STRATEGY.get(profile_name or "", WORKFLOW_STRATEGY)
+    log.info("Strategy: %s (profile: %s)", strategy, profile_name)
 
-    # Initialise semantic cache — graceful if index dir doesn't exist yet
+    pipeline = await asyncio.to_thread(
+        _build_session_workflow, index, strategy=strategy,
+        **_settings_to_pipeline_kwargs(_DEFAULT_SETTINGS),
+    )
+
     def _init_cache():
         from harness.query_cache import QueryCache
         return QueryCache()
 
     cache = await asyncio.to_thread(_init_cache)
+
+    cl.user_session.set("session_id", session_id)
+    cl.user_session.set("index", index)
+    cl.user_session.set("pipeline", pipeline)
     cl.user_session.set("cache", cache)
+    cl.user_session.set("strategy", strategy)
+    cl.user_session.set("settings", _DEFAULT_SETTINGS.copy())
     cl.user_session.set("msg_counter", 0)
 
+    await _make_chat_settings().send()
     await cl.Message(
         content="Ready. Ask any question about EMA human-regulatory guidance."
     ).send()
+
+
+@cl.on_chat_resume
+async def on_chat_resume(thread: dict) -> None:
+    # auto_tag_thread=true means the profile name is stored as a tag
+    tags = thread.get("tags") or []
+    profile_name = next((t for t in tags if t in _PROFILE_STRATEGY), None)
+    strategy = _PROFILE_STRATEGY.get(profile_name or "", WORKFLOW_STRATEGY)
+    log.info("Resuming thread %s — strategy=%s", thread.get("id"), strategy)
+
+    try:
+        index = await asyncio.to_thread(_load_index_sync)
+    except Exception as exc:
+        await cl.Message(content=f"Index load failed on resume: {exc}").send()
+        raise
+
+    pipeline = await asyncio.to_thread(
+        _build_session_workflow, index, strategy=strategy,
+        **_settings_to_pipeline_kwargs(_DEFAULT_SETTINGS),
+    )
+
+    def _init_cache():
+        from harness.query_cache import QueryCache
+        return QueryCache()
+
+    cache = await asyncio.to_thread(_init_cache)
+    step_count = sum(
+        1 for s in (thread.get("steps") or []) if s.get("type") == "user_message"
+    )
+
+    cl.user_session.set("session_id", thread["id"])
+    cl.user_session.set("index", index)
+    cl.user_session.set("pipeline", pipeline)
+    cl.user_session.set("cache", cache)
+    cl.user_session.set("strategy", strategy)
+    cl.user_session.set("settings", _DEFAULT_SETTINGS.copy())
+    cl.user_session.set("msg_counter", step_count)
+
+    await _make_chat_settings().send()
+
+
+# ── Settings update ───────────────────────────────────────────────────────────
+
+@cl.on_settings_update
+async def on_settings_update(settings: dict) -> None:
+    index = cl.user_session.get("index")
+    if index is None:
+        return
+
+    strategy = cl.user_session.get("strategy", WORKFLOW_STRATEGY)
+    pipeline = await asyncio.to_thread(
+        _build_session_workflow, index, strategy=strategy,
+        **_settings_to_pipeline_kwargs(settings),
+    )
+    cl.user_session.set("pipeline", pipeline)
+    cl.user_session.set("settings", settings)
+
+    cache_enabled = bool(settings.get("cache_enabled", True))
+    if not cache_enabled:
+        cl.user_session.set("cache", None)
+    elif cl.user_session.get("cache") is None:
+        def _init_cache():
+            from harness.query_cache import QueryCache
+            return QueryCache()
+        cache = await asyncio.to_thread(_init_cache)
+        cl.user_session.set("cache", cache)
 
 
 # ── Pipeline (one turn, stateless WorkflowRunner) ────────────────────────────
@@ -179,7 +443,6 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
                 return
 
     # ── LlamaIndex Workflow invocation ───────────────────────────────────────
-    # Inject rated past examples as few-shot context (suppressed when < 3 rated entries exist)
     few_shot_block = (
         get_fewshot_context(query_vec, cache, k=3, min_rating=4) or ""
         if query_vec is not None
@@ -265,7 +528,6 @@ async def on_message(message: cl.Message) -> None:
 
 @cl.action_callback("rate")
 async def on_rate(action: cl.Action) -> None:
-    """Post 👍/👎 as a Phoenix span annotation by run_id."""
     payload = action.payload
     rating = payload.get("rating", "")
     run_id = payload.get("run_id", "")
