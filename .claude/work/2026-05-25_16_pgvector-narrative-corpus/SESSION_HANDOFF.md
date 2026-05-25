@@ -1,6 +1,6 @@
-# Session handoff — NARR-001..009 complete, NARR-010 next
+# Session handoff — NARR-001..015 complete, NARR-016 next
 
-Last session ran NARR-001 through NARR-009 on `marvin-gpu` (the 3090 PC).
+Last session ran NARR-001 through NARR-015 on `marvin-gpu` (the 3090 PC).
 The two-machine split documented in `decisions.md` §2 is **no longer
 applicable** — `marvin-gpu` has the GPU **and** a local MongoDB with the
 ema_scraper data, so all remaining tasks execute on this single host.
@@ -15,62 +15,81 @@ ema_scraper data, so all remaining tasks execute on this single host.
   ANTHROPIC / GITHUB / chainlit secrets.
 - **Schema**: `corpus/pg_schema.sql` applied; `documents`, `chunks`, `links`
   with HNSW + GIN. Idempotent re-runs verified.
-- **Ingest**: `harness.embed_pg.ingest_source('pdfs', …)` works on real
-  data — a `--limit 10` run produced 10 docs + 311 chunks in ~10s.
-  `scripts/test_ingest_resume.py` proves resume + `--force` semantics.
-- **HTML normaliser**: `corpus.ingestion.html_normaliser.normalise_html`
-  + `normalise_html_doc`. Trafilatura with `favor_recall=True`. Landing
-  pages (<200 chars) return None.
+- **Ingest** (NARR-007/-008/-010/-013): `harness.embed_pg.ingest_source('pdfs'|'html', …)`
+  works end-to-end. PDF + HTML normalisers + chunker + BGE-large-en-v1.5
+  on CUDA + bulk-upsert to documents + chunks + links. ON CONFLICT
+  semantics + `--force` verified.
+- **HTML normaliser** (NARR-009): `corpus.ingestion.html_normaliser` —
+  trafilatura with `favor_recall=True`, landing pages (<200 chars) return
+  None. Skipped pages are logged with their URL in the main ingest loop.
+- **Link extractor** (NARR-012): `corpus.ingestion.link_extractor` with
+  four extractors (`extract_from_markdown`, `extract_from_html`,
+  `extract_reference_numbers`, `extract_see_qa`) + `extract_all` helper.
+  21 unit tests, positive + negative.
+- **Link ingestion wiring** (NARR-013): `_prepare_pdf` / `_prepare_html`
+  attach a `links` field to `_PreparedDoc`; `_upsert_batch` flushes via
+  `INSERT_LINK` (ON CONFLICT DO NOTHING). Per-doc dedup by
+  `(tgt_url, link_type)` chooses the chunk_id from the first chunk that
+  mentions the target.
+- **Link resolution** (NARR-014): `scripts/resolve_links.py` fills
+  `links.tgt_doc_id` via two UPDATE passes (URL match + reference-number
+  match), reports counts + sample unresolved. Idempotent (re-running
+  yields 0 updates).
+- **Retrieval scaffolding** (NARR-015): `harness/retrieve_pg.py` with
+  `RetrievalConfigPG`, `PrefilterConfig`, `TraversalConfig` +
+  `from_yaml_section` round-trip. `harness/pg/adapter.py` with
+  `to_node_with_score`, `to_nodes_with_scores`, `get_node_by_id`
+  (replaces `VectorStoreIndex.docstore.get_node` for the pg path).
+  `retrieve_with_config_pg` / `build_retrieve_fn_pg` are
+  `NotImplementedError` stubs until NARR-016..018.
 
-Current data already in PG after the smoke runs:
-- `documents`: 15 rows (10 from `--limit 10`, 5 from `--limit 5`)
-- `chunks`: 361 rows
-- `links`: 0 (NARR-012+ not started)
+Current data in PG after this session's smoke runs:
+- `documents`: 25 rows (15 PDF + 10 HTML)
+- `chunks`: 446 rows (361 PDF + 85 HTML — counts drift across reruns
+  because `--force` rebuilds the same 10-doc slices)
+- `links`: 1106 rows (1012 hyperlink + 94 reference_number; 43 resolved
+  to tgt_doc_id; 1063 unresolved — most point off-site or to docs not
+  yet ingested)
 
-## Next task: NARR-010 — extend ingest pipeline to HTML source
+## Next task: NARR-016 — dense retrieval over pgvector
 
-The HTML normaliser exists; what NARR-010 needs is:
+Acceptance criteria recap from `state.json`:
 
-1. **Verify the dispatcher already wired in `embed_pg.py` actually works
-   for `--source html`.** I lazy-imported `normalise_html_doc` inside
-   `_prepare_html` to avoid blocking NARR-007 on NARR-009. With NARR-009
-   landed, that import will resolve. Run:
-   ```bash
-   .venv/bin/python -m harness.embed_pg --source html --limit 10 --batch-size 4
-   ```
-   then verify in psql:
-   ```sql
-   SELECT source_type, COUNT(*) FROM documents GROUP BY source_type;
-   ```
-2. Skipped landing pages must be logged with URL + reason. Today they
-   silently return None — add a single info log in the loop:
-   `_log.info("skipped html: %s (landing or extraction empty)", url)`.
-   Either inside `_prepare_html` or in the main ingest loop (preferred,
-   so the log point is symmetric with PDF normalise failures).
-3. AC quote: *"Limit-10 dry run produces documents with source_type='html'
-   in Postgres"*. Easy to verify once #1 lands.
+1. `retrieve_dense_pg(query, config)` embeds the query (via the existing
+   `Embedder` in `harness/embed_pg.py` or a thin `LlamaIndex` query
+   embedder), runs an HNSW kNN search with the `<=>` operator, joins
+   `documents` for metadata.
+2. Pre-filter clauses (`topic_path LIKE $prefix || '%'`,
+   `committee = ANY($committees)`, `last_updated BETWEEN $start AND $end`)
+   are composed in the WHERE *before* LIMIT.
+3. Returns ordered `list[RetrievalResult]` = `(chunk_id, score, metadata)`
+   where `score = 1 - cosine_distance`. Populate `metadata['text']` so the
+   adapter can build NodeWithScore without a second SQL round-trip.
+4. Target p50 latency ≤ 200 ms for k=10 on the full corpus (verify in
+   NARR-011 follow-up).
+5. Unit test against a seeded test DB (see NARR-026 for the fixture
+   plan) returns expected top-k for a known fixture.
 
-After NARR-010, the remaining critical path is:
+`harness/pg/queries.py::DENSE_KNN` already has the SQL template with
+a `{prefilter}` placeholder for the WHERE fragment. Use
+`psycopg.sql.SQL.format(... Literal(...) ...)` to compose the prefilter
+fragment safely.
+
+After NARR-016, the remaining critical path is:
 
 ```
-NARR-011 timing notes (10-100 PDF + HTML)
-NARR-012 link_extractor module          ─┐
-NARR-013 wire link extraction into ingest │ Phase D
-NARR-014 resolve_links.py                ─┘
-NARR-015 RetrievalConfigPG + adapter     ─┐
-NARR-016 dense retrieval                  │
-NARR-017 BM25 retrieval                   │ Phase E
-NARR-018 hybrid + build_retrieve_fn_pg    │
-NARR-019 auto traversal                   │
-NARR-020 follow_links FunctionTool       ─┘
-NARR-021 EMA_RETRIEVER dispatch in app.py ─┐
-NARR-022 same in run_eval.py + Phoenix attr│ Phase F
-NARR-023 simple_rag E2E smoke            ─┘
+NARR-017 BM25 retrieval (uses Q.BM25)             ─┐
+NARR-018 hybrid (RRF) + build_retrieve_fn_pg       │ Phase E
+NARR-019 auto traversal (Q.TRAVERSE_LINKS)         │
+NARR-020 follow_links FunctionTool                ─┘
+NARR-021 EMA_RETRIEVER dispatch in app.py         ─┐
+NARR-022 same in run_eval.py + Phoenix attr       ─┤ Phase F
+NARR-023 simple_rag E2E smoke                     ─┘
 NARR-024 YAML prefilter/traversal exposure
-NARR-025 unit test suite                 ─┐
-NARR-026 retrieve_pg integration test     │ Phase H
-NARR-027 docs (CLAUDE + RETRIEVAL_PG)     │
-NARR-028 flip EMA_RETRIEVER default      ─┘
+NARR-025 unit tests (chunker, normalisers, link)  ─┐
+NARR-026 retrieve_pg integration test              │ Phase H
+NARR-027 docs (CLAUDE + RETRIEVAL_PG)              │
+NARR-028 flip EMA_RETRIEVER default               ─┘
 ```
 
 ## Re-entry checklist for the next session
@@ -84,28 +103,36 @@ docker compose up -d     # if it isn't
 # 2. Sanity-check the venv (chowned to user this session — see HISTORY)
 ls -la .venv | head -3   # should be moritz:moritz
 
-# 3. Continue with NARR-010
-/workflow:next  # or /next, depending on installed skills
+# 3. Continue with NARR-016
+/workflow:next
 ```
 
-The TaskList ID 10 (`NARR-010`) is the next claim. `state.json` already
-reflects `current_task = "NARR-010"` and `next_available =
-["NARR-010", "NARR-012", "NARR-015"]` (the three off-path branches that
-can start in parallel after Phase B+C foundations are in).
+The state.json `current_task` is `NARR-016`; `next_available` is
+`["NARR-011", "NARR-016", "NARR-017"]` (NARR-011 is timing notes —
+documentation only, doesn't unblock anything; NARR-017 BM25 is parallel
+to NARR-016 because both depend on NARR-015).
 
 ## Gotchas to remember
 
 - **Venv ownership**: `.venv/` was created as root in an earlier session.
-  This session chown'd it to `moritz:moritz`. If `pip install` ever errors
-  with `Permission denied` again, that's the same drift — chown again.
+  Chowned to `moritz:moritz` in NARR-001..009; still owned correctly.
 - **uv vs pip**: This venv has no `pip` installed; use
   `uv pip install --python .venv/bin/python …` for any new deps.
 - **trafilatura's `favor_recall=True`** keeps borderline navigation pages
-  alive (homepage produced 1.4k chars). If the corpus shows too much nav
-  noise after the full HTML ingest, tighten `_MIN_TEXT_CHARS` in
-  `html_normaliser.py` or set `favor_recall=False`.
+  alive (homepage produced 1.4k chars). If full HTML ingest shows too
+  much nav noise, tighten `_MIN_TEXT_CHARS` in `html_normaliser.py` or
+  set `favor_recall=False`.
 - **Mongo `content_type: 'text/html'`** works as an equality match
   against the 1-element list field — confirmed (22,743 docs).
 - **`harness.pg` package**: `conn.get_pool()` is a process-singleton.
   Tests that need a different DSN must call `close_pool()` first or
   inject their own pool.
+- **Link extractor pollution**: HTML anchor extraction on the raw HTML
+  contributes most of the link rows (997 of 1012 in the 10-doc smoke).
+  That includes navigation chrome (medicines/, committees/, etc.). The
+  `topic_path_prefix` prefilter in `PrefilterConfig` is the right knob
+  to suppress them at retrieval time once dense/BM25 are wired up.
+- **`see_qa` link_type` excluded from default traversal**: the
+  `TraversalConfig` default `link_types = ['hyperlink', 'reference_number']`
+  intentionally excludes `see_qa` to avoid Q&A leakage into eval (per
+  `exploration.md`).

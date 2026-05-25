@@ -1,7 +1,7 @@
 {
   "status": "implementing",
   "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
-  "current_task": "NARR-010",
+  "current_task": "NARR-016",
   "tasks": [
     {
       "id": "NARR-001",
@@ -148,7 +148,7 @@
       "id": "NARR-010",
       "title": "Extend ingest pipeline to HTML source",
       "type": "integration",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-007", "NARR-009"],
       "acceptance_criteria": [
         "ingest_source(source='html') reads from web_items where content_type='text/html'",
@@ -177,7 +177,7 @@
       "id": "NARR-012",
       "title": "Link extractor module",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-003"],
       "acceptance_criteria": [
         "corpus/ingestion/link_extractor.py exposes Link dataclass (tgt_url, link_type, anchor) and three extractors:",
@@ -194,7 +194,7 @@
       "id": "NARR-013",
       "title": "Wire link extraction into ingest",
       "type": "integration",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-010", "NARR-012"],
       "acceptance_criteria": [
         "ingest_source runs all extractors on each document and bulk-inserts into links",
@@ -209,7 +209,7 @@
       "id": "NARR-014",
       "title": "Reference-number → URL resolution pass",
       "type": "integration",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-013"],
       "acceptance_criteria": [
         "scripts/resolve_links.py fills links.tgt_doc_id where it is NULL",
@@ -225,7 +225,7 @@
       "id": "NARR-015",
       "title": "RetrievalConfigPG + LlamaIndex adapter scaffolding",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-013"],
       "acceptance_criteria": [
         "harness/retrieve_pg.py defines RetrievalConfigPG, PrefilterConfig (topic_path_prefix, committee, date_range), TraversalConfig (mode, max_hops, link_types)",
@@ -433,9 +433,10 @@
   "completed_tasks": [
     "NARR-001", "NARR-002", "NARR-003",
     "NARR-004", "NARR-005", "NARR-006", "NARR-007", "NARR-008",
-    "NARR-009"
+    "NARR-009",
+    "NARR-010", "NARR-012", "NARR-013", "NARR-014", "NARR-015"
   ],
-  "next_available": ["NARR-010", "NARR-012", "NARR-015"],
+  "next_available": ["NARR-011", "NARR-016", "NARR-017"],
   "phase_groups": {
     "A_postgres_bringup":       ["NARR-001", "NARR-002", "NARR-003"],
     "B_pdf_ingest":             ["NARR-004", "NARR-005", "NARR-006", "NARR-007", "NARR-008"],

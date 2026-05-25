@@ -45,6 +45,13 @@ if str(_REPO_ROOT) not in sys.path:
 
 from config import MONGO_DB, MONGO_URI  # noqa: E402
 from corpus.ingestion.chunker import ChunkConfig, chunk_markdown  # noqa: E402
+from corpus.ingestion.link_extractor import (  # noqa: E402
+    Link,
+    extract_from_html,
+    extract_from_markdown,
+    extract_reference_numbers,
+    extract_see_qa,
+)
 from corpus.ingestion.pdf_normaliser import DocumentInput, normalise_pdf_doc  # noqa: E402
 from harness.embed import EMBED_DIM, EMBED_MODEL_NAME  # noqa: E402 — re-export
 from harness.pg import queries as Q  # noqa: E402
@@ -169,17 +176,63 @@ class _PreparedDoc:
     doc_id: str
     document: DocumentInput
     chunks: list[dict[str, Any]]  # rows ready to be inserted (sans embedding)
+    links: list[dict[str, Any]]   # link rows ready for INSERT_LINK
 
 
-def _prepare_pdf(mongo_doc: dict, chunk_config: ChunkConfig) -> _PreparedDoc | None:
-    norm = normalise_pdf_doc(mongo_doc)
-    if norm is None:
-        return None
-    doc_id = compute_doc_id(norm.source_url)
-    raw_chunks = chunk_markdown(norm.markdown, chunk_config)
-    if not raw_chunks:
-        return None
-    rows = [
+def _link_row(doc_id: str, chunk_id: str | None, link: Link) -> dict[str, Any]:
+    return {
+        "src_doc_id": doc_id,
+        "tgt_url": link.tgt_url,
+        "tgt_doc_id": None,
+        "link_type": link.link_type,
+        "anchor": link.anchor,
+        "chunk_id": chunk_id,
+    }
+
+
+def _collect_text_links(
+    doc_id: str, chunk_rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Per-chunk extraction (hyperlink + reference_number + see_qa).
+
+    De-duplicated by (tgt_url, link_type) within the document so the first
+    chunk that mentions a target wins the chunk_id attribution. ON CONFLICT
+    in the DB layer handles any cross-batch duplicates."""
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for c in chunk_rows:
+        chunk_id = c["chunk_id"]
+        text = c["text"]
+        for link in (
+            *extract_from_markdown(text),
+            *extract_reference_numbers(text),
+            *extract_see_qa(text),
+        ):
+            key = (link.tgt_url, link.link_type)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(_link_row(doc_id, chunk_id, link))
+    return out
+
+
+def _collect_html_links(doc_id: str, html: str, base_url: str) -> list[dict[str, Any]]:
+    """Anchor-tag extraction on the raw HTML; chunk_id stays None."""
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for link in extract_from_html(html, base_url):
+        key = (link.tgt_url, link.link_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(_link_row(doc_id, None, link))
+    return out
+
+
+def _build_chunk_rows(
+    doc_id: str, raw_chunks: list[Any]
+) -> list[dict[str, Any]]:
+    return [
         {
             "chunk_id": compute_chunk_id(doc_id, c.chunk_index, c.text),
             "doc_id": doc_id,
@@ -190,7 +243,19 @@ def _prepare_pdf(mongo_doc: dict, chunk_config: ChunkConfig) -> _PreparedDoc | N
         }
         for c in raw_chunks
     ]
-    return _PreparedDoc(doc_id=doc_id, document=norm, chunks=rows)
+
+
+def _prepare_pdf(mongo_doc: dict, chunk_config: ChunkConfig) -> _PreparedDoc | None:
+    norm = normalise_pdf_doc(mongo_doc)
+    if norm is None:
+        return None
+    doc_id = compute_doc_id(norm.source_url)
+    raw_chunks = chunk_markdown(norm.markdown, chunk_config)
+    if not raw_chunks:
+        return None
+    rows = _build_chunk_rows(doc_id, raw_chunks)
+    links = _collect_text_links(doc_id, rows)
+    return _PreparedDoc(doc_id=doc_id, document=norm, chunks=rows, links=links)
 
 
 def _prepare_html(mongo_doc: dict, chunk_config: ChunkConfig) -> _PreparedDoc | None:
@@ -204,18 +269,21 @@ def _prepare_html(mongo_doc: dict, chunk_config: ChunkConfig) -> _PreparedDoc | 
     raw_chunks = chunk_markdown(norm.markdown, chunk_config)
     if not raw_chunks:
         return None
-    rows = [
-        {
-            "chunk_id": compute_chunk_id(doc_id, c.chunk_index, c.text),
-            "doc_id": doc_id,
-            "chunk_index": c.chunk_index,
-            "text": c.text,
-            "heading_path": c.heading_path,
-            "token_count": c.token_count,
-        }
-        for c in raw_chunks
-    ]
-    return _PreparedDoc(doc_id=doc_id, document=norm, chunks=rows)
+    rows = _build_chunk_rows(doc_id, raw_chunks)
+    links = _collect_text_links(doc_id, rows)
+    # html_raw is a 1-element list in web_items; unwrap defensively
+    html_raw = mongo_doc.get("html_raw")
+    if isinstance(html_raw, list):
+        html_raw = html_raw[0] if html_raw else None
+    if isinstance(html_raw, str):
+        existing = {(row["tgt_url"], row["link_type"]) for row in links}
+        for row in _collect_html_links(doc_id, html_raw, norm.source_url):
+            key = (row["tgt_url"], row["link_type"])
+            if key in existing:
+                continue
+            existing.add(key)
+            links.append(row)
+    return _PreparedDoc(doc_id=doc_id, document=norm, chunks=rows, links=links)
 
 
 _PREPARERS = {
@@ -229,15 +297,37 @@ _SOURCE_TO_COLLECTION = {
 }
 
 
+def _source_url_of(mongo_doc: dict, source: Source) -> str | None:
+    """Best-effort URL extraction for log lines on skipped docs.
+
+    PDFs store the URL as ``_id``; HTML docs store it as ``url`` (a 1-element
+    list per the scrapy pipeline). Mirrors the unwrap logic in
+    ``normalise_html_doc`` / ``normalise_pdf_doc``.
+    """
+    if source == "pdfs":
+        val = mongo_doc.get("_id") or mongo_doc.get("source_url")
+        return val if isinstance(val, str) else None
+    if source == "html":
+        val = mongo_doc.get("url") or mongo_doc.get("_id")
+        if isinstance(val, list):
+            val = val[0] if val else None
+        return val if isinstance(val, str) else None
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Upsert
 # ---------------------------------------------------------------------------
 
 
-def _upsert_batch(pool, prepared: list[_PreparedDoc], vectors: list[list[float]]) -> tuple[int, int]:
-    """Insert documents + chunks for a batch. Returns (n_docs, n_chunks_attempted)."""
+def _upsert_batch(
+    pool, prepared: list[_PreparedDoc], vectors: list[list[float]]
+) -> tuple[int, int, int]:
+    """Insert documents + chunks + links for a batch.
+
+    Returns (n_docs, n_chunks_attempted, n_links_attempted)."""
     if not prepared:
-        return 0, 0
+        return 0, 0, 0
     doc_rows = []
     for p in prepared:
         d = p.document
@@ -264,12 +354,16 @@ def _upsert_batch(pool, prepared: list[_PreparedDoc], vectors: list[list[float]]
             idx += 1
     assert idx == len(vectors), f"vector/chunk count mismatch: {idx} != {len(vectors)}"
 
+    link_rows = [row for p in prepared for row in p.links]
+
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.executemany(Q.UPSERT_DOCUMENT, doc_rows)
             cur.executemany(Q.INSERT_CHUNK, chunk_rows)
+            if link_rows:
+                cur.executemany(Q.INSERT_LINK, link_rows)
         conn.commit()
-    return len(doc_rows), len(chunk_rows)
+    return len(doc_rows), len(chunk_rows), len(link_rows)
 
 
 def _delete_for_urls(pool, source_urls: list[str]) -> int:
@@ -317,7 +411,14 @@ def ingest_source(
     _, iter_fn = _SOURCE_TO_COLLECTION[source]
     pool = get_pool()
 
-    totals = {"docs_seen": 0, "docs_kept": 0, "chunks_written": 0, "errors": 0}
+    totals = {
+        "docs_seen": 0,
+        "docs_kept": 0,
+        "docs_skipped": 0,
+        "chunks_written": 0,
+        "links_written": 0,
+        "errors": 0,
+    }
     pending: list[_PreparedDoc] = []
     pending_urls: list[str] = []
 
@@ -328,9 +429,10 @@ def ingest_source(
             _delete_for_urls(pool, [p.document.source_url for p in pending])
         texts = [row["text"] for p in pending for row in p.chunks]
         vectors = embedder.encode(texts)
-        n_docs, n_chunks = _upsert_batch(pool, pending, vectors)
+        n_docs, n_chunks, n_links = _upsert_batch(pool, pending, vectors)
         totals["docs_kept"] += n_docs
         totals["chunks_written"] += n_chunks
+        totals["links_written"] += n_links
         pending.clear()
         pending_urls.clear()
 
@@ -346,6 +448,11 @@ def ingest_source(
                 totals["errors"] += 1
                 continue
             if prepared is None:
+                totals["docs_skipped"] += 1
+                _log.info(
+                    "skipped %s: %s (landing page, empty extraction, or no chunks)",
+                    source, _source_url_of(mongo_doc, source) or "<no-url>",
+                )
                 continue
             pending.append(prepared)
             pending_urls.append(prepared.document.source_url)
@@ -356,8 +463,10 @@ def ingest_source(
         progress.close()
 
     _log.info(
-        "ingest %s done: seen=%d kept=%d chunks=%d errors=%d",
-        source, totals["docs_seen"], totals["docs_kept"], totals["chunks_written"], totals["errors"],
+        "ingest %s done: seen=%d kept=%d skipped=%d chunks=%d links=%d errors=%d",
+        source, totals["docs_seen"], totals["docs_kept"],
+        totals["docs_skipped"], totals["chunks_written"],
+        totals["links_written"], totals["errors"],
     )
     return totals
 
