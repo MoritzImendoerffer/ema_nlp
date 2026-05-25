@@ -1,13 +1,13 @@
 {
   "status": "implementing",
   "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
-  "current_task": "NARR-001",
+  "current_task": "NARR-010",
   "tasks": [
     {
       "id": "NARR-001",
       "title": "Provision Postgres 16 + pgvector locally",
       "type": "foundation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [],
       "acceptance_criteria": [
         "Either apt-installed postgres-16 + postgresql-16-pgvector on the dev host, OR a docker-compose.yml under deploy/postgres/ that brings the same stack up",
@@ -23,7 +23,7 @@
       "id": "NARR-002",
       "title": "Schema DDL + idempotent init script",
       "type": "foundation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-001"],
       "acceptance_criteria": [
         "corpus/pg_schema.sql contains the three-table schema from exploration.md §Schema (documents, chunks, links) including documents.committee column and HNSW + GIN indexes",
@@ -38,7 +38,7 @@
       "id": "NARR-003",
       "title": "Python deps + connection pool + pgvector type registration",
       "type": "foundation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-002"],
       "acceptance_criteria": [
         "pyproject.toml adds: psycopg[binary], psycopg_pool, pgvector, trafilatura",
@@ -53,7 +53,7 @@
       "id": "NARR-004",
       "title": "Configurable LlamaIndex-backed chunker",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-003"],
       "acceptance_criteria": [
         "corpus/ingestion/chunker.py exposes ChunkConfig(parser, max_tokens, overlap, min_chunk_chars) and chunk_markdown(text, config) -> list[Chunk]",
@@ -70,7 +70,7 @@
       "id": "NARR-005",
       "title": "PDF document normaliser + metadata extraction",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-003"],
       "acceptance_criteria": [
         "corpus/ingestion/pdf_normaliser.py exposes normalise_pdf_doc(mongo_doc) -> DocumentInput",
@@ -85,7 +85,7 @@
       "id": "NARR-006",
       "title": "BGE embedder wrapper (LlamaIndex on CUDA)",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-003"],
       "acceptance_criteria": [
         "harness/embed_pg.py::Embedder uses harness/providers.py to configure BGE-large-en-v1.5 via LlamaIndex Settings",
@@ -100,7 +100,7 @@
       "id": "NARR-007",
       "title": "Ingest pipeline: PDFs → chunks → embeddings → upsert",
       "type": "integration",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-004", "NARR-005", "NARR-006"],
       "acceptance_criteria": [
         "harness/embed_pg.py exposes ingest_source(source: Literal['pdfs','html'], batch_size, limit, force)",
@@ -117,7 +117,7 @@
       "id": "NARR-008",
       "title": "Resume + dedup verification + --force semantics",
       "type": "testing",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-007"],
       "acceptance_criteria": [
         "Re-running the same --limit N command produces zero new chunks (ON CONFLICT verified)",
@@ -132,7 +132,7 @@
       "id": "NARR-009",
       "title": "HTML normaliser via trafilatura",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-004"],
       "acceptance_criteria": [
         "corpus/ingestion/html_normaliser.py exposes normalise_html(html, url) -> DocumentInput | None",
@@ -430,8 +430,12 @@
       "priority": "low"
     }
   ],
-  "completed_tasks": [],
-  "next_available": ["NARR-001"],
+  "completed_tasks": [
+    "NARR-001", "NARR-002", "NARR-003",
+    "NARR-004", "NARR-005", "NARR-006", "NARR-007", "NARR-008",
+    "NARR-009"
+  ],
+  "next_available": ["NARR-010", "NARR-012", "NARR-015"],
   "phase_groups": {
     "A_postgres_bringup":       ["NARR-001", "NARR-002", "NARR-003"],
     "B_pdf_ingest":             ["NARR-004", "NARR-005", "NARR-006", "NARR-007", "NARR-008"],
