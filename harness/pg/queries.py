@@ -89,11 +89,11 @@ SELECT
     d.committee,
     d.revision,
     d.last_updated,
-    1.0 - (c.embedding <=> %(qvec)s) AS score
+    1.0 - (c.embedding <=> %(qvec)s::vector) AS score
 FROM chunks c
 JOIN documents d USING (doc_id)
 {prefilter}
-ORDER BY c.embedding <=> %(qvec)s
+ORDER BY c.embedding <=> %(qvec)s::vector
 LIMIT %(k)s
 """
 

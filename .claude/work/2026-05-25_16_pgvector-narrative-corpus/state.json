@@ -1,7 +1,7 @@
 {
   "status": "implementing",
   "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
-  "current_task": "NARR-016",
+  "current_task": "NARR-021",
   "tasks": [
     {
       "id": "NARR-001",
@@ -240,7 +240,7 @@
       "id": "NARR-016",
       "title": "Dense retrieval over pgvector",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-015"],
       "acceptance_criteria": [
         "retrieve_dense_pg(query, config) embeds the query, runs an HNSW kNN search via the <=> operator, joins documents for metadata",
@@ -256,7 +256,7 @@
       "id": "NARR-017",
       "title": "BM25 retrieval via Postgres tsvector",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-015"],
       "acceptance_criteria": [
         "retrieve_bm25_pg(query, config) uses ts_rank_cd(text_tsv, plainto_tsquery('english', $query)) and the same prefilter machinery as NARR-016",
@@ -270,7 +270,7 @@
       "id": "NARR-018",
       "title": "Hybrid (RRF) + dispatcher + build_retrieve_fn_pg",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-016", "NARR-017"],
       "acceptance_criteria": [
         "retrieve_hybrid_pg runs dense + bm25 retrievers concurrently and RRF-fuses with K=60 (same constant as harness/retrieve.py)",
@@ -285,7 +285,7 @@
       "id": "NARR-019",
       "title": "Auto-traversal (recursive CTE over links)",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-018", "NARR-014"],
       "acceptance_criteria": [
         "When TraversalConfig.mode='auto', initial top-k seeds a recursive CTE that walks links up to max_hops, filtered by link_types whitelist",
@@ -300,7 +300,7 @@
       "id": "NARR-020",
       "title": "follow_links agent tool for ReAct workflows",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-019"],
       "acceptance_criteria": [
         "harness/pg/tools.py exposes follow_links(chunk_id: str, link_types: list[str] | None, k: int) -> list[RetrievalResult]",
@@ -434,9 +434,10 @@
     "NARR-001", "NARR-002", "NARR-003",
     "NARR-004", "NARR-005", "NARR-006", "NARR-007", "NARR-008",
     "NARR-009",
-    "NARR-010", "NARR-012", "NARR-013", "NARR-014", "NARR-015"
+    "NARR-010", "NARR-012", "NARR-013", "NARR-014", "NARR-015",
+    "NARR-016", "NARR-017", "NARR-018", "NARR-019", "NARR-020"
   ],
-  "next_available": ["NARR-011", "NARR-016", "NARR-017"],
+  "next_available": ["NARR-011", "NARR-021"],
   "phase_groups": {
     "A_postgres_bringup":       ["NARR-001", "NARR-002", "NARR-003"],
     "B_pdf_ingest":             ["NARR-004", "NARR-005", "NARR-006", "NARR-007", "NARR-008"],

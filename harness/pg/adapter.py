@@ -9,10 +9,12 @@ The pgvector path returns the first shape natively; this module bridges to
 the second so callers that still need LlamaIndex nodes (e.g. the cross-ref
 expansion logic in ``_retrieve_recursive``) keep working.
 
-Two entry points:
+Public entry points:
 
     to_node_with_score(result)             RetrievalResult → NodeWithScore
+    to_nodes_with_scores(results)          batch version of the above
     get_node_by_id(chunk_id, pool=None)    chunks table → TextNode | None
+    row_to_result(cols, row)               pg row (DENSE_KNN/BM25/TRAVERSE_LINKS) → RetrievalResult
 """
 
 from __future__ import annotations
@@ -70,6 +72,26 @@ def to_node_with_score(result: tuple[str, float, dict[str, Any]]) -> NodeWithSco
 
 def to_nodes_with_scores(results: list[tuple[str, float, dict[str, Any]]]) -> list[NodeWithScore]:
     return [to_node_with_score(r) for r in results]
+
+
+def row_to_result(cols: list[str], row: tuple) -> tuple[str, float, dict[str, Any]]:
+    """Convert a raw pg row from DENSE_KNN / BM25 / TRAVERSE_LINKS into a
+    RetrievalResult tuple.
+
+    The metadata dict carries the chunk ``text`` payload so the workflow side
+    can re-emit a NodeWithScore via :func:`to_node_with_score` without a
+    second SQL round-trip. Datetime fields are ISO-encoded for JSON safety.
+    """
+    rec = dict(zip(cols, row))
+    chunk_id = str(rec.get("chunk_id") or "")
+    score = float(rec.get("score") or 0.0)
+    last_updated = rec.get("last_updated")
+    if last_updated is not None and hasattr(last_updated, "isoformat"):
+        rec["last_updated"] = last_updated.isoformat()
+    metadata = dict(rec)
+    metadata.pop("score", None)
+    metadata.setdefault("chunk_id", chunk_id)
+    return (chunk_id, score, metadata)
 
 
 def get_node_by_id(chunk_id: str, *, pool=None) -> TextNode | None:
