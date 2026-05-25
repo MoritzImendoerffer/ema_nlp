@@ -34,6 +34,11 @@ load_dotenv(Path.home() / ".myenvs" / "ema_nlp.env", override=False)
 PHOENIX_URL = os.getenv("PHOENIX_URL", "http://localhost:6006")
 PHOENIX_DISABLED = os.getenv("PHOENIX_DISABLED", "").lower() in ("1", "true", "yes")
 WORKFLOW_STRATEGY = os.getenv("EMA_WORKFLOW_STRATEGY", "simple_rag")
+EMA_RETRIEVER = os.getenv("EMA_RETRIEVER", "faiss").lower()
+if EMA_RETRIEVER not in ("faiss", "pgvector"):
+    raise ValueError(
+        f"EMA_RETRIEVER must be 'faiss' or 'pgvector', got {EMA_RETRIEVER!r}"
+    )
 RETRIEVAL_K = 10
 SOURCES_SHOWN = 5
 
@@ -227,6 +232,15 @@ async def set_chat_profiles(user: cl.User | None) -> list[cl.ChatProfile]:
 # ── Index loading ─────────────────────────────────────────────────────────────
 
 def _load_index_sync():
+    # pgvector path doesn't need a FAISS index, but Settings.embed_model must
+    # still be configured here so _embed_query_sync (semantic cache) works
+    # before the first retrieval call lazy-configures it.
+    if EMA_RETRIEVER == "pgvector":
+        from harness.providers import configure_embed_model
+        configure_embed_model()
+        log.info("EMA_RETRIEVER=pgvector — skipping FAISS index load")
+        return None
+
     from harness.embed import DEFAULT_CORPUS as _DEFAULT_CORPUS
     from harness.embed import DEFAULT_INDEX_DIR as _DEFAULT_IDX
     from harness.embed import _configure_embed_model, build_index
@@ -261,8 +275,18 @@ def _build_session_workflow(
     from harness.workflows.registry import get_workflow
 
     llm = get_llm_for_model(model_name, temperature_override=temperature)
+    # Legacy RetrievalConfig kept for workflow config_attributes() compatibility;
+    # the pgvector retrieve_fn ignores it and consults RetrievalConfigPG instead.
     cfg = RetrievalConfig(mode="hybrid", k=retrieval_k)
-    retrieve_fn = build_retrieve_fn(cfg, AblationConfig(), index)
+
+    if EMA_RETRIEVER == "pgvector":
+        from harness.retrieve_pg import RetrievalConfigPG, build_retrieve_fn_pg
+        retrieve_fn = build_retrieve_fn_pg(
+            RetrievalConfigPG(mode="hybrid", k=retrieval_k)
+        )
+    else:
+        retrieve_fn = build_retrieve_fn(cfg, AblationConfig(), index)
+
     return get_workflow(
         strategy, index=index, llm=llm, retrieval_config=cfg,
         prompt_strategy=prompt_strategy, retrieve_fn=retrieve_fn,

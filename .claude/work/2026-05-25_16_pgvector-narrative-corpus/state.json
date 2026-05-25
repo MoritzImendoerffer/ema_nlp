@@ -1,7 +1,7 @@
 {
   "status": "implementing",
   "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
-  "current_task": "NARR-021",
+  "current_task": "NARR-022",
   "tasks": [
     {
       "id": "NARR-001",
@@ -315,7 +315,7 @@
       "id": "NARR-021",
       "title": "Env-var dispatch in app.py",
       "type": "integration",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-018"],
       "acceptance_criteria": [
         "EMA_RETRIEVER env var (default 'faiss') switches between harness.retrieve.build_retrieve_fn and harness.retrieve_pg.build_retrieve_fn_pg",
@@ -435,9 +435,10 @@
     "NARR-004", "NARR-005", "NARR-006", "NARR-007", "NARR-008",
     "NARR-009",
     "NARR-010", "NARR-012", "NARR-013", "NARR-014", "NARR-015",
-    "NARR-016", "NARR-017", "NARR-018", "NARR-019", "NARR-020"
+    "NARR-016", "NARR-017", "NARR-018", "NARR-019", "NARR-020",
+    "NARR-021"
   ],
-  "next_available": ["NARR-011", "NARR-021"],
+  "next_available": ["NARR-011", "NARR-022"],
   "phase_groups": {
     "A_postgres_bringup":       ["NARR-001", "NARR-002", "NARR-003"],
     "B_pdf_ingest":             ["NARR-004", "NARR-005", "NARR-006", "NARR-007", "NARR-008"],

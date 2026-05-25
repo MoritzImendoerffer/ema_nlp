@@ -50,12 +50,29 @@ def load_system_prompt(strategy: str) -> str:
 # ---------------------------------------------------------------------------
 
 def results_to_docs(results: list, index: Any) -> list:
-    """Convert (qa_id, score, metadata) triples to TextNode objects."""
-    from harness.embed import get_node_by_id
+    """Convert (qa_id, score, metadata) triples to TextNode objects.
 
+    Two paths:
+      * pgvector — metadata already carries the chunk text under ``"text"``
+        (populated by ``harness.pg.adapter.row_to_result``); use it directly.
+      * FAISS — fall back to ``harness.embed.get_node_by_id(index, qa_id)``
+        on the docstore. Requires ``index`` to be non-None.
+    """
     nodes: list[TextNode] = []
     for qa_id, score, meta in results:
-        node = get_node_by_id(index, qa_id)
+        text_in_meta = meta.get("text")
+        if text_in_meta:
+            md = {k: v for k, v in meta.items() if k != "text"}
+            md["qa_id"] = qa_id
+            md["score"] = score
+            nodes.append(TextNode(text=text_in_meta, metadata=md))
+            continue
+
+        node = None
+        if index is not None:
+            from harness.embed import get_node_by_id
+            node = get_node_by_id(index, qa_id)
+
         if node is not None:
             merged = {**node.metadata, **meta, "qa_id": qa_id, "score": score}
             nodes.append(TextNode(text=node.text, metadata=merged))
