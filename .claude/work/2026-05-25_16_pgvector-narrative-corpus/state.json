@@ -1,7 +1,7 @@
 {
   "status": "implementing",
   "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
-  "current_task": "NARR-026",
+  "current_task": "NARR-027",
   "tasks": [
     {
       "id": "NARR-001",
@@ -388,7 +388,7 @@
       "id": "NARR-026",
       "title": "Integration test — retrieve_pg end-to-end",
       "type": "testing",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-019"],
       "acceptance_criteria": [
         "tests/test_retrieve_pg.py uses a dedicated test database (env: PG_DSN_TEST) populated by a tiny fixture corpus of ~10 chunks across 3 documents with 2 links",
