@@ -15,8 +15,9 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 ## Quick links
 
 - **[Setup guide →](docs/SETUP.md)** — install dependencies, configure credentials, sync the database across machines
-- **[Architecture →](docs/ARCHITECTURE.md)** — data flow, MongoDB collections, corpus pipeline, FAISS index, common operations
+- **[Architecture →](docs/ARCHITECTURE.md)** — data flow, MongoDB collections, corpus pipeline, common operations
 - **[Retrieval pipeline →](docs/RETRIEVAL_PIPELINE.md)** — LlamaIndex usage, dense/BM25/hybrid modes, RRF, ablation A stages, cross-reference traversal
+- **[Postgres retrieval (pgvector) →](docs/RETRIEVAL_PG.md)** — narrative-corpus backend: provisioning, ingest CLI, dense/BM25/hybrid + link traversal, sub-corpus filters
 - **[Decisions →](DECISIONS.md)** — architectural and scope decisions with rationale
 - **[Open questions →](OPEN_QUESTIONS.md)** — decisions not yet made
 - **[Roadmap →](project_roadmap/ROADMAP.md)** — full phase-by-phase plan and success criteria
@@ -41,6 +42,8 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 
 **Phase 4 — ablations.** Ablation A (retrieval variants) and Ablation C (prompting matrix ×3 tiers) runs complete in `results/`. Ablation B (process-reward supervision) infrastructure done; full run pending.
 
+**Narrative corpus (pgvector) — complete.** A second retrieval target was built alongside the Q&A corpus: the full PDF + HTML body text, ingested into Postgres 16 + pgvector with HNSW (dense) and BM25 (`tsvector` + GIN). Schema: `documents` + `chunks` + `links`; chunker via LlamaIndex; BGE-large-en embeddings on local GPU. `EMA_RETRIEVER=pgvector` is the runtime default; `faiss` remains as a back-compat opt-out. See [`docs/RETRIEVAL_PG.md`](docs/RETRIEVAL_PG.md) for the operator's guide and [`.claude/work/2026-05-25_16_pgvector-narrative-corpus/`](.claude/work/2026-05-25_16_pgvector-narrative-corpus/) for the 28-task work unit (NARR-001..028).
+
 See `.claude/work/` for all work unit logs.
 
 ## Stack
@@ -50,21 +53,23 @@ See `.claude/work/` for all work unit logs.
 | Retrieval framework | LlamaIndex (`VectorStoreIndex`, `BM25Retriever`, RRF fusion) |
 | Workflow orchestration | LlamaIndex Workflows (`Workflow` + typed `Event` steps) |
 | Chat UI | Chainlit 2.11 — streaming answers, source sidebar, 👍/👎 |
-| Embeddings | BGE-large-en via sentence-transformers (local, no API key) |
-| Vector store | FAISS flat-L2 (document index + semantic query cache) |
+| Embeddings | BGE-large-en-v1.5 via sentence-transformers (local CUDA, no API key) |
+| Vector store (runtime, narrative corpus) | Postgres 16 + pgvector — HNSW dense, `tsvector`+GIN BM25, `links` graph; switch via `EMA_RETRIEVER=pgvector` (default) |
+| Vector store (legacy, Q&A corpus) | FAISS flat-L2 over `corpus.jsonl` + semantic query cache; opt-in via `EMA_RETRIEVER=faiss` |
 | Tracing | Arize Phoenix + OpenInference (model-agnostic, self-hosted) |
 | Feedback | Phoenix span annotations via Chainlit 👍/👎 |
 | LLM | Anthropic Claude (primary); OLMo 2 32B (contamination-verifiable reference) |
-| Data | MongoDB (raw scrape) → JSONL (corpus/benchmark) |
+| Data | MongoDB (raw scrape) → Postgres+pgvector (narrative chunks, runtime) + JSONL (corpus/benchmark) |
 
 ## Data sources
 
-| Collection | Contents | Count |
-|------------|----------|-------|
-| `ema_scraper.web_items` | Raw scraped pages — HTML (`html_raw`) and PDF metadata (`url`, `content_type`) | 115k |
-| `ema_scraper.parsed_pdfs` | Parsed PDF markdown keyed by URL (`_id`), produced by `scripts/ingest_parsed_pdfs.py` | 65k |
+| Store | Collection / table | Contents | Count |
+|-------|--------------------|----------|-------|
+| MongoDB `ema_scraper` | `web_items` | Raw scraped pages — HTML (`html_raw`) and PDF metadata (`url`, `content_type`) | 115k |
+| MongoDB `ema_scraper` | `parsed_pdfs` | Parsed PDF markdown keyed by URL (`_id`), produced by `scripts/ingest_parsed_pdfs.py` | 65k |
+| Postgres `ema_nlp` | `documents`, `chunks`, `links` | Narrative corpus — runtime retrieval target. Populated by `python -m harness.embed_pg` from the two MongoDB collections. HNSW + BM25 indexes; `links` table carries hyperlinks, EMA reference codes, and resolved cross-refs. | extrapolated ~38k PDFs + ~60k HTML at full ingest |
 
-Scraped content comes from the companion repo [ema_scraper](https://github.com/MoritzImendoerffer/ema_scraper). The `parsed_pdfs` collection is built locally from the Scrapy cache (`~/Nextcloud/Datasets/ema_scraper/cache/`). See the setup guide for sync instructions.
+Scraped content comes from the companion repo [ema_scraper](https://github.com/MoritzImendoerffer/ema_scraper). The `parsed_pdfs` collection is built locally from the Scrapy cache (`~/Nextcloud/Datasets/ema_scraper/cache/`). The Postgres narrative corpus is provisioned via Docker Compose in `deploy/postgres/` and populated from MongoDB; see [`docs/RETRIEVAL_PG.md`](docs/RETRIEVAL_PG.md) for the full operator's guide and the setup guide for sync instructions.
 
 ## License
 

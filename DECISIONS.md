@@ -32,11 +32,38 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Not chosen as the retrieval engine:** LangChain/LangGraph — better for prompt-chain-centric work; LlamaIndex is the superior choice for structured document retrieval and docstore indexing. LangChain/LangGraph were trialled for the orchestration layer and subsequently removed in favour of LlamaIndex Workflows (see decision below).  
 **Ref:** [`.claude/work/2026-05-15_04_agentic-memory-architecture/exploration.md`](.claude/work/2026-05-15_04_agentic-memory-architecture/exploration.md)
 
-### FAISS as the vector store backend (v1)
-**Decided:** project start (confirmed 2026-05-15)  
-**What:** FAISS flat index for both the document index and the query cache index. In-memory-friendly, no server required, persisted to `harness/index/`.  
-**Why:** Sufficient for the corpus size (~200–2000 Q&A records). If the corpus grows beyond ~100k records or latency becomes an issue, Qdrant is the natural upgrade path (LlamaIndex has a Qdrant vector store adapter).  
-**Deferred:** Qdrant, Chroma, Weaviate — only if FAISS becomes a bottleneck.
+### FAISS as the vector store backend (v1) — superseded for narrative-corpus runtime
+**Decided:** project start (confirmed 2026-05-15); **superseded 2026-05-26 by Postgres + pgvector below**, for the runtime retrieval path  
+**What (original):** FAISS flat index for both the document index and the query cache index. In-memory-friendly, no server required, persisted to `harness/index/`.  
+**Why (original):** Sufficient for the Q&A corpus size (~26k records). The Qdrant migration path was the obvious next step if scale or latency became a problem.  
+**Status (2026-05-26):**
+- **Narrative corpus (PDF + HTML body text) — moved to Postgres + pgvector** (NARR-001..028). This is the runtime retrieval target; `corpus.jsonl` + FAISS no longer cover the actual chunk surface used by the agent.
+- **Q&A FAISS index over `corpus.jsonl`** — retained as a back-compat opt-out via `EMA_RETRIEVER=faiss`. Not the default. Used for parity smoke tests; not on the critical path for new work.
+- **Query cache** (`harness/index/query_cache.faiss`) — **still FAISS, unchanged.** It indexes past *query embeddings* for semantic similarity to surface rated past trajectories; it is not a document store, so the pg migration does not apply.
+
+**Ref:** see the new "Postgres + pgvector as the narrative-corpus retrieval backend" decision below.
+
+### Postgres + pgvector as the narrative-corpus retrieval backend
+**Decided:** 2026-05-25 (planning); shipped 2026-05-26 (NARR-001..028, default flipped in NARR-028)  
+**What:** Postgres 16 + pgvector 0.8.2 is the runtime retrieval store. Schema: `documents` (one row per source URL), `chunks` (HNSW dense index over `embedding vector(1024)`, BM25 via generated `text_tsv` + GIN), `links` (per-chunk hyperlinks, EMA reference codes, and resolved `tgt_doc_id`s). Provisioned via `deploy/postgres/docker-compose.yml` (image `pgvector/pgvector:pg16`); schema applied by `python scripts/init_db.py`; populated by `python -m harness.embed_pg` from MongoDB. Retrieval surface lives in `harness/retrieve_pg.py` (`retrieve_dense_pg`, `retrieve_bm25_pg`, `retrieve_hybrid_pg`, `retrieve_with_config_pg`, `build_retrieve_fn_pg`) with the same `RetrievalResult = (id, score, metadata)` tuple shape as the FAISS path — workflows are unaware of the backend. Embeddings use the same `BAAI/bge-large-en-v1.5` model (1024-d) as the FAISS path, on local CUDA (3090).  
+**Why:**
+- The `corpus.jsonl` Q&A pairs are a tiny fraction of the actual content; the agent needs the **full narrative body text** (chapter prose, headings, tables) for T2 scoping and T4 synthesis questions, not just the curated Q/A surface.
+- Postgres gives BM25, dense, and a relational `links` table in one store, queried with one round-trip — no separate FAISS + BM25 + graph layer to keep in sync.
+- HNSW on pgvector ≥ 0.5 matches FAISS HNSW latency at the scales relevant here (validated NARR-011: ~6 h full-corpus ingest, 14–18 GB DB total, dense top-10 well under 100 ms on the seeded slice).
+- Idempotent re-ingest is trivial (`ON CONFLICT … DO UPDATE`), so corpus rebuilds don't require throwing away embeddings.
+- Tracing parity: `WorkflowRunner._stamp_span` stamps `ema.retrieval.backend = 'pgvector'\|'faiss'` so Phoenix runs can filter by backend without changing the workflow code.
+
+**Switch contract:**
+- `EMA_RETRIEVER=pgvector` (default since NARR-028) — `app.py` and `harness/run_eval.py` skip `build_index` (no FAISS load), build a `RetrievalConfigPG`-backed `retrieve_fn`, and embed via `Settings.embed_model`.
+- `EMA_RETRIEVER=faiss` — legacy path; unchanged. Use only for parity smoke tests against `corpus.jsonl`.
+- `PG_DSN` (default `postgresql://ema_nlp:ema_nlp@localhost:5432/ema_nlp`) and an optional `PG_DSN_TEST` for the integration suite.
+
+**Not chosen:**
+- *Qdrant / Chroma / Weaviate* — Postgres already runs locally and gives BM25 + relational joins for free; adding a fourth database server is unjustified at this scale.
+- *Keeping FAISS and grafting BM25/links on top* — would have duplicated state across three stores and broken transactional re-ingest.
+
+**Open follow-ups:** none load-bearing. Reranker (A3) and query-expansion (A1) wrappers still sit outside the retriever and apply to both backends via `build_retrieve_fn{,_pg}`.  
+**Ref:** [`docs/RETRIEVAL_PG.md`](docs/RETRIEVAL_PG.md), [`.claude/work/2026-05-25_16_pgvector-narrative-corpus/`](.claude/work/2026-05-25_16_pgvector-narrative-corpus/) (28-task work unit), [`corpus/pg_schema.sql`](corpus/pg_schema.sql), [`harness/retrieve_pg.py`](harness/retrieve_pg.py)
 
 ### BGE-large-en as the embedding model (v1)
 **Decided:** project start  

@@ -105,6 +105,54 @@ See `docs/LEAKAGE.md` section 7.5 for the full rationale.
 
 ---
 
+## Phase 1.7 — Narrative corpus on Postgres + pgvector (added 2026-05-25, shipped 2026-05-26)
+
+**Status:** complete (NARR-001..028, 28 tasks). Work unit: [`.claude/work/2026-05-25_16_pgvector-narrative-corpus/`](../.claude/work/2026-05-25_16_pgvector-narrative-corpus/). Operator's guide: [`docs/RETRIEVAL_PG.md`](../docs/RETRIEVAL_PG.md).
+
+**Why this phase exists** (not in the original v1 plan). The curated Q&A pairs in `corpus.jsonl` (Phase 1) are an extract, not the full content surface. T2 scoping ("does CHMP say X about Y") and T4 synthesis ("compare PRAC vs CHMP guidance on Z") both need the full narrative prose — chapter body text, headings, tables, hyperlinks — that the Q&A pair extraction discards. Rather than fight the FAISS-flat layout to accommodate a richer surface, the narrative corpus moved into Postgres + pgvector with a relational `links` table so dense / BM25 / link-traversal all share one store.
+
+### 1.7.1 Schema
+Three tables, defined in [`corpus/pg_schema.sql`](../corpus/pg_schema.sql):
+- `documents` — one row per source URL; carries `source_type` (pdf/html), `committee` (CHMP/PRAC/CMDh/COMP/…), `topic_path`, `reference_number`, `last_updated`.
+- `chunks` — text chunks with `embedding vector(1024)`, HNSW index on the embedding, generated `text_tsv` column with GIN index for BM25. FK to `documents`.
+- `links` — outbound links per source chunk: `link_type` ∈ {hyperlink, reference_number, see_qa}, `tgt_url`, optional `tgt_doc_id` resolved by a second pass. `see_qa` is excluded from default traversal (would leak benchmark answers).
+
+### 1.7.2 Ingest pipeline
+`python -m harness.embed_pg --source pdf|html [--limit N] [--force]`:
+1. Read MongoDB (`parsed_pdfs` for PDF, `web_items.html_raw` for HTML)
+2. Normalise (pymupdf4llm-derived markdown for PDFs; trafilatura with `favor_recall=True` for HTML; pages <200 chars treated as landing pages and skipped)
+3. Chunk via LlamaIndex `SentenceSplitter` (configurable size/overlap)
+4. Embed batches with `BAAI/bge-large-en-v1.5` on local CUDA via `harness.providers.configure_embed_model()`
+5. Bulk upsert chunks + extracted links (markdown `[text](url)`, HTML `<a href>`, EMA reference codes, see-Q&A patterns)
+6. `python scripts/resolve_links.py` runs idempotent UPDATE passes to populate `links.tgt_doc_id`
+
+Resume + dedup verified (NARR-008); `--force` re-embeds. Timing on the 3090 (NARR-011): ~207 docs/min PDF, ~311 docs/min HTML; GPU sits at ~1.9/24 GiB throughout.
+
+### 1.7.3 Retrieval surface
+`harness/retrieve_pg.py` exposes:
+- `retrieve_dense_pg(query, config)` — HNSW kNN via `<=>` (explicit `::vector` cast on query param; `register_vector` only auto-adapts numpy arrays). Score = `1 - cosine_distance`.
+- `retrieve_bm25_pg` — `ts_rank_cd(plainto_tsquery(...))` over the generated `text_tsv` column.
+- `retrieve_hybrid_pg` — dense + BM25 fused via RRF (K=60, matches FAISS path).
+- `retrieve_with_config_pg(config, query)` — dispatcher; applies auto-traversal when `config.traversal.mode == "auto"` (recursive CTE over `links`, adds one representative chunk per neighbour doc, seeds stay first).
+- `build_retrieve_fn_pg(config)` — drop-in callable matching `harness.retrieve.build_retrieve_fn`'s signature. Workflows see only the callable; backend is invisible.
+- `follow_links_tool` — `FunctionTool` for ReAct agent_tool traversal mode.
+
+Sub-corpus filters expressed via `RetrievalConfigPG.prefilter` (committee, date range, source_type, topic prefix); example config: [`harness/configs/example_chmp_only.yaml`](../harness/configs/example_chmp_only.yaml).
+
+### 1.7.4 Switch contract
+- `EMA_RETRIEVER=pgvector` — runtime default since NARR-028 (commit `e36d6fd`).
+- `EMA_RETRIEVER=faiss` — legacy opt-out over `corpus.jsonl`; retained for parity smoke tests.
+- Phoenix spans carry `ema.retrieval.backend = 'pgvector'|'faiss'` so cross-backend evals are filterable in the UI.
+
+### 1.7.5 Test coverage
+- Unit suite (NARR-025): chunker / PDF normaliser / HTML normaliser / link extractor — 91% on the four ingestion modules, 53 tests in 4 s.
+- Integration suite (NARR-026): `tests/test_retrieve_pg.py` against a dedicated `ema_nlp_test` database (`PG_DSN_TEST`), 9 tests covering seeded counts, dense self-recall, BM25 keyword hits, hybrid RRF, prefilter (committee + date), auto-traversal expansion, `max_hops=0` no-op, dispatcher routing. Embeddings seeded deterministically via numpy RNG so tests don't load the BGE model.
+- End-to-end smoke (NARR-023): 5-question slice of `simple_rag` on pgvector returns non-empty answers; 46/50 chunks came from URLs outside `corpus.jsonl`, confirming narrative coverage.
+
+**Deliverable.** Production-default narrative-corpus retrieval. No changes required to the Phase 2 benchmark or Phase 3 harness contract — they consume the same `(id, score, metadata)` tuple, with the backend dispatched by env var.
+
+---
+
 ## Phase 2 — Benchmark construction (≈ 1 week)
 
 **Purpose.** Build 30–50 evaluation questions from mined Q&A, stratified to discriminate between retrieval strategies.
