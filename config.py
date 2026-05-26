@@ -35,7 +35,8 @@ MONGO_COL = "web_items"
 # matches the Docker compose stack under deploy/postgres/ for first-run dev.
 PG_DSN = os.getenv("PG_DSN", "postgresql://ema_nlp:ema_nlp@localhost:5432/ema_nlp")
 
-# Retriever dispatch: "faiss" (legacy FAISS over Q&A corpus.jsonl) or
-# "pgvector" (chunks table in Postgres; full EMA narrative corpus).
-# Flipped to "pgvector" by NARR-028 once the new path is validated.
-EMA_RETRIEVER = os.getenv("EMA_RETRIEVER", "faiss")
+# Retriever dispatch: "pgvector" (default — chunks table in Postgres; full EMA
+# narrative corpus) or "faiss" (legacy FAISS index over Q&A corpus.jsonl,
+# kept for back-compat experiments and benchmark-only runs).
+# Flipped to "pgvector" default by NARR-028 (2026-05-26).
+EMA_RETRIEVER = os.getenv("EMA_RETRIEVER", "pgvector")

@@ -34,7 +34,7 @@ load_dotenv(Path.home() / ".myenvs" / "ema_nlp.env", override=False)
 PHOENIX_URL = os.getenv("PHOENIX_URL", "http://localhost:6006")
 PHOENIX_DISABLED = os.getenv("PHOENIX_DISABLED", "").lower() in ("1", "true", "yes")
 WORKFLOW_STRATEGY = os.getenv("EMA_WORKFLOW_STRATEGY", "simple_rag")
-EMA_RETRIEVER = os.getenv("EMA_RETRIEVER", "faiss").lower()
+EMA_RETRIEVER = os.getenv("EMA_RETRIEVER", "pgvector").lower()
 if EMA_RETRIEVER not in ("faiss", "pgvector"):
     raise ValueError(
         f"EMA_RETRIEVER must be 'faiss' or 'pgvector', got {EMA_RETRIEVER!r}"

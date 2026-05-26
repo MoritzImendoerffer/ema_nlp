@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).parent.parent
 
-EMA_RETRIEVER = os.getenv("EMA_RETRIEVER", "faiss").lower()
+EMA_RETRIEVER = os.getenv("EMA_RETRIEVER", "pgvector").lower()
 if EMA_RETRIEVER not in ("faiss", "pgvector"):
     raise ValueError(
         f"EMA_RETRIEVER must be 'faiss' or 'pgvector', got {EMA_RETRIEVER!r}"

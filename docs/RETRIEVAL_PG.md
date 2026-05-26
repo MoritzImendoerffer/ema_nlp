@@ -71,8 +71,9 @@ PG_DSN=postgresql://ema_nlp:ema_nlp@localhost:5432/ema_nlp
 # Test DSN — used by the integration tests in tests/test_retrieve_pg.py
 PG_DSN_TEST=postgresql://ema_nlp:<password>@localhost:5432/ema_nlp_test
 
-# Retrieval backend switch (default: 'faiss')
-EMA_RETRIEVER=pgvector
+# Retrieval backend switch — default is 'pgvector' as of NARR-028 (2026-05-26);
+# set EMA_RETRIEVER=faiss to opt back into the legacy FAISS path.
+# EMA_RETRIEVER=pgvector
 ```
 
 `EMA_RETRIEVER` controls which retrieval factory `app.py` and `run_eval.py`
@@ -80,8 +81,8 @@ import:
 
 | Value | Code path | Index source |
 |-------|-----------|--------------|
-| `faiss` *(default for back-compat)* | `harness.retrieve.build_retrieve_fn` | `corpus.jsonl` + FAISS docstore |
-| `pgvector` | `harness.retrieve_pg.build_retrieve_fn_pg` | `chunks` / `documents` / `links` in Postgres |
+| `pgvector` *(default since NARR-028)* | `harness.retrieve_pg.build_retrieve_fn_pg` | `chunks` / `documents` / `links` in Postgres |
+| `faiss` *(legacy, kept for back-compat)* | `harness.retrieve.build_retrieve_fn` | `corpus.jsonl` + FAISS docstore |
 
 Switch backends without rebuilding the index:
 

@@ -1,5 +1,10 @@
 """
-Retrieval façade for the EMA Q&A harness.
+Legacy retrieval façade — FAISS over the Q&A `corpus.jsonl`.
+
+NARR-028 (2026-05-26) flipped the runtime default to the pgvector path in
+`harness.retrieve_pg`; this module remains available behind
+``EMA_RETRIEVER=faiss`` for back-compat experiments and benchmark-only
+runs. New retrieval features should go into `harness.retrieve_pg`.
 
 Three base modes (selectable at call time):
   "dense"  (A0)  — VectorStoreIndex similarity search only
@@ -465,8 +470,10 @@ def build_retrieve_fn(
     The returned callable exposes a ``.ablation_config`` attribute pointing to
     *abl_config*, which workflows can read to populate ``config_attributes()``.
 
-    Both ``app.py`` (once per session) and ``run_eval.py`` (once per run) should
-    call this factory so retrieval is provably the same callable in both paths.
+    Legacy FAISS path — runtime default is ``harness.retrieve_pg.build_retrieve_fn_pg``
+    as of NARR-028 (2026-05-26). This factory is invoked only when
+    ``EMA_RETRIEVER=faiss``. Both ``app.py`` and ``run_eval.py`` dispatch on
+    that env var.
     """
     # Build query expander once (expensive: loads acronym dict)
     _expander = None

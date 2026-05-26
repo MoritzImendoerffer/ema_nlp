@@ -1,7 +1,7 @@
 {
-  "status": "implementing",
+  "status": "completed",
   "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
-  "current_task": "NARR-028",
+  "current_task": null,
   "tasks": [
     {
       "id": "NARR-001",
@@ -418,7 +418,7 @@
       "id": "NARR-028",
       "title": "Switch default EMA_RETRIEVER to pgvector",
       "type": "integration",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-026", "NARR-027"],
       "acceptance_criteria": [
         "Default for EMA_RETRIEVER becomes 'pgvector' in config.py / app.py / run_eval.py",
@@ -434,11 +434,12 @@
     "NARR-001", "NARR-002", "NARR-003",
     "NARR-004", "NARR-005", "NARR-006", "NARR-007", "NARR-008",
     "NARR-009",
-    "NARR-010", "NARR-012", "NARR-013", "NARR-014", "NARR-015",
+    "NARR-010", "NARR-011", "NARR-012", "NARR-013", "NARR-014", "NARR-015",
     "NARR-016", "NARR-017", "NARR-018", "NARR-019", "NARR-020",
-    "NARR-021", "NARR-022", "NARR-023"
+    "NARR-021", "NARR-022", "NARR-023",
+    "NARR-024", "NARR-025", "NARR-026", "NARR-027", "NARR-028"
   ],
-  "next_available": ["NARR-011", "NARR-024"],
+  "next_available": [],
   "phase_groups": {
     "A_postgres_bringup":       ["NARR-001", "NARR-002", "NARR-003"],
     "B_pdf_ingest":             ["NARR-004", "NARR-005", "NARR-006", "NARR-007", "NARR-008"],
