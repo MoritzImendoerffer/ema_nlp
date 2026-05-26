@@ -1,7 +1,7 @@
 {
   "status": "implementing",
   "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
-  "current_task": "NARR-011",
+  "current_task": "NARR-028",
   "tasks": [
     {
       "id": "NARR-001",
@@ -163,7 +163,7 @@
       "id": "NARR-011",
       "title": "Timing + scaling notes",
       "type": "documentation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-008", "NARR-010"],
       "acceptance_criteria": [
         "Run --source pdfs --limit 100 and --source html --limit 100 on the 3090 machine",
