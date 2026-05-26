@@ -36,12 +36,13 @@ Full task list and status: `.claude/work/2026-05-10_02_implementation-plan/state
 ## Data sources
 
 - **MongoDB** `ema_scraper.web_items` — raw scraped EMA pages; HTML stored as `html_raw` (1-element list), PDFs as metadata only
-- **MongoDB** `ema_scraper.parsed_pdfs` — pymupdf4llm markdown keyed by URL; built by `scripts/ingest_parsed_pdfs.py`; 65k docs; query `{error: ""}` for clean parses
-- **Postgres + pgvector** `ema_nlp` (Docker, `deploy/postgres/`) — the narrative corpus. Tables: `documents`, `chunks` (HNSW + BM25), `links`. Populated from MongoDB by `python -m harness.embed_pg`. This is the retrieval target at runtime; `corpus.jsonl` is benchmark-only.
+- **MongoDB** `ema_scraper.parsed_pdfs` — pymupdf4llm markdown keyed by URL; built by `scripts/ingest_parsed_pdfs.py --legacy`; 65k docs; query `{error: ""}` for clean parses
+- **MongoDB** `ema_scraper.parsed_documents` (MIGR-001) — canonical parser-output sink. One row per `(url, parser, parser_version)`. Populated by `corpus/parsers/*.py` CLIs and the backfill in `scripts/migrate_mongo_to_parsed_documents.py`. Mongo is the parser sink; PG is the canonical retrieval store with `parsed_text` + parser identity columns (MIGR-006).
+- **Postgres + pgvector** `ema_nlp` (Docker, `deploy/postgres/`) — the narrative corpus. Tables: `documents` (carries `parser`, `parser_version`, `parsed_at`, `parsed_text`, `parsed_text_hash` since MIGR-006), `chunks` (HNSW + BM25), `links`. Populated from MongoDB by `python -m harness.embed_pg`. This is the retrieval target at runtime; `corpus.jsonl` is benchmark-only.
 - **Nextcloud**: `~/Nextcloud/Datasets/` — Scrapy cache (`ema_scraper/cache/`) + IDMP ontology RDF files
 - Paths are configured in `config.py`, which loads `~/.myenvs/ema_nlp.env` via python-dotenv
-- MongoDB source adaptor: `corpus/sources/mongo_source.py` — `records_from_mongodb(host, db)` yields `QARecord` from both collections
-- Retrieval backend switch: `EMA_RETRIEVER=pgvector` (default `faiss` for back-compat). See `docs/RETRIEVAL_PG.md` for the full operator's guide.
+- MongoDB source adaptors: `corpus/sources/mongo_source.py` yields `QARecord` for the Q&A pipeline; `corpus/sources/parsed_documents.py` exposes the writer and index bootstrap for the parsers layer; `corpus/sources/synthetic_legacy_reader.py` (MIGR-008) bridges `parsed_pdfs` + `web_items` rows to the sync as a transition fixture until MIGR-013 backfills.
+- Retrieval backend switch: `EMA_RETRIEVER=pgvector` (default since NARR-028). See `docs/RETRIEVAL_PG.md` for the full operator's guide, including §13 "Three-layer data flow" + "Adding a parser".
 
 ## Commands
 

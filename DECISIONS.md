@@ -219,3 +219,27 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 **What:** The inline `retrieve_fn` closure that was built inside `run_eval.py` (applying A1→base→A2→A3/A4 in order) was extracted into `build_retrieve_fn(ret_config, abl_config, index)` in `harness/retrieve.py`. A new `AblationConfig` dataclass carries query expansion, topic filter, and reranker settings parsed from the `ablation:` YAML section. All workflows accept an optional `retrieve_fn` parameter; when provided they call it instead of `retrieve_with_config()`. The factory attaches `.ablation_config` to the callable so `config_attributes()` can report the active ablation flags on the span.  
 **Why:** The reranker (A3) could not compose with CRAG or ReAct because the ablation closure was only applied in `run_eval.py`'s retrieval eval loop, not in workflow execution. This is a real architectural limit. The factory also eliminates the drift between `app.py` and `run_eval.py` retrieval paths.  
 **Ref:** [`HARNESS_REFACTORS.md`](HARNESS_REFACTORS.md) Change 2, [`docs/RETRIEVAL_PIPELINE.md`](docs/RETRIEVAL_PIPELINE.md)
+
+### Three-layer separation: parsers → Mongo (parsed_documents) → PG (canonical)
+**Decided:** 2026-05-26 (MIGR-001..017)  
+**What:** The Mongo → Postgres ingest pipeline is split into three layers:
+
+1. **Parsers (`corpus/parsers/`)** — each parser implements the `Parser` protocol (`name`, `version`, `parse(raw, url, content_type) → ParsedDocument`) and writes through `corpus.sources.parsed_documents.write_parsed_document`. Production parsers: `pymupdf4llm` (wraps the Scrapy-cache pickled holders) and `trafilatura` (wraps the `web_items.html_raw` extract call). Demo parser: `llamahub_pdf_PDFReader` behind the `[parsers-llamahub]` extra.
+2. **Mongo `parsed_documents`** — compound unique key `(url, parser, parser_version)` so different parsers and different versions of the same parser coexist for one URL. This is the authoritative parsed-text store; the legacy `parsed_pdfs` and `web_items` collections become raw-input stores only.
+3. **`harness/embed_pg.sync(parser_preference, …)`** — parser-agnostic. Reads `parsed_documents`, applies the preference selector per URL, computes `sha256(parsed.text)`, skips when it matches `documents.parsed_text_hash`, otherwise deletes the doc's chunks+links and re-chunks/embeds/upserts. Writes `parser`, `parser_version`, `parsed_at`, `parsed_text`, `parsed_text_hash` on every upsert.
+
+The key design choices and what they replaced:
+
+- **Compound key `(url, parser, parser_version)`** (resolves OQ-1). Lets parser-swap experiments be additive — write the new parser's rows, flip `parser_preference.yaml`, re-sync the affected URLs. Old rows are still there for rollback.  
+- **`parsed_text` lives in PG too** (resolves OQ-3). Required so the sync can recompute `parsed_text_hash` from data in PG without re-reading Mongo, and so eval/debug tooling can see exactly which text was chunked. Adds storage cost but the determinism payoff is large.  
+- **Phased transition via synthetic legacy reader** (resolves OQ-6). `corpus/sources/synthetic_legacy_reader.py` bridges `parsed_pdfs` + `web_items` to a `ParsedDocument` stream so the refactored sync runs against today's data **without** a one-shot backfill. The backfill (MIGR-012) then writes those rows into `parsed_documents` proper; MIGR-013 retires the bridge.  
+- **Parser preference is YAML + CLI** (`harness/configs/parser_preference.yaml` + `--parser-preference content_type=parser`). Per-content_type the CLI override fully replaces the YAML list — there's no merge — which keeps the precedence model trivially explainable.
+
+**Why:** The previous `embed_pg.py` had `from corpus.ingestion.pdf_normaliser import normalise_pdf_doc` and a function-scope `from corpus.ingestion.html_normaliser import normalise_html_doc`. Adding a parser meant touching the sync, the chunker's caller, and the eval pipeline. Worse: switching parsers for an experiment required re-embedding all 25 docs because the chunker was fed parser-specific markdown blends. The three-layer split removes both coupling problems and gives us a parser-swap workflow with measurable incremental cost (only URLs whose `parsed_text_hash` actually changed re-embed).
+
+**Not chosen:**
+- *Per-parser Mongo collections* (`parsed_documents_pymupdf4llm`, `parsed_documents_trafilatura`, …). Rejected — adds collection-discovery complexity, breaks the "find all parsers for a URL" query, and the index-explosion isn't worth saving a few bytes per row.
+- *Nested-by-parser document shape* (`{url, parsers: {pymupdf4llm: {...}, trafilatura: {...}}}`). Rejected — partial-update semantics on subdocuments are messier than compound-key upserts, and the document size grows unboundedly as parser_versions accumulate.
+- *Big-bang migration* (write a one-off script that rewrites everything in one PR). Rejected — would require a maintenance window, conflate the refactor with the backfill, and offer no incremental verification points. The synthetic reader lets each PR land independently.
+
+**Ref:** [`docs/RETRIEVAL_PG.md`](docs/RETRIEVAL_PG.md) §13, [`.claude/work/2026-05-26_17_mongo-pg-data-architecture/`](.claude/work/2026-05-26_17_mongo-pg-data-architecture/)

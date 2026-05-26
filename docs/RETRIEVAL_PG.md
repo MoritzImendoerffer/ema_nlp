@@ -117,6 +117,11 @@ One row per source URL. Carries the metadata used by prefilters (`committee`,
 | `committee` | TEXT | `CHMP` / `PRAC` / `CVMP` / `COMP` / `PDCO` / `CAT` |
 | `revision` | TEXT | `Rev. N` |
 | `last_updated` | TIMESTAMPTZ | Header date or trafilatura metadata |
+| `parser` | TEXT | Parser that produced `parsed_text` (e.g. `pymupdf4llm`, `trafilatura`) |
+| `parser_version` | TEXT | Pinned version of that parser (or `legacy` from the synthetic reader) |
+| `parsed_at` | TIMESTAMPTZ | When the parser ran (`parsed_documents.parsed_at`) |
+| `parsed_text` | TEXT | Full pre-chunk text from the parser — feeds re-chunking on parser swap |
+| `parsed_text_hash` | TEXT | `sha256(parsed_text)` after trailing-trim — drives the sync hash-skip path |
 | `meta` | JSONB | Escape hatch |
 
 ### `chunks`
@@ -159,21 +164,53 @@ benchmark Q&As and could leak gold answers into eval — see
 
 ## 5. Ingest CLI
 
+The MIGR-007 refactor split the pipeline into three layers (see §13):
+parsers write `ParsedDocument`s to the Mongo `parsed_documents` collection,
+and `harness.embed_pg.sync` reads from there into Postgres. The legacy
+`--source pdfs|html` mode is still available as a back-compat shim.
+
 ```bash
-# All PDFs from MongoDB parsed_pdfs (filter {error: ""})
-python -m harness.embed_pg --source pdfs
+# Default mode — sync from `parsed_documents` using the YAML preference
+python -m harness.embed_pg
 
-# All HTML from MongoDB web_items where content_type='text/html'
-python -m harness.embed_pg --source html
+# Override the preference per content_type (repeatable)
+python -m harness.embed_pg \
+    --parser-preference 'application/pdf=llamahub_pdf_PDFReader' \
+    --parser-preference 'text/html=trafilatura'
 
-# Small dry run
+# Limit to specific URLs (repeatable)
+python -m harness.embed_pg --url-filter 'https://www.ema.europa.eu/.../doc-a.pdf'
+
+# Dry run — compute hash-skip + chunk counts without writing
+python -m harness.embed_pg --dry-run
+
+# Read from the legacy parsed_pdfs + web_items via the synthetic reader
+python -m harness.embed_pg --legacy-source
+
+# Legacy direct mode (pre-MIGR-007 normalisers)
 python -m harness.embed_pg --source pdfs --limit 100
-
-# Force re-ingest (deletes chunks for the affected source_urls first)
-python -m harness.embed_pg --source pdfs --force
+python -m harness.embed_pg --source html --force
 
 # Tune batch size for the BGE encode call (GPU memory)
-python -m harness.embed_pg --source pdfs --batch-size 32
+python -m harness.embed_pg --batch-size 32
+```
+
+### Sync output
+
+`sync()` returns and the CLI prints a `SyncStats` JSON dict:
+
+```json
+{
+  "seen": 25,                         # URLs visited in parsed_documents
+  "selected": 25,                     # passed the preference selector
+  "new": 0,                           # never previously synced
+  "re_synced": 0,                     # parsed_text_hash mismatched, re-embedded
+  "skipped_unchanged": 25,            # hash matched — chunker/embedder never ran
+  "skipped_no_preferred_parser": 0,   # no row matched the YAML/CLI preference
+  "chunks_written": 0,
+  "links_written": 0,
+  "errors": 0
+}
 ```
 
 After ingest, link resolution turns unresolved `tgt_doc_id` columns into
@@ -333,3 +370,158 @@ chunk_ids so the ReAct agent's bad calls aren't fatal.
 Container is named in `deploy/postgres/docker-compose.yml`
 (`container_name: ema_nlp_pg`). Confirm with `docker compose -f
 deploy/postgres/docker-compose.yml ps`.
+
+---
+
+## 13. Three-layer data flow (MIGR-001..017)
+
+Since MIGR-001 the ingest pipeline is three layered modules instead of a
+single normalise-and-chunk monolith:
+
+```
+                ┌──── Layer 1 — Parsers (corpus/parsers/) ────────┐
+raw bytes  ───▶ │  pymupdf4llm  trafilatura  llamahub_pdf (demo)  │ ───▶ ParsedDocument
+                └─────────────────────────────────────────────────┘
+                                       │
+                                       ▼
+                ┌──── Layer 2 — Mongo `parsed_documents` ─────────┐
+                │  One row per (url, parser, parser_version).     │
+                │  Compound unique index. Authoritative store     │
+                │  for parsed text + parser identity.             │
+                └─────────────────────────────────────────────────┘
+                                       │
+                                       ▼
+                ┌──── Layer 3 — harness/embed_pg.sync ────────────┐
+parsed_text ──▶ │  url_metadata + text_metadata derive doc rows;  │ ───▶ documents / chunks / links
+                │  sha256(parsed_text) hash-skips unchanged docs; │      (PG, canonical retrieval store)
+                │  chunker + embedder + upsert otherwise.         │
+                └─────────────────────────────────────────────────┘
+```
+
+### Adding a parser
+
+To add a new content extractor (e.g. a richer HTML extractor, an OCR
+fallback for scanned PDFs, a domain-tuned LlamaHub reader):
+
+1. **Create `corpus/parsers/<name>.py`** with a class implementing the
+   `corpus.parsers.base.Parser` protocol:
+   ```python
+   class MyParser:
+       name: str = "myparser"
+       version: str = importlib.metadata.version("my-upstream-pkg")
+
+       def parse(
+           self,
+           raw: bytes | str,
+           url: str,
+           content_type: str,
+       ) -> ParsedDocument:
+           ...
+   ```
+   Populate `error` instead of raising — the sync layer skips error rows
+   rather than aborting the batch. `corpus/parsers/llamahub_pdf.py` is a
+   worked example with a CLI-less parser behind an optional extra.
+
+2. **Write through the parsed-documents writer**:
+   ```python
+   from corpus.sources.parsed_documents import write_parsed_document
+   write_parsed_document(parser.parse(raw, url, content_type), client=client)
+   ```
+   The compound unique key on `(url, parser, parser_version)` makes this
+   idempotent — re-running upserts the same row.
+
+3. **Optional: add a CLI** at `python -m corpus.parsers.<name>` for
+   batch ingest. `corpus/parsers/pymupdf4llm.py` walks a Scrapy cache;
+   `corpus/parsers/trafilatura.py` reads `web_items.html_raw`. Both
+   write through the same `write_parsed_document` helper.
+
+4. **Make it discoverable to the sync** via `parser_preference`. Either
+   edit `harness/configs/parser_preference.yaml`:
+   ```yaml
+   application/pdf:
+     - myparser           # tried first
+     - pymupdf4llm        # fallback
+   ```
+   …or override per-run with the CLI flag:
+   ```bash
+   python -m harness.embed_pg \
+       --parser-preference 'application/pdf=myparser'
+   ```
+
+5. **Optional: pyproject extra** when the parser pulls heavyweight
+   dependencies. Pattern in `pyproject.toml`:
+   ```toml
+   [project.optional-dependencies]
+   parsers-myparser = ["my-upstream-pkg>=X.Y"]
+   ```
+   Import the upstream package at function scope so importing
+   `corpus.parsers.<name>` doesn't force the install. Tests skip with
+   `importlib.util.find_spec("my-upstream-pkg")` when the extra is
+   absent; see `tests/test_parsers_llamahub_pdf.py` for the pattern.
+
+### Re-sync after a parser change
+
+The sync's hash-skip path means a parser swap only re-embeds the URLs
+whose `parsed_text` actually changed. The typical workflow:
+
+1. Run the new parser to populate its rows in `parsed_documents`:
+   ```bash
+   python -m corpus.parsers.myparser --cache <path>
+   ```
+   Existing rows for other parsers are untouched (different compound
+   key).
+
+2. Update the preference. Either edit the YAML or pass `--parser-preference`
+   on the next sync.
+
+3. Re-sync against the affected URLs only:
+   ```bash
+   python -m harness.embed_pg \
+       --parser-preference 'application/pdf=myparser' \
+       --url-filter 'https://www.ema.europa.eu/.../doc-a.pdf' \
+       --url-filter 'https://www.ema.europa.eu/.../doc-b.pdf'
+   ```
+   The sync iterates URLs, computes `sha256(parsed_text)` for the
+   preferred row, compares against `documents.parsed_text_hash`. On
+   mismatch: deletes the doc's chunks + links and re-chunks/re-embeds.
+   On match: no-op (`skipped_unchanged++`).
+
+4. Roll back by flipping the preference back. The previous parser's row
+   is still in `parsed_documents` (different `parser` value), so the
+   sync will pick it up again and re-embed against that older text.
+
+### Hash-skip semantics — what re-syncs vs what doesn't
+
+| Change | URL re-syncs? |
+|--------|---------------|
+| Same parser, same text upstream | No (`skipped_unchanged`) |
+| Same parser, parsed_text changed | Yes (`re_synced` — delete + re-embed) |
+| Preference flips to a different parser with different text | Yes |
+| Preference flips to a different parser with byte-identical text | No |
+| New URL appears in `parsed_documents` | Yes (`new`) |
+| Preference lists a parser that has no row for the URL | URL is skipped with a warning (`skipped_no_preferred_parser`) |
+
+### `parser_preference.yaml`
+
+The default lives at `harness/configs/parser_preference.yaml`:
+
+```yaml
+application/pdf:
+  - pymupdf4llm
+text/html:
+  - trafilatura
+```
+
+CLI overrides are `--parser-preference content_type=parser`, repeatable.
+Per content_type the override fully replaces the YAML list — there's no
+merge — so write the full ordered list when you want a fallback chain.
+
+### Env vars added by MIGR-006/009
+
+| Variable / file | Purpose |
+|-----------------|---------|
+| `harness/configs/parser_preference.yaml` | Per-content_type parser default list |
+| `--parser-preference` CLI flag | Per-run override (`ct=parser`, repeatable) |
+| `--url-filter` CLI flag | Restrict sync to specific URLs (repeatable) |
+| `--parser-filter` CLI flag | Restrict to specific parser names (repeatable) |
+| `--legacy-source` CLI flag | Read via the synthetic legacy reader |

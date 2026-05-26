@@ -47,6 +47,10 @@ ui = [
     "openinference-instrumentation-anthropic>=0.1",
     "aiosqlite>=0.20",
 ]
+parsers-llamahub = [
+    # Demo parser for the parser-swap workflow (MIGR-014).
+    "llama-index-readers-file>=0.4",
+]
 dev = [
     "pytest>=9.0",
     "pytest-cov>=5.0",

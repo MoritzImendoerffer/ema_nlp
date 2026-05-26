@@ -216,7 +216,7 @@
       "id": "MIGR-012",
       "title": "Backfill script — scripts/migrate_mongo_to_parsed_documents.py",
       "type": "integration",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["MIGR-011"],
       "acceptance_criteria": [
         "scripts/migrate_mongo_to_parsed_documents.py reads parsed_pdfs + web_items and writes corresponding rows into parsed_documents with parser_version='legacy'",
@@ -255,7 +255,7 @@
       "id": "MIGR-014",
       "title": "corpus/parsers/llamahub_pdf.py — demo parser behind [parsers-llamahub] extra",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["MIGR-011"],
       "acceptance_criteria": [
         "corpus/parsers/llamahub_pdf.py implements the Parser protocol against a llamahub PDF reader (e.g. llama-index-readers-file PDFReader, or another concrete reader chosen during implementation)",
@@ -293,7 +293,7 @@
       "id": "MIGR-016",
       "title": "docs/RETRIEVAL_PG.md — Adding a parser + Re-sync sections",
       "type": "documentation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["MIGR-015"],
       "acceptance_criteria": [
         "docs/RETRIEVAL_PG.md gains an 'Adding a parser' section: walks through writing a new corpus/parsers/<name>.py, the Parser protocol, the ParsedDocument writer, the CLI convention; references corpus/parsers/llamahub_pdf.py as the worked example",
@@ -311,7 +311,7 @@
       "id": "MIGR-017",
       "title": "DECISIONS.md — Three-layer separation + Mongo compound-key entry",
       "type": "documentation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["MIGR-013"],
       "acceptance_criteria": [
         "DECISIONS.md gains an entry titled 'Three-layer separation: parsers → Mongo (parsed_documents) → PG (canonical)' with rationale, the compound-key choice (OQ-1), the parsed_text in PG choice (OQ-3), the phased migration choice (OQ-6), and a 'Not chosen' subsection listing per-parser collections, nested-by-parser, big-bang migration",
@@ -324,8 +324,9 @@
       "phase_group": "C_cleanup"
     }
   ],
-  "completed_tasks": ["MIGR-001", "MIGR-002", "MIGR-003", "MIGR-004", "MIGR-005", "MIGR-006", "MIGR-007", "MIGR-008", "MIGR-009", "MIGR-010"],
-  "next_available": ["MIGR-011", "MIGR-012", "MIGR-014"],
+  "completed_tasks": ["MIGR-001", "MIGR-002", "MIGR-003", "MIGR-004", "MIGR-005", "MIGR-006", "MIGR-007", "MIGR-008", "MIGR-009", "MIGR-010", "MIGR-012", "MIGR-014", "MIGR-016", "MIGR-017"],
+  "next_available": ["MIGR-011", "MIGR-013", "MIGR-015"],
+  "paused_for_live_data": ["MIGR-011", "MIGR-013", "MIGR-015"],
   "phase_groups": {
     "A_foundation": ["MIGR-001", "MIGR-002", "MIGR-003", "MIGR-004", "MIGR-005"],
     "B_sync":       ["MIGR-006", "MIGR-007", "MIGR-008", "MIGR-009", "MIGR-010", "MIGR-011"],
