@@ -1,7 +1,7 @@
 {
   "status": "implementing",
   "work_unit": "2026-05-26_17_mongo-pg-data-architecture",
-  "current_task": "MIGR-007",
+  "current_task": "MIGR-011",
   "tasks": [
     {
       "id": "MIGR-001",
@@ -120,7 +120,7 @@
       "id": "MIGR-007",
       "title": "harness/embed_pg.py — parser-agnostic sync refactor",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["MIGR-001", "MIGR-002", "MIGR-003", "MIGR-006"],
       "acceptance_criteria": [
         "harness/embed_pg.py no longer imports trafilatura or pymupdf4llm (verified by grep at the top of the file)",
@@ -141,7 +141,7 @@
       "id": "MIGR-008",
       "title": "Synthetic legacy reader — parsed_pdfs + web_items → parsed_documents stream",
       "type": "integration",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["MIGR-001", "MIGR-007"],
       "acceptance_criteria": [
         "corpus/sources/synthetic_legacy_reader.py exposes iter_parsed_documents_from_legacy(*, client=None, content_types: list[str]=['application/pdf','text/html']) -> Iterator[ParsedDocument]",
@@ -160,7 +160,7 @@
       "id": "MIGR-009",
       "title": "harness/configs/parser_preference.yaml + --parser-preference CLI flag",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["MIGR-007"],
       "acceptance_criteria": [
         "harness/configs/parser_preference.yaml exists with default:\\n  application/pdf: [pymupdf4llm]\\n  text/html: [trafilatura]",
@@ -178,7 +178,7 @@
       "id": "MIGR-010",
       "title": "Integration tests — sync against ema_nlp_test PG + Mongo fixture",
       "type": "testing",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["MIGR-007", "MIGR-008", "MIGR-009"],
       "acceptance_criteria": [
         "tests/test_embed_pg_sync.py against the dedicated ema_nlp_test PG database (DSN via PG_DSN_TEST, same skip-clean pattern as tests/test_retrieve_pg.py NARR-026)",
@@ -324,8 +324,8 @@
       "phase_group": "C_cleanup"
     }
   ],
-  "completed_tasks": ["MIGR-001", "MIGR-002", "MIGR-003", "MIGR-004", "MIGR-005", "MIGR-006"],
-  "next_available": ["MIGR-007"],
+  "completed_tasks": ["MIGR-001", "MIGR-002", "MIGR-003", "MIGR-004", "MIGR-005", "MIGR-006", "MIGR-007", "MIGR-008", "MIGR-009", "MIGR-010"],
+  "next_available": ["MIGR-011", "MIGR-012", "MIGR-014"],
   "phase_groups": {
     "A_foundation": ["MIGR-001", "MIGR-002", "MIGR-003", "MIGR-004", "MIGR-005"],
     "B_sync":       ["MIGR-006", "MIGR-007", "MIGR-008", "MIGR-009", "MIGR-010", "MIGR-011"],

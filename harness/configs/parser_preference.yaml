@@ -1,0 +1,14 @@
+# Default parser preference for the harness.embed_pg.sync pipeline.
+#
+# Each key is a MIME content_type; the value is an ordered list of parser
+# names (highest priority first). The sync's preference selector picks
+# the first parser in this list that has a row in `parsed_documents`
+# for the URL under consideration.
+#
+# Override per-run with one or more --parser-preference 'content_type=parser'
+# flags. Per-content_type the CLI flag fully replaces the YAML default.
+
+application/pdf:
+  - pymupdf4llm
+text/html:
+  - trafilatura

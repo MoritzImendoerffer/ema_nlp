@@ -22,12 +22,16 @@ from __future__ import annotations
 UPSERT_DOCUMENT = """
 INSERT INTO documents (
     doc_id, source_url, source_type, title, topic_path,
-    reference_number, committee, revision, last_updated, raw_byte_size, meta
+    reference_number, committee, revision, last_updated, raw_byte_size,
+    parser, parser_version, parsed_at, parsed_text, parsed_text_hash,
+    meta
 )
 VALUES (
     %(doc_id)s, %(source_url)s, %(source_type)s, %(title)s, %(topic_path)s,
     %(reference_number)s, %(committee)s, %(revision)s, %(last_updated)s,
-    %(raw_byte_size)s, %(meta)s
+    %(raw_byte_size)s,
+    %(parser)s, %(parser_version)s, %(parsed_at)s, %(parsed_text)s, %(parsed_text_hash)s,
+    %(meta)s
 )
 ON CONFLICT (doc_id) DO UPDATE SET
     title            = EXCLUDED.title,
@@ -37,8 +41,20 @@ ON CONFLICT (doc_id) DO UPDATE SET
     revision         = EXCLUDED.revision,
     last_updated     = EXCLUDED.last_updated,
     raw_byte_size    = EXCLUDED.raw_byte_size,
+    parser           = EXCLUDED.parser,
+    parser_version   = EXCLUDED.parser_version,
+    parsed_at        = EXCLUDED.parsed_at,
+    parsed_text      = EXCLUDED.parsed_text,
+    parsed_text_hash = EXCLUDED.parsed_text_hash,
     meta             = EXCLUDED.meta
 """
+
+# Returns (doc_id, parsed_text_hash) for the given doc_ids — drives the
+# hash-skip path in harness.embed_pg.sync().
+PARSED_HASH_BY_DOC_IDS = (
+    "SELECT doc_id, parsed_text_hash FROM documents "
+    "WHERE doc_id = ANY(%(doc_ids)s)"
+)
 
 INSERT_CHUNK = """
 INSERT INTO chunks (
