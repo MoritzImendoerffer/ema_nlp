@@ -1,0 +1,362 @@
+{
+  "status": "implementing",
+  "work_unit": "2026-05-26_17_mongo-pg-data-architecture",
+  "current_task": "MIGR-002",
+  "tasks": [
+    {
+      "id": "MIGR-001",
+      "title": "ParsedDocument schema + Mongo writer + index bootstrap",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "corpus/parsers/base.py exposes ParsedDocument dataclass with fields: url, parser, parser_version, parsed_at, content_type, text, text_format ('markdown'|'html'|'plain'), error, meta",
+        "corpus/sources/parsed_documents.py exposes write_parsed_document(doc: ParsedDocument, *, client=None) and bootstrap_indexes(client=None); writer uses bulk_write with UpdateOne(..., upsert=True) keyed on (url, parser, parser_version)",
+        "Compound unique index (url, parser, parser_version) created via bootstrap_indexes; secondary indexes on (url) and (parser, parser_version) for selection queries",
+        "tests/test_parsed_documents_writer.py covers: single write round-trips, duplicate (url, parser, parser_version) is an upsert not an insert, different parser_version coexist for the same url, malformed ParsedDocument raises ValueError before hitting Mongo",
+        "Tests use mongomock or a Mongo testcontainer; CI-skip when MONGO_URI is unset and no in-memory fallback present",
+        "Full suite green"
+      ],
+      "estimated_hours": 2.5,
+      "priority": "high",
+      "pr": "PR1",
+      "phase_group": "A_foundation"
+    },
+    {
+      "id": "MIGR-002",
+      "title": "corpus/metadata/url_metadata.py — URL-derived metadata",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "corpus/metadata/url_metadata.py exposes url_metadata(url: str) -> UrlMetadata with fields: source_type ('pdf'|'html'|'unknown'), topic_path",
+        "topic_path matches today's behaviour in both corpus/ingestion/pdf_normaliser.py:_extract_topic_path and corpus/ingestion/html_normaliser.py:_topic_path (drop filename when last segment has an extension; trailing slash; root path returns '/')",
+        "source_type derived from URL extension when unambiguous (.pdf → pdf, content-bearing HTML URLs → html); 'unknown' otherwise (the caller passes content_type through ParsedDocument for the authoritative value)",
+        "tests/test_url_metadata.py covers ≥10 cases: PDF URL with .pdf, PDF URL with query string, HTML URL with trailing slash, HTML URL with deep path, root URL, malformed URL — all return the same values the current normalisers would (golden tests)",
+        "Full suite green"
+      ],
+      "estimated_hours": 2,
+      "priority": "high",
+      "pr": "PR1",
+      "phase_group": "A_foundation"
+    },
+    {
+      "id": "MIGR-003",
+      "title": "corpus/metadata/text_metadata.py — text-derived metadata",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "corpus/metadata/text_metadata.py exposes text_metadata(text: str, text_format: str) -> TextMetadata with fields: title, reference_number, committee, revision, last_updated",
+        "Regexes (EMA_REF_RE, _COMMITTEE_RE, _REVISION_RE, _H1_RE, _DATE_RE, _MONTHS) move here verbatim from corpus/ingestion/pdf_normaliser.py and are exported for reuse by link_extractor (which currently imports them)",
+        "text_metadata degrades gracefully: missing fields → None (never raises); logs a debug-level 'metadata missing: <field>' when an expected field isn't found",
+        "tests/test_text_metadata.py uses the existing PDF + HTML markdown fixtures (tests/fixtures/ema_pdf_sample.md, tests/fixtures/ema_html_sample*) plus ≥3 synthetic edge cases (no H1, no reference number, malformed date) — all assert the same return values as today's pdf_normaliser would on the same input",
+        "Coverage on corpus/metadata/text_metadata.py ≥ 90%",
+        "Full suite green"
+      ],
+      "estimated_hours": 3,
+      "priority": "high",
+      "pr": "PR1",
+      "phase_group": "A_foundation"
+    },
+    {
+      "id": "MIGR-004",
+      "title": "Parser protocol + corpus/parsers/pymupdf4llm.py + CLI + tests",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["MIGR-001"],
+      "acceptance_criteria": [
+        "corpus/parsers/base.py adds a Parser protocol: name (str), version (str), parse(raw: bytes|str, url: str, content_type: str) -> ParsedDocument",
+        "corpus/parsers/pymupdf4llm.py wraps the parsing currently embedded in scripts/ingest_parsed_pdfs.py (pickle.load(parsed_pdf.pkl) + extract markdown); name='pymupdf4llm', version pinned to the package version from pyproject",
+        "Returns ParsedDocument with content_type='application/pdf', text_format='markdown', error populated when parser-internal error is non-empty",
+        "CLI entrypoint: python -m corpus.parsers.pymupdf4llm --cache <path> [--limit N] [--url <single_url>] [--dry-run] writes through corpus/sources/parsed_documents.write_parsed_document",
+        "scripts/ingest_parsed_pdfs.py refactored to delegate to corpus.parsers.pymupdf4llm; legacy write to parsed_pdfs collection retained behind a --legacy flag for one transition cycle",
+        "tests/test_parsers_pymupdf4llm.py covers a fixture pickle (or a pickle-shaped mock), ParsedDocument round-trip, error-row handling",
+        "Full suite green"
+      ],
+      "estimated_hours": 3,
+      "priority": "high",
+      "pr": "PR1",
+      "phase_group": "A_foundation"
+    },
+    {
+      "id": "MIGR-005",
+      "title": "corpus/parsers/trafilatura.py + CLI + tests",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["MIGR-001"],
+      "acceptance_criteria": [
+        "corpus/parsers/trafilatura.py wraps the trafilatura.extract call currently embedded in corpus/ingestion/html_normaliser.py:normalise_html (same kwargs: output_format='markdown', include_links=True, include_tables=True, with_metadata=False, favor_recall=True)",
+        "name='trafilatura', version pinned to the package version from pyproject",
+        "Returns ParsedDocument with content_type='text/html', text_format='markdown'; returns ParsedDocument with error='landing_page_below_min_chars' when extracted text < 200 chars (the existing landing-page guard threshold)",
+        "Reads raw HTML from web_items.html_raw (still the input store per OQ-2); CLI: python -m corpus.parsers.trafilatura [--limit N] [--url <single_url>] [--dry-run]",
+        "tests/test_parsers_trafilatura.py covers the existing tests/fixtures/ema_html_sample.html + landing-page sample; asserts ParsedDocument shape matches today's normalise_html_doc output via DocumentInput-equivalent assertions",
+        "Full suite green"
+      ],
+      "estimated_hours": 2.5,
+      "priority": "high",
+      "pr": "PR1",
+      "phase_group": "A_foundation"
+    },
+    {
+      "id": "MIGR-006",
+      "title": "ALTER documents table — parser/parser_version/parsed_at/parsed_text/parsed_text_hash + index",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "corpus/pg_schema.sql adds: parser TEXT, parser_version TEXT, parsed_at TIMESTAMPTZ, parsed_text TEXT, parsed_text_hash TEXT on documents",
+        "corpus/pg_schema.sql adds: CREATE INDEX IF NOT EXISTS documents_parser_idx ON documents (parser, parser_version)",
+        "scripts/init_db.py runs the additive DDL idempotently against an already-populated DB (no data loss; existing rows have NULLs in the new columns until next sync)",
+        "Manual verification: after running init_db.py on the live ema_nlp DB, \\d documents shows the five new columns; existing 25 rows are unchanged; documents_parser_idx exists",
+        "Full suite green (no test specifically required for the DDL — it's verified via the sync integration tests in MIGR-010)"
+      ],
+      "estimated_hours": 1.5,
+      "priority": "high",
+      "pr": "PR2",
+      "phase_group": "B_sync"
+    },
+    {
+      "id": "MIGR-007",
+      "title": "harness/embed_pg.py — parser-agnostic sync refactor",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["MIGR-001", "MIGR-002", "MIGR-003", "MIGR-006"],
+      "acceptance_criteria": [
+        "harness/embed_pg.py no longer imports trafilatura or pymupdf4llm (verified by grep at the top of the file)",
+        "Public entrypoint renamed/extended: sync(parser_preference: dict[str, list[str]], *, since: datetime|None=None, parser_filter: list[str]|None=None, url_filter: list[str]|None=None, batch_size=16, dry_run=False, embedder: Embedder|None=None) -> SyncStats",
+        "Inner loop: for each (url, parser, parser_version) returned by the preference selector, compute sha256(parsed.text); if it equals documents.parsed_text_hash for the same doc_id, skip (count as skipped_unchanged); else delete existing chunks+links and re-chunk/embed/upsert",
+        "Sync writes documents.parser, parser_version, parsed_at, parsed_text, parsed_text_hash on every upsert",
+        "Chunker / embedder / upsert paths reuse the existing chunker, Embedder class, queries module — no regression in chunk_id computation",
+        "Existing CLI subcommands (`--source pdfs|html`) still work but delegate to the new sync via the synthetic legacy reader (added in MIGR-008); --smoke unchanged",
+        "Unit-tested portions of the new sync (preference selection, hash-skip path) covered by pure-Python tests with a fake-Mongo stand-in",
+        "Full suite green"
+      ],
+      "estimated_hours": 4,
+      "priority": "high",
+      "pr": "PR2",
+      "phase_group": "B_sync"
+    },
+    {
+      "id": "MIGR-008",
+      "title": "Synthetic legacy reader — parsed_pdfs + web_items → parsed_documents stream",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["MIGR-001", "MIGR-007"],
+      "acceptance_criteria": [
+        "corpus/sources/synthetic_legacy_reader.py exposes iter_parsed_documents_from_legacy(*, client=None, content_types: list[str]=['application/pdf','text/html']) -> Iterator[ParsedDocument]",
+        "For parsed_pdfs rows: emits ParsedDocument(parser='pymupdf4llm', parser_version='legacy', text=row.markdown, text_format='markdown', content_type='application/pdf', meta={'cache_path':..., 'ingested_at':...})",
+        "For web_items rows with content_type='text/html': runs the trafilatura parser through corpus/parsers/trafilatura.py to produce ParsedDocument; landing pages produce ParsedDocument(error='landing_page_below_min_chars') and are filtered out of the iterator unless include_errors=True",
+        "harness/embed_pg.py's sync() supports a `source='legacy'` mode that pulls from this reader; default mode reads parsed_documents directly",
+        "tests/test_synthetic_legacy_reader.py against mongomock or a Mongo testcontainer: seeded with ≥3 parsed_pdfs rows and ≥3 web_items rows; assert correct ParsedDocument shape, parser/parser_version values, landing-page filter",
+        "Full suite green"
+      ],
+      "estimated_hours": 2.5,
+      "priority": "high",
+      "pr": "PR2",
+      "phase_group": "B_sync"
+    },
+    {
+      "id": "MIGR-009",
+      "title": "harness/configs/parser_preference.yaml + --parser-preference CLI flag",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["MIGR-007"],
+      "acceptance_criteria": [
+        "harness/configs/parser_preference.yaml exists with default:\\n  application/pdf: [pymupdf4llm]\\n  text/html: [trafilatura]",
+        "harness/embed_pg.py CLI supports --parser-preference repeated: e.g. --parser-preference 'application/pdf=llamahub_pdf' --parser-preference 'text/html=trafilatura'; each value overrides the YAML default for that content_type",
+        "Preference selector logic: for each url in parsed_documents, find the highest-priority parser per content_type that has a row; if none, skip the url with a warning",
+        "Unit test asserts: (a) YAML default loads, (b) CLI flag overrides YAML, (c) missing-parser-for-url logs a warning and continues",
+        "Full suite green"
+      ],
+      "estimated_hours": 1.5,
+      "priority": "high",
+      "pr": "PR2",
+      "phase_group": "B_sync"
+    },
+    {
+      "id": "MIGR-010",
+      "title": "Integration tests — sync against ema_nlp_test PG + Mongo fixture",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": ["MIGR-007", "MIGR-008", "MIGR-009"],
+      "acceptance_criteria": [
+        "tests/test_embed_pg_sync.py against the dedicated ema_nlp_test PG database (DSN via PG_DSN_TEST, same skip-clean pattern as tests/test_retrieve_pg.py NARR-026)",
+        "Fixture: 6 parsed_documents rows across 3 URLs (2 parsers × 3 urls — pymupdf4llm and llamahub_pdf-shaped); deterministic seeded embeddings so the BGE model never loads",
+        "Test cases (≥7): (1) initial sync writes 3 documents + N chunks, (2) re-sync with no Mongo changes writes zero new rows (skipped_unchanged=3), (3) re-sync with --parser-preference flipped re-syncs only the affected urls, (4) hash mismatch triggers delete + re-insert, (5) synthetic legacy reader path produces identical PG state to direct parsed_documents path on same content, (6) malformed url_filter is rejected, (7) dry_run never writes",
+        "Test runtime under 30 s",
+        "Full suite green"
+      ],
+      "estimated_hours": 3,
+      "priority": "high",
+      "pr": "PR2",
+      "phase_group": "B_sync"
+    },
+    {
+      "id": "MIGR-011",
+      "title": "Smoke verify — chunk_id stability against live 446-chunk PG seed",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": ["MIGR-007", "MIGR-008"],
+      "acceptance_criteria": [
+        "Run: python -m harness.embed_pg sync --source legacy --dry-run against the live ema_nlp PG (the 25-doc / 446-chunk seed)",
+        "Assert: zero writes attempted; skipped_unchanged = 25 (all docs); zero chunk deletions",
+        "Run without --dry-run: same zero-write outcome (defensive — the refactor must be a no-op against the existing seed by design)",
+        "Verify post-run via SQL: SELECT count(*) FROM chunks unchanged; SELECT count(*) FROM documents unchanged; documents.parser, parser_version, parsed_at populated where they were previously NULL",
+        "EMA_RETRIEVER=pgvector chainlit run app.py still answers a sample question end-to-end (manual smoke)",
+        "Append a HISTORY.md row with the smoke result",
+        "Full suite green"
+      ],
+      "estimated_hours": 1.5,
+      "priority": "high",
+      "pr": "PR2",
+      "phase_group": "B_sync"
+    },
+    {
+      "id": "MIGR-012",
+      "title": "Backfill script — scripts/migrate_mongo_to_parsed_documents.py",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["MIGR-011"],
+      "acceptance_criteria": [
+        "scripts/migrate_mongo_to_parsed_documents.py reads parsed_pdfs + web_items and writes corresponding rows into parsed_documents with parser_version='legacy'",
+        "PDFs: ParsedDocument(parser='pymupdf4llm', parser_version='legacy', text=row.markdown, ...); skip rows where error != ''",
+        "HTML: ParsedDocument(parser='trafilatura', parser_version='legacy', text=<trafilatura output>, ...); skip landing pages",
+        "Idempotent: re-running overwrites the same compound key without growing the collection (verified by row count before/after)",
+        "CLI: --dry-run, --limit N, --source pdfs|html|both, --batch-size; reports counts (read, written, skipped, errors)",
+        "tests/test_migrate_backfill.py covers idempotency, error-row skipping, landing-page filter",
+        "Full suite green"
+      ],
+      "estimated_hours": 2,
+      "priority": "high",
+      "pr": "PR3",
+      "phase_group": "C_cleanup"
+    },
+    {
+      "id": "MIGR-013",
+      "title": "Run backfill; remove synthetic-reader fallback from sync",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["MIGR-012"],
+      "acceptance_criteria": [
+        "Run scripts/migrate_mongo_to_parsed_documents.py --source both against the production Mongo; record final parsed_documents row count in HISTORY.md (expected: ~65k PDF rows + ~22k HTML rows post-landing-page filter)",
+        "Verify: SELECT COUNT(*) FROM documents WHERE parser_version IS NULL = 0 after a follow-up sync(); all docs now carry their parser identity",
+        "Remove corpus/sources/synthetic_legacy_reader.py and its references in harness/embed_pg.py; sync() now reads only parsed_documents",
+        "Update tests: delete or skip tests/test_synthetic_legacy_reader.py; ensure tests/test_embed_pg_sync.py still passes against parsed_documents directly",
+        "harness/embed_pg.py CLI keeps --source pdfs|html as flags that filter content_type, but legacy mode is gone",
+        "Full suite green"
+      ],
+      "estimated_hours": 1,
+      "priority": "high",
+      "pr": "PR3",
+      "phase_group": "C_cleanup"
+    },
+    {
+      "id": "MIGR-014",
+      "title": "corpus/parsers/llamahub_pdf.py — demo parser behind [parsers-llamahub] extra",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["MIGR-011"],
+      "acceptance_criteria": [
+        "corpus/parsers/llamahub_pdf.py implements the Parser protocol against a llamahub PDF reader (e.g. llama-index-readers-file PDFReader, or another concrete reader chosen during implementation)",
+        "pyproject.toml adds a [parsers-llamahub] optional extra; the parser module's imports happen at function scope so importing corpus.parsers doesn't force llamahub install",
+        "name='llamahub_pdf_<reader_class>', version pinned to llamahub package version",
+        "Smoke run: process 5 PDF URLs from the existing parsed_pdfs collection, write to parsed_documents with parser='llamahub_pdf_...', parser_version=<pkg_version>; verify rows present via mongosh",
+        "tests/test_parsers_llamahub_pdf.py: skip-clean when the extra is not installed (importlib.util.find_spec); when installed, parse a fixture PDF (any of the existing test PDFs) and assert ParsedDocument shape",
+        "Full suite green (with and without the extra)"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium",
+      "pr": "PR3",
+      "phase_group": "C_cleanup"
+    },
+    {
+      "id": "MIGR-015",
+      "title": "E2E parser-swap smoke — --parser-preference re-syncs only targeted URLs",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": ["MIGR-013", "MIGR-014"],
+      "acceptance_criteria": [
+        "Pick the 5 PDF URLs covered by MIGR-014's llamahub smoke",
+        "Run: python -m harness.embed_pg sync --url-filter <5 urls> --parser-preference 'application/pdf=llamahub_pdf'",
+        "Assert: 5 documents updated (parser, parser_version, parsed_text, parsed_text_hash now reflect llamahub); all other documents.parsed_text_hash unchanged; chunks for the 5 docs replaced; chunks for the other 20+ docs untouched",
+        "Run again with the default preference: 5 documents revert to pymupdf4llm; other 20+ untouched",
+        "Log row counts before/after each step in HISTORY.md",
+        "Full suite green"
+      ],
+      "estimated_hours": 1.5,
+      "priority": "medium",
+      "pr": "PR3",
+      "phase_group": "C_cleanup"
+    },
+    {
+      "id": "MIGR-016",
+      "title": "docs/RETRIEVAL_PG.md — Adding a parser + Re-sync sections",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": ["MIGR-015"],
+      "acceptance_criteria": [
+        "docs/RETRIEVAL_PG.md gains an 'Adding a parser' section: walks through writing a new corpus/parsers/<name>.py, the Parser protocol, the ParsedDocument writer, the CLI convention; references corpus/parsers/llamahub_pdf.py as the worked example",
+        "docs/RETRIEVAL_PG.md gains a 'Re-sync after a parser change' section: --parser-preference, --url-filter, hash-skip semantics, what re-syncs vs what doesn't, how to roll back",
+        "docs/RETRIEVAL_PG.md env-var table updates: parser_preference.yaml location, CLI flag syntax",
+        "CLAUDE.md §Data sources notes that Mongo is the parser sink and PG is the canonical retrieval store with parsed_text + parser identity",
+        "HISTORY.md row"
+      ],
+      "estimated_hours": 1,
+      "priority": "medium",
+      "pr": "PR3",
+      "phase_group": "C_cleanup"
+    },
+    {
+      "id": "MIGR-017",
+      "title": "DECISIONS.md — Three-layer separation + Mongo compound-key entry",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": ["MIGR-013"],
+      "acceptance_criteria": [
+        "DECISIONS.md gains an entry titled 'Three-layer separation: parsers → Mongo (parsed_documents) → PG (canonical)' with rationale, the compound-key choice (OQ-1), the parsed_text in PG choice (OQ-3), the phased migration choice (OQ-6), and a 'Not chosen' subsection listing per-parser collections, nested-by-parser, big-bang migration",
+        "DECISIONS.md links to docs/RETRIEVAL_PG.md and to this work unit folder",
+        "HISTORY.md row"
+      ],
+      "estimated_hours": 1,
+      "priority": "medium",
+      "pr": "PR3",
+      "phase_group": "C_cleanup"
+    }
+  ],
+  "completed_tasks": ["MIGR-001"],
+  "next_available": ["MIGR-002", "MIGR-003", "MIGR-004", "MIGR-005", "MIGR-006"],
+  "phase_groups": {
+    "A_foundation": ["MIGR-001", "MIGR-002", "MIGR-003", "MIGR-004", "MIGR-005"],
+    "B_sync":       ["MIGR-006", "MIGR-007", "MIGR-008", "MIGR-009", "MIGR-010", "MIGR-011"],
+    "C_cleanup":    ["MIGR-012", "MIGR-013", "MIGR-014", "MIGR-015", "MIGR-016", "MIGR-017"]
+  },
+  "pr_groups": {
+    "PR1_foundation":     ["MIGR-001", "MIGR-002", "MIGR-003", "MIGR-004", "MIGR-005"],
+    "PR2_sync_refactor":  ["MIGR-006", "MIGR-007", "MIGR-008", "MIGR-009", "MIGR-010", "MIGR-011"],
+    "PR3_backfill_demo":  ["MIGR-012", "MIGR-013", "MIGR-014", "MIGR-015", "MIGR-016", "MIGR-017"]
+  },
+  "totals": {
+    "task_count": 17,
+    "estimated_hours": 36,
+    "critical_path": [
+      "MIGR-001",
+      "MIGR-006",
+      "MIGR-007",
+      "MIGR-008",
+      "MIGR-010",
+      "MIGR-011",
+      "MIGR-012",
+      "MIGR-013",
+      "MIGR-015",
+      "MIGR-016",
+      "MIGR-017"
+    ]
+  },
+  "follow_ups": [
+    "Migrate corpus/extractors/ Q&A path to read from parsed_documents (trigger: benchmark refresh wants the Q&A extractor to consume a different parser's output)",
+    "Retire parsed_pdfs and web_items collections (trigger: above migration lands)",
+    "Parse-on-demand integration in the sync CLI (trigger: an operator workflow that genuinely benefits)",
+    "Per-URL-pattern parser preference (trigger: a sub-corpus benefits from a different parser)"
+  ]
+}
