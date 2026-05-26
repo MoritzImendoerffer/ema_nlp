@@ -1,7 +1,7 @@
 {
   "status": "implementing",
   "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
-  "current_task": "NARR-025",
+  "current_task": "NARR-026",
   "tasks": [
     {
       "id": "NARR-001",
@@ -373,7 +373,7 @@
       "id": "NARR-025",
       "title": "Unit test suite — chunker, normalisers, link extractor",
       "type": "testing",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-004", "NARR-005", "NARR-009", "NARR-012"],
       "acceptance_criteria": [
         "tests/test_chunker.py, tests/test_pdf_normaliser.py, tests/test_html_normaliser.py, tests/test_link_extractor.py all green",
