@@ -1,7 +1,7 @@
 {
   "status": "implementing",
   "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
-  "current_task": "NARR-024",
+  "current_task": "NARR-025",
   "tasks": [
     {
       "id": "NARR-001",
@@ -359,7 +359,7 @@
       "id": "NARR-024",
       "title": "Expose prefilter + traversal in YAML configs",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-023"],
       "acceptance_criteria": [
         "RetrievalConfigPG.from_yaml_section reads retrieval.prefilter.{topic_path_prefix,committee,date_range} and retrieval.traversal.{mode,max_hops,link_types}",

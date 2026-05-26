@@ -1,0 +1,61 @@
+# Example — pgvector retrieval limited to the CHMP sub-corpus
+#
+# This config demonstrates the pgvector-only retrieval extensions added in
+# the narrative-corpus pivot:
+#
+#   retrieval.prefilter — SQL WHERE clauses applied before kNN / BM25 ranking
+#   retrieval.traversal — recursive link-graph expansion of the initial top-k
+#
+# Run with the pgvector backend:
+#
+#   EMA_RETRIEVER=pgvector python -m harness.run_eval \
+#       --config harness/configs/example_chmp_only.yaml
+#
+# Verification (after the run, all returned chunks must come from CHMP docs):
+#
+#   docker exec ema_nlp_pg psql -U ema_nlp -d ema_nlp -c "
+#     SELECT d.committee, count(DISTINCT c.chunk_id)
+#     FROM chunks c JOIN documents d ON d.doc_id = c.doc_id
+#     WHERE c.chunk_id = ANY(...);  -- chunk ids from the run's retrieval.json
+#   "
+
+run_id: example_chmp_only
+description: "Example: pgvector retrieval restricted to committee=CHMP, with 1-hop link traversal"
+
+retrieval:
+  strategy: flat        # honoured by the FAISS path; ignored on pgvector
+  mode: hybrid          # dense | bm25 | hybrid
+  k: 10
+  prefilter:
+    # Match documents.committee column. Both 'CHMP' and ['CHMP'] are accepted.
+    committee: ["CHMP"]
+    # topic_path_prefix: "/en/medicines/"   # uncomment to restrict by URL path
+    # date_range: ["2020-01-01", "2024-12-31"]
+  traversal:
+    mode: auto                              # none | auto | agent_tool
+    max_hops: 1
+    link_types: ["hyperlink", "reference_number"]
+
+orchestration:
+  strategy: simple_rag
+  prompt_strategy: zero_shot
+  cache_inject: false
+
+index:
+  # FAISS path fields — unused on pgvector but kept so the same YAML works
+  # under EMA_RETRIEVER=faiss for back-compat experiments.
+  corpus: ~/Nextcloud/Datasets/ema_nlp/corpus/corpus.jsonl
+  index_dir: ~/Nextcloud/Datasets/ema_nlp/index
+  embed_model: BAAI/bge-large-en-v1.5
+  force_rebuild: false
+
+benchmark:
+  path: benchmark/benchmark.jsonl
+
+judge:
+  enabled: false
+  model: claude-haiku-4-5-20251001
+  sample_fraction: 1.0
+
+results:
+  base_dir: ~/Nextcloud/Datasets/ema_nlp/results
