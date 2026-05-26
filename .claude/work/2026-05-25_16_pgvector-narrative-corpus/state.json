@@ -1,7 +1,7 @@
 {
   "status": "implementing",
   "work_unit": "2026-05-25_16_pgvector-narrative-corpus",
-  "current_task": "NARR-027",
+  "current_task": "NARR-011",
   "tasks": [
     {
       "id": "NARR-001",
@@ -403,7 +403,7 @@
       "id": "NARR-027",
       "title": "Documentation — CLAUDE.md + RETRIEVAL_PG.md",
       "type": "documentation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["NARR-023"],
       "acceptance_criteria": [
         "CLAUDE.md §Data sources and §V1 scope locks updated: retrieval is over Postgres chunks; corpus.jsonl is benchmark-only; full narrative corpus is in scope",

@@ -37,9 +37,11 @@ Full task list and status: `.claude/work/2026-05-10_02_implementation-plan/state
 
 - **MongoDB** `ema_scraper.web_items` — raw scraped EMA pages; HTML stored as `html_raw` (1-element list), PDFs as metadata only
 - **MongoDB** `ema_scraper.parsed_pdfs` — pymupdf4llm markdown keyed by URL; built by `scripts/ingest_parsed_pdfs.py`; 65k docs; query `{error: ""}` for clean parses
+- **Postgres + pgvector** `ema_nlp` (Docker, `deploy/postgres/`) — the narrative corpus. Tables: `documents`, `chunks` (HNSW + BM25), `links`. Populated from MongoDB by `python -m harness.embed_pg`. This is the retrieval target at runtime; `corpus.jsonl` is benchmark-only.
 - **Nextcloud**: `~/Nextcloud/Datasets/` — Scrapy cache (`ema_scraper/cache/`) + IDMP ontology RDF files
 - Paths are configured in `config.py`, which loads `~/.myenvs/ema_nlp.env` via python-dotenv
 - MongoDB source adaptor: `corpus/sources/mongo_source.py` — `records_from_mongodb(host, db)` yields `QARecord` from both collections
+- Retrieval backend switch: `EMA_RETRIEVER=pgvector` (default `faiss` for back-compat). See `docs/RETRIEVAL_PG.md` for the full operator's guide.
 
 ## Commands
 
@@ -58,7 +60,8 @@ Currently in **Phase 1 (corpus extraction)**. Do not introduce work from later p
 
 ## V1 scope locks
 
-- EMA human-regulatory Q&As only. No EPARs, no FDA content, no clinical trial documents.
+- EMA human-regulatory content only. No EPARs, no FDA content, no clinical trial documents.
+- **Narrative corpus is in scope** (the full PDF + HTML body text, ingested into Postgres). `corpus.jsonl` is the curated Q&A pair extract — used by the benchmark and as a fallback FAISS index; retrieval at runtime is over the pg `chunks` table.
 - No ontology/graph infrastructure (IDMP, SPOR, Neo4j) — deferred to v2+. IDMP RDF used only for lightweight node metadata tagging (TASK-016.5). `idmp_dabbling.py` is exploratory scratch.
 - No multilingual content.
 - Every added complexity layer must be justified by a specific benchmark failure, not anticipation.

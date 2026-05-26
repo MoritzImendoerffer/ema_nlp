@@ -2,6 +2,11 @@
 
 How to get `ema_nlp` running on a new machine (Linux/macOS).
 
+> **Looking for the Postgres + pgvector retrieval stack?** See
+> [`docs/RETRIEVAL_PG.md`](RETRIEVAL_PG.md) for the operator's guide
+> (provisioning, environment variables, schema overview, ingest CLI,
+> retrieval modes, traversal modes, sub-corpus filters, and troubleshooting).
+
 ---
 
 ## Prerequisites
