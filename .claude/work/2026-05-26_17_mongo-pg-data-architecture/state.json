@@ -1,7 +1,7 @@
 {
   "status": "implementing",
   "work_unit": "2026-05-26_17_mongo-pg-data-architecture",
-  "current_task": "MIGR-002",
+  "current_task": "MIGR-007",
   "tasks": [
     {
       "id": "MIGR-001",
@@ -26,7 +26,7 @@
       "id": "MIGR-002",
       "title": "corpus/metadata/url_metadata.py — URL-derived metadata",
       "type": "foundation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [],
       "acceptance_criteria": [
         "corpus/metadata/url_metadata.py exposes url_metadata(url: str) -> UrlMetadata with fields: source_type ('pdf'|'html'|'unknown'), topic_path",
@@ -44,7 +44,7 @@
       "id": "MIGR-003",
       "title": "corpus/metadata/text_metadata.py — text-derived metadata",
       "type": "foundation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [],
       "acceptance_criteria": [
         "corpus/metadata/text_metadata.py exposes text_metadata(text: str, text_format: str) -> TextMetadata with fields: title, reference_number, committee, revision, last_updated",
@@ -63,7 +63,7 @@
       "id": "MIGR-004",
       "title": "Parser protocol + corpus/parsers/pymupdf4llm.py + CLI + tests",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["MIGR-001"],
       "acceptance_criteria": [
         "corpus/parsers/base.py adds a Parser protocol: name (str), version (str), parse(raw: bytes|str, url: str, content_type: str) -> ParsedDocument",
@@ -83,7 +83,7 @@
       "id": "MIGR-005",
       "title": "corpus/parsers/trafilatura.py + CLI + tests",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["MIGR-001"],
       "acceptance_criteria": [
         "corpus/parsers/trafilatura.py wraps the trafilatura.extract call currently embedded in corpus/ingestion/html_normaliser.py:normalise_html (same kwargs: output_format='markdown', include_links=True, include_tables=True, with_metadata=False, favor_recall=True)",
@@ -102,7 +102,7 @@
       "id": "MIGR-006",
       "title": "ALTER documents table — parser/parser_version/parsed_at/parsed_text/parsed_text_hash + index",
       "type": "foundation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [],
       "acceptance_criteria": [
         "corpus/pg_schema.sql adds: parser TEXT, parser_version TEXT, parsed_at TIMESTAMPTZ, parsed_text TEXT, parsed_text_hash TEXT on documents",
@@ -324,8 +324,8 @@
       "phase_group": "C_cleanup"
     }
   ],
-  "completed_tasks": ["MIGR-001"],
-  "next_available": ["MIGR-002", "MIGR-003", "MIGR-004", "MIGR-005", "MIGR-006"],
+  "completed_tasks": ["MIGR-001", "MIGR-002", "MIGR-003", "MIGR-004", "MIGR-005", "MIGR-006"],
+  "next_available": ["MIGR-007"],
   "phase_groups": {
     "A_foundation": ["MIGR-001", "MIGR-002", "MIGR-003", "MIGR-004", "MIGR-005"],
     "B_sync":       ["MIGR-006", "MIGR-007", "MIGR-008", "MIGR-009", "MIGR-010", "MIGR-011"],

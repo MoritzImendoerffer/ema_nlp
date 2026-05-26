@@ -7,6 +7,9 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 ------------------------------------------------------------------------------
 -- documents: one row per source URL
+-- parser/parser_version/parsed_at/parsed_text/parsed_text_hash added MIGR-006
+-- (Mongo `parsed_documents` row that produced this PG row + content hash for
+--  idempotent re-sync).
 ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS documents (
     doc_id           TEXT PRIMARY KEY,                        -- sha256(source_url)
@@ -20,14 +23,28 @@ CREATE TABLE IF NOT EXISTS documents (
     last_updated     TIMESTAMPTZ,
     raw_byte_size    INT,
     ingested_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    parser           TEXT,                                    -- e.g. 'pymupdf4llm', 'trafilatura'
+    parser_version   TEXT,
+    parsed_at        TIMESTAMPTZ,                             -- when the parser ran (Mongo parsed_documents.parsed_at)
+    parsed_text      TEXT,                                    -- full pre-chunk text from the parser
+    parsed_text_hash TEXT,                                    -- sha256(parsed_text) — drives the sync hash-skip path
     meta             JSONB NOT NULL DEFAULT '{}'              -- escape hatch
 );
+
+-- Idempotent column adds for already-populated DBs (existing rows get NULLs
+-- in the new columns until the next sync run).
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS parser           TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS parser_version   TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS parsed_at        TIMESTAMPTZ;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS parsed_text      TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS parsed_text_hash TEXT;
 
 CREATE INDEX IF NOT EXISTS documents_topic_path_idx  ON documents (topic_path);
 CREATE INDEX IF NOT EXISTS documents_reference_idx   ON documents (reference_number);
 CREATE INDEX IF NOT EXISTS documents_committee_idx   ON documents (committee);
 CREATE INDEX IF NOT EXISTS documents_last_updated    ON documents (last_updated);
 CREATE INDEX IF NOT EXISTS documents_title_trgm      ON documents USING gin (title gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS documents_parser_idx      ON documents (parser, parser_version);
 
 ------------------------------------------------------------------------------
 -- chunks: one row per text chunk; HNSW on embedding, GIN on tsvector

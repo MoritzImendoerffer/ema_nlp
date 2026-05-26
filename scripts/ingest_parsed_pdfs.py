@@ -1,7 +1,12 @@
-"""Upsert all parsed_pdf.pkl files from the Scrapy cache into MongoDB parsed_pdfs collection.
+"""Ingest parsed_pdf.pkl files from the Scrapy cache into MongoDB.
 
-Equivalent to calling get_pdfs_from_cache() from ema_scraper, but reimplements the
-cache walk with os.walk (Path.walk is Python 3.12+; this project targets 3.11).
+Default mode (MIGR-004): delegates to ``corpus.parsers.pymupdf4llm`` and
+writes into the new ``parsed_documents`` collection (compound-key
+``(url, parser, parser_version)``).
+
+``--legacy`` mode: keep the original behaviour — write into the legacy
+``parsed_pdfs`` collection. Retained for one transition cycle so existing
+operator workflows aren't broken before MIGR-013's backfill lands.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ from tqdm import tqdm
 _REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 from config import MONGO_DB, MONGO_URI  # noqa: E402
+from corpus.parsers.pymupdf4llm import _cli as parsers_cli  # noqa: E402
 
 # ema_scraper repo must be on sys.path so pickle can resolve parsers.pdf_parser.PdfDocument
 _EMA_SCRAPER_REPO = Path("~/github_repos/ema_scraper").expanduser()
@@ -51,17 +57,9 @@ def _iter_pdf_cache(cache_path: Path) -> Iterator[tuple[Path, str]]:
             yield root, url
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Upsert parsed_pdf.pkl files into MongoDB parsed_pdfs collection"
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Count pkl files found; no DB writes"
-    )
-    parser.add_argument("--limit", type=int, default=None, help="Process at most N entries")
-    args = parser.parse_args()
-
-    print(f"Scanning {CACHE_PATH} …")
+def _legacy_ingest(args: argparse.Namespace) -> int:
+    """Original `parsed_pdfs` collection write path. Retained behind --legacy."""
+    print(f"Scanning {CACHE_PATH} …  (legacy mode → parsed_pdfs collection)")
     all_entries: list[tuple[Path, str]] = list(_iter_pdf_cache(CACHE_PATH))
     print(f"Found {len(all_entries)} PDF cache entries")
 
@@ -74,7 +72,7 @@ def main() -> None:
             f"Dry run: {pkl_count} parsed_pdf.pkl files present"
             f" (of {len(all_entries)} scanned)"
         )
-        return
+        return 0
 
     client: MongoClient = MongoClient(MONGO_URI)
     col = client[MONGO_DB]["parsed_pdfs"]
@@ -130,7 +128,42 @@ def main() -> None:
         f"  errors={errors}"
         f"  skipped={skipped}"
     )
+    return 0
+
+
+def main() -> int:
+    cli = argparse.ArgumentParser(
+        description=(
+            "Ingest parsed_pdf.pkl files into MongoDB. "
+            "Default: writes to parsed_documents via corpus.parsers.pymupdf4llm. "
+            "Use --legacy to keep writing the old parsed_pdfs collection."
+        )
+    )
+    cli.add_argument(
+        "--legacy",
+        action="store_true",
+        help="Write to the legacy parsed_pdfs collection (pre-MIGR-001 behaviour).",
+    )
+    cli.add_argument("--dry-run", action="store_true", help="Count pkl files; no DB writes")
+    cli.add_argument("--limit", type=int, default=None, help="Process at most N entries")
+    cli.add_argument(
+        "--url", type=str, default=None, help="Restrict to a single URL (forwarded to parser CLI)"
+    )
+    args = cli.parse_args()
+
+    if args.legacy:
+        return _legacy_ingest(args)
+
+    # Default: delegate to the parser CLI (writes parsed_documents).
+    forwarded: list[str] = ["--cache", str(CACHE_PATH)]
+    if args.limit is not None:
+        forwarded += ["--limit", str(args.limit)]
+    if args.url is not None:
+        forwarded += ["--url", args.url]
+    if args.dry_run:
+        forwarded.append("--dry-run")
+    return parsers_cli(forwarded)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -30,7 +30,7 @@ from urllib.parse import urldefrag, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
-from corpus.ingestion.pdf_normaliser import EMA_REF_RE
+from corpus.metadata.text_metadata import EMA_REF_RE
 
 LinkType = Literal["hyperlink", "reference_number", "see_qa"]
 

@@ -22,26 +22,35 @@ Returns None when markdown is empty/whitespace or `error` is non-empty.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-EMA_REF_RE = re.compile(r"\bEMA/[A-Z0-9][A-Z0-9/\-]*?/\d{2,7}/\d{4}\b")
-_COMMITTEES = ("CHMP", "PRAC", "CVMP", "COMP", "PDCO", "CAT")
-_COMMITTEE_RE = re.compile(r"\bEMA/([A-Z]+)/")
-_REVISION_RE = re.compile(r"\b(?:Rev(?:ision)?\.?\s*)(\d+(?:\.\d+)?)\b", re.IGNORECASE)
-_H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
-_DATE_RE = re.compile(
-    r"\b(\d{1,2})\s+"
-    r"(January|February|March|April|May|June|July|August|September|October|November|December)"
-    r"\s+(\d{4})\b"
+# Regexes and constants live in corpus/metadata/text_metadata.py (MIGR-003).
+# Re-export them here so existing callers (link_extractor, html_normaliser,
+# test_pdf_normaliser) continue to work unchanged until the Phase C cleanup.
+from corpus.metadata.text_metadata import (
+    _COMMITTEE_RE,
+    _COMMITTEES,
+    _DATE_RE,
+    _H1_RE,
+    _MONTHS,
+    _REVISION_RE,
+    EMA_REF_RE,
 )
-_MONTHS = {
-    "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
-    "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
-}
+
+__all__ = [
+    "DocumentInput",
+    "EMA_REF_RE",
+    "normalise_pdf_doc",
+    "_COMMITTEES",
+    "_COMMITTEE_RE",
+    "_DATE_RE",
+    "_H1_RE",
+    "_MONTHS",
+    "_REVISION_RE",
+]
 
 
 @dataclass
@@ -91,7 +100,7 @@ def _extract_last_updated(markdown: str) -> datetime | None:
         return None
     day, month, year = m.group(1), m.group(2).lower(), m.group(3)
     try:
-        return datetime(int(year), _MONTHS[month], int(day), tzinfo=timezone.utc)
+        return datetime(int(year), _MONTHS[month], int(day), tzinfo=UTC)
     except (KeyError, ValueError):
         return None
 

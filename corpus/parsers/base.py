@@ -19,18 +19,43 @@ Field semantics:
     meta           — free-form per-parser metadata (e.g. ``cache_path``)
 
 Construction raises ``ValueError`` for malformed input so bad rows never
-reach Mongo. The Parser protocol itself is added in MIGR-004.
+reach Mongo.
+
+`Parser` is a runtime-checkable Protocol describing what every parser
+under ``corpus/parsers/`` exposes: a ``name``, a ``version``, and a
+``parse(raw, url, content_type)`` method returning a ``ParsedDocument``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal, get_args
+from typing import Any, Literal, Protocol, get_args, runtime_checkable
 
 TextFormat = Literal["markdown", "html", "plain"]
 
 VALID_TEXT_FORMATS: tuple[str, ...] = get_args(TextFormat)
+
+
+@runtime_checkable
+class Parser(Protocol):
+    """Protocol every parser implementation must satisfy.
+
+    Implementations live under ``corpus/parsers/<name>.py``. The
+    ``parse`` method should never raise on bad input — populate
+    ``ParsedDocument.error`` with a diagnostic string instead, so the
+    sync layer can skip the row without aborting the batch.
+    """
+
+    name: str
+    version: str
+
+    def parse(
+        self,
+        raw: bytes | str,
+        url: str,
+        content_type: str,
+    ) -> ParsedDocument: ...
 
 
 @dataclass
