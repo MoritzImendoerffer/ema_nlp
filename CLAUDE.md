@@ -16,6 +16,7 @@ See `project_roadmap/ROADMAP.md` for the full phase-by-phase plan. See `project_
 Read `DECISIONS.md` before planning any implementation. Short summary of the ones most likely to affect new code:
 
 - **Retrieval framework:** LlamaIndex (`DocumentSummaryIndex`, `NodeRelationship`, `ReActAgent`)
+- **Link graph is a retrieval cornerstone, not metadata.** The `links` table feeds the recursive-CTE auto-traversal (NARR-019) and the `follow_links` agent tool (default `link_types=["hyperlink","reference_number","file_link"]` since MIGR-020). When semantic search underfetches, the system walks the link graph for structural context expansion (inspired by LlamaIndex's recursive retriever). Treat edge loss as a retrieval-quality regression. The audit `.claude/work/2026-05-27_18_scraper-link-extraction-audit/` documented a 96% file-link drop introduced by MIGR-007; MIGR-018..025 repaired it (`corpus/extractors/link_graph.py` writes a Mongo `link_graph` collection that the sync joins for HTML docs). See `docs/RETRIEVAL_PG.md` §14.
 - **Tracing:** Arize Phoenix + OpenInference — model-agnostic, self-hosted, wired in `run_eval.py`
 - **Feedback store:** Phoenix annotations API — no separate database
 - **Semantic cache:** thin FAISS index over past query embeddings (`harness/index/query_cache.faiss`) — GPTCache is abandoned, do not use it
@@ -35,9 +36,12 @@ Full task list and status: `.claude/work/2026-05-10_02_implementation-plan/state
 
 ## Data sources
 
+> **Starting the data services:** `scripts/start_services.sh` brings up both Postgres (`deploy/postgres/`) and MongoDB (`deploy/mongo/`) as Docker containers and health-checks them. On this host (kernel ≥ 6.19) MongoDB **must** run via the pinned `mongo:8.0.4` container — the native package crashes (SERVER-121912). See `deploy/mongo/README.md`.
+
 - **MongoDB** `ema_scraper.web_items` — raw scraped EMA pages; HTML stored as `html_raw` (1-element list), PDFs as metadata only
 - **MongoDB** `ema_scraper.parsed_pdfs` — pymupdf4llm markdown keyed by URL; built by `scripts/ingest_parsed_pdfs.py --legacy`; 65k docs; query `{error: ""}` for clean parses
 - **MongoDB** `ema_scraper.parsed_documents` (MIGR-001) — canonical parser-output sink. One row per `(url, parser, parser_version)`. Populated by `corpus/parsers/*.py` CLIs and the backfill in `scripts/migrate_mongo_to_parsed_documents.py`. Mongo is the parser sink; PG is the canonical retrieval store with `parsed_text` + parser identity columns (MIGR-006).
+- **MongoDB** `ema_scraper.link_graph` (MIGR-019) — sibling-to-parsed_documents collection holding classified anchors per URL. One row per source URL (`_id=url`); fields: `anchors=[{tgt_url, anchor, link_type}]`, `extracted_at`, `extractor_version`. Populated by `python -m corpus.extractors.link_graph` or `scripts/backfill_link_graph.py`. Read by `harness.embed_pg._prepare_from_parsed_doc` to emit classified `links` rows in PG.
 - **Postgres + pgvector** `ema_nlp` (Docker, `deploy/postgres/`) — the narrative corpus. Tables: `documents` (carries `parser`, `parser_version`, `parsed_at`, `parsed_text`, `parsed_text_hash` since MIGR-006), `chunks` (HNSW + BM25), `links`. Populated from MongoDB by `python -m harness.embed_pg`. This is the retrieval target at runtime; `corpus.jsonl` is benchmark-only.
 - **Nextcloud**: `~/Nextcloud/Datasets/` — Scrapy cache (`ema_scraper/cache/`) + IDMP ontology RDF files
 - Paths are configured in `config.py`, which loads `~/.myenvs/ema_nlp.env` via python-dotenv
@@ -48,6 +52,7 @@ Full task list and status: `.claude/work/2026-05-10_02_implementation-plan/state
 
 ```bash
 pip install -e ".[dev]"       # install project + dev deps (or: uv pip install -e ".[dev]")
+scripts/start_services.sh     # start Postgres + MongoDB (Docker) and health-check them
 pytest                        # run all tests
 pytest tests/path/to/test.py  # run a single test file
 ruff check .                  # lint

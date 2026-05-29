@@ -202,6 +202,14 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 **Why:** Free, symmetric, works asynchronously. No MongoDB Atlas or other managed database service required.  
 **Ref:** [`docs/SETUP.md`](docs/SETUP.md) §5
 
+### MongoDB runs in Docker (`mongo:8.0.4`) to survive kernel ≥ 6.19
+**Decided:** 2026-05-29  
+**What:** On marvin-gpu (Ubuntu 26.04 / Linux kernel 7.0), MongoDB is run as a Docker container pinned to **`mongo:8.0.4`**, bind-mounting the existing native data directory `/var/lib/mongodb` and running as the host `mongodb` uid:gid (`109:118`). Defined in `deploy/mongo/docker-compose.yml`; started together with Postgres by `scripts/start_services.sh`. `MONGO_URI` is unchanged (`mongodb://localhost:27017/`).  
+**Why:** Kernel ≥ 6.19 is flagged incompatible by MongoDB ([SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)). Empirically on this host: the **native 8.0.4 package starts then SIGSEGVs ~1 min in**; **newer 8.0.x images (`mongo:8.0` → 8.0.23) hard-refuse to start**; but the **`mongo:8.0.4` container runs fine** — a container shares the host kernel yet bundles its own older userspace/glibc, which dodges the SIGSEGV, and 8.0.4 predates the hard kernel gate added later in the 8.0.x line. This avoids rebooting into kernel `6.17.0-29-generic` (the only installed < 6.19 kernel that still has the NVIDIA driver built — `6.8.0-45` has none, so no CUDA for the embed run).  
+**Constraints:** Pin stays at `8.0.4` — do not bump without re-testing on the live kernel. The native `mongod.service` and the container must never run against `/var/lib/mongodb` simultaneously (WiredTiger corruption); `start_services.sh` aborts if native `mongod` is active. Verified serving the real data: `parsed_documents` 80,083 / `link_graph` 22,743 / `parsed_pdfs` 65,263 / `web_items` 115,101.  
+**Not chosen:** *Reboot into 6.17* — viable but the box is WiFi-only with no out-of-band console; the Docker route needs no reboot. *Upgrade MongoDB past 8.0.x* — later versions keep the hard kernel gate; no fix shipped as of 2026-05-29.  
+**Ref:** [`deploy/mongo/README.md`](deploy/mongo/README.md), [`scripts/start_services.sh`](scripts/start_services.sh)
+
 ### Workflow registry collapsed: prompt_strategy as YAML field (Change 3 of harness refactoring)
 **Decided:** 2026-05-25  
 **What:** The three `simple_rag_zero/few/cot` registry entries were removed and replaced with a single `simple_rag` entry. The prompt variant is now driven by `orchestration.prompt_strategy: zero_shot|few_shot|cot_self` in the YAML config rather than by the registry key. All workflow constructors renamed their `strategy` parameter to `prompt_strategy` to disambiguate it from `orchestration.strategy` (the registry key). No backward-compatibility aliases.  
@@ -243,3 +251,29 @@ The key design choices and what they replaced:
 - *Big-bang migration* (write a one-off script that rewrites everything in one PR). Rejected — would require a maintenance window, conflate the refactor with the backfill, and offer no incremental verification points. The synthetic reader lets each PR land independently.
 
 **Ref:** [`docs/RETRIEVAL_PG.md`](docs/RETRIEVAL_PG.md) §13, [`.claude/work/2026-05-26_17_mongo-pg-data-architecture/`](.claude/work/2026-05-26_17_mongo-pg-data-architecture/)
+
+### Link graph as retrieval cornerstone — extractor is parser-peer, sibling collection, enum-extended `link_type`
+**Decided:** 2026-05-27 (MIGR-018..025)
+**What:** Link extraction is now its own data-preparation layer (`corpus/extractors/link_graph.py`), peer to the parsers under `corpus/parsers/`. It walks raw HTML in `web_items.html_raw`, classifies every `<a href>` by URL extension into `file_link` / `page_link` / `external`, and writes results to a new Mongo `link_graph` collection keyed by URL (`_id`). The sync (`harness.embed_pg._prepare_from_parsed_doc`) joins `link_graph` for every HTML doc it processes and emits one PG `links` row per `ClassifiedAnchor` with the classified `link_type`. The `link_type` column in PG remains freeform `TEXT`; the recursive-CTE traversal in `harness.retrieve_pg._expand_via_links` and the `follow_links` ReAct tool default to `('hyperlink', 'reference_number', 'file_link')` (MIGR-020) so HTML→PDF expansion is the default retrieval behaviour.
+
+**Why:** The audit `.claude/work/2026-05-27_18_scraper-link-extraction-audit/` established that the recursive-CTE auto-traversal is a **retrieval cornerstone** in this project's design — when semantic search underfetches, the system walks the link graph to discover structurally-relevant context (inspired by LlamaIndex's recursive retriever). User direction (2026-05-27): *"a cornerstone of the current approach is to utilize the links between pages to expand the context."* The MIGR-007 sync had dropped `_collect_html_links(html_raw)` as part of the parser-agnostic refactor, which silently shrank HTML→PDF traversal reach by 96 % on the live PG seed (867 PDF anchors → 31 across 98 docs, 65 of 98 docs lost every file_link). The repair has to ship before the production backfill (MIGR-013) so the full corpus lights up with the link graph intact in one pass.
+
+The four key choices and what they replaced:
+
+- **Extractor is a parser-peer layer (sibling Mongo collection)** — not folded into a parser's `meta['links']`. Reason: link extraction operates on `html_raw` (the upstream of any parser), so coupling it to a single `(url, parser, parser_version)` row would force re-extraction every time the parser swaps. A sibling collection keyed by URL is naturally parser-agnostic and survives parser-preference changes unchanged.
+- **`link_type` as enum extension, not side column** — added `file_link` and `page_link` to the existing `links.link_type` column rather than introducing an `is_file boolean` side column. Reason: the recursive-CTE clause `l.link_type = ANY(%(link_types)s)` extends to a new value the moment it's in the default tuple — no schema migration, no parallel filter, no new index. The cost is one freeform string column that's already there.
+- **`file_link` in the default traversal tuple, `page_link` out** — `file_link` recovers EMA's HTML→PDF cards that the old extraction lost, which is the audited retrieval-reach regression. `page_link` is dominated by site-wide nav links (per-page averages: ~8 file_links vs ~96 page_links on the 22k backfill), so promoting them to default would dilute traversal results with boilerplate. They stay in the enum for cases where eval shows nav expansion would help — promote per-config, not by default.
+- **Phased delivery: B.1 first** — full-anchor extraction with extension classification (Option B.1 from the audit). Option B.2 (per-section provenance via the `.bcl-inpage-navigation` CSS layout) is deferred until a benchmark failure shows section-level filtering would help. User direction: extract from existing `html_raw`, no re-scrape.
+
+**Operational evidence (2026-05-27):**
+- Backfill over 22,743 `web_items` HTML rows: 2,279,311 anchors emitted (298,451 file_link / 1,834,301 page_link / 146,559 external), 0 errors, ~6 minutes wall time on marvin-gpu.
+- Post-sync against the existing 98-doc HTML PG seed: `file_link=786`, `page_link=9,452`, `external=704` (versus 0 before; recovers ~94 % of the 836 PDF anchors the audit measured as lost).
+- Recursive CTE smoke from an HTML seed with `link_types=['file_link']` returned ≥ 1 expanded PDF chunk — the cornerstone is wired end-to-end.
+
+**Not chosen:**
+- *Re-scraping with `EmaSpider.parse_with_sidebar`* — the rich per-section spider the user originally designed. Rejected per user direction; existing `html_raw` already has the anchors.
+- *Bake link extraction into the trafilatura parser* (extend `corpus/parsers/trafilatura.py` to also return file_links on `ParsedDocument.meta`). Rejected — couples content extraction with link extraction, and a different HTML parser later would have to re-implement link extraction too. The sibling-collection layout keeps both concerns separable.
+- *Selective scan inside the sync layer* — putting the BeautifulSoup walk in `harness/embed_pg.py`. Rejected — sync should stay thin; data preparation belongs in `corpus/`. Also makes per-URL re-extraction harder.
+- *Promote `link_type` to a PG `ENUM` type* — would tighten typing but force a DDL migration every time a new value lands. Deferred to a follow-up if schema drift becomes an issue.
+
+**Ref:** [`docs/RETRIEVAL_PG.md`](docs/RETRIEVAL_PG.md) §14, [`.claude/work/2026-05-27_18_scraper-link-extraction-audit/`](.claude/work/2026-05-27_18_scraper-link-extraction-audit/), [`.claude/work/2026-05-26_17_mongo-pg-data-architecture/implementation-plan-link-graph.md`](.claude/work/2026-05-26_17_mongo-pg-data-architecture/implementation-plan-link-graph.md), MIGR-018..025.

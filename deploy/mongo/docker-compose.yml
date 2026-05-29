@@ -1,0 +1,29 @@
+services:
+  mongo:
+    # PINNED to 8.0.4 on purpose. marvin-gpu runs Linux kernel >= 6.19, which
+    # MongoDB flags as incompatible (SERVER-121912):
+    #   - the NATIVE 8.0.x package starts but SIGSEGVs ~1 min in;
+    #   - NEWER 8.0.x images (e.g. `mongo:8.0` -> 8.0.23) hard-refuse to start.
+    # The 8.0.4 *container* works because it bundles its own (older) userspace
+    # while still sharing the host kernel. Do NOT bump this tag without testing
+    # against the live kernel. See deploy/mongo/README.md and DECISIONS.md.
+    image: mongo:8.0.4
+    container_name: ema_mongo
+    restart: unless-stopped
+    # Run as the host `mongodb` uid:gid so the bind-mounted data files keep
+    # their ownership and the native mongod can still read them after a reboot
+    # into a < 6.19 kernel. Discover with: `id -u mongodb` / `getent group mongodb`.
+    user: "${MONGO_UID:-109}:${MONGO_GID:-118}"
+    command: ["--bind_ip_all"]
+    ports:
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
+    volumes:
+      # Serve the EXISTING native data directory (the source of truth). The
+      # container and the native systemd mongod must never run simultaneously
+      # against this path.
+      - "${MONGO_DBPATH:-/var/lib/mongodb}:/data/db"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6

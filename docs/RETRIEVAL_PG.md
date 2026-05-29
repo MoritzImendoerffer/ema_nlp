@@ -58,6 +58,23 @@ python -m scripts.init_db --reset  # drop + re-create (destroys data)
 
 The DDL lives in `corpus/pg_schema.sql` and is applied verbatim by `init_db`.
 
+### 2.3 MongoDB source (Docker)
+
+The ingest source (`ema_scraper.parsed_documents` + `link_graph`) lives in
+MongoDB. On marvin-gpu (kernel ≥ 6.19) the native MongoDB package cannot run
+(SERVER-121912), so Mongo runs as a pinned `mongo:8.0.4` container that
+bind-mounts the native data dir. Bring up **both** services with:
+
+```bash
+scripts/start_services.sh          # Postgres + Mongo, with health checks
+scripts/start_services.sh --status # report container status
+scripts/start_services.sh --down   # stop + remove both
+```
+
+Or just Mongo: `cd deploy/mongo && docker compose up -d`. Full rationale and
+the "never run native + container together" caveat are in
+[`deploy/mongo/README.md`](../deploy/mongo/README.md).
+
 ---
 
 ## 3. Environment variables
@@ -151,7 +168,7 @@ endpoints exist in `documents`.
 | `src_doc_id` | FK → `documents.doc_id` |
 | `tgt_url` | Raw target (URL or EMA reference number) |
 | `tgt_doc_id` | FK → `documents.doc_id`, nullable |
-| `link_type` | `'hyperlink'` / `'reference_number'` / `'see_qa'` |
+| `link_type` | `'hyperlink'` / `'reference_number'` / `'see_qa'` / `'file_link'` / `'page_link'` (see §7 and §14) |
 | `anchor` | Markdown / HTML anchor text |
 | `chunk_id` | The chunk this link appeared in |
 | PK | `(src_doc_id, tgt_url, link_type)` |
@@ -268,8 +285,12 @@ retrieval:
 | `auto` | Walk the `links` table with a recursive CTE up to `max_hops` hops; append one representative chunk per visited doc; seed top-k stays at the front |
 | `agent_tool` | Expose `follow_links` as a LlamaIndex `FunctionTool` so ReAct workflows decide when to expand |
 
-`link_types` defaults to `['hyperlink', 'reference_number']` — `see_qa` is
-intentionally excluded (see §4).
+`link_types` defaults to `['hyperlink', 'reference_number', 'file_link']`
+(MIGR-020) — `see_qa` is intentionally excluded (it points at benchmark
+Q&As; including it would leak gold answers; see §4). `page_link` is
+included in the enum but not in the default list — these are typically
+on-site navigation hops that don't add retrieval signal. Promote them
+to the default if benchmark eval shows nav-style expansion would help.
 
 > **Note**: prefilters apply to the seed top-k via the dense / BM25
 > retrievers, but auto-traversal expansion follows the link graph without
@@ -370,6 +391,13 @@ chunk_ids so the ReAct agent's bad calls aren't fatal.
 Container is named in `deploy/postgres/docker-compose.yml`
 (`container_name: ema_nlp_pg`). Confirm with `docker compose -f
 deploy/postgres/docker-compose.yml ps`.
+
+**`embed_pg` hangs / `ServerSelectionTimeoutError` connecting to Mongo.**
+The source MongoDB isn't up. On kernel ≥ 6.19 the native `mongod` crashes
+(SERVER-121912) — start the pinned Docker Mongo with `scripts/start_services.sh`
+(or `cd deploy/mongo && docker compose up -d`). If `docker logs ema_mongo` shows
+*"known incompatibility"* and an immediate exit, the image tag has drifted off
+`8.0.4`; only 8.0.4 runs on this kernel. See `deploy/mongo/README.md`.
 
 ---
 
@@ -525,3 +553,150 @@ merge — so write the full ordered list when you want a fallback chain.
 | `--url-filter` CLI flag | Restrict sync to specific URLs (repeatable) |
 | `--parser-filter` CLI flag | Restrict to specific parser names (repeatable) |
 | `--legacy-source` CLI flag | Read via the synthetic legacy reader |
+
+---
+
+## 14. Link graph (MIGR-018..025)
+
+The `links` table feeds two production retrieval primitives — the
+auto-traversal recursive CTE in `harness.retrieve_pg._expand_via_links` and
+the `follow_links_tool` ReAct agent tool — so the edges in it materially
+shape what the retriever returns when semantic search underfetches. The
+audit `.claude/work/2026-05-27_18_scraper-link-extraction-audit/` measured
+a 96 % file-link drop when the MIGR-007 sync stopped reading raw HTML
+anchors (trafilatura filters EMA's download cards as boilerplate); the
+extractor in this section closes that gap.
+
+### Architecture
+
+```
+              ┌─── Layer-A — raw HTML scrape (already present) ──┐
+              │   ema_scraper.web_items.html_raw  (22,743 rows)  │
+              └──────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+              ┌─── Layer-B — corpus/extractors/link_graph.py ────┐
+extract_links │   walks <a href>, classifies by URL extension:   │
+              │     file_link  ← .pdf|.docx?|.xlsx?|.pptx?|.zip  │
+              │     page_link  ← same allowed-domain http(s)     │
+              │     external   ← off-site http(s)                │
+              │   skips mailto: / tel: / javascript: / #frag /   │
+              │   base-URL self-references                       │
+              └──────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+              ┌─── Layer-C — Mongo link_graph collection ────────┐
+              │   _id = url, anchors = [ClassifiedAnchor]        │
+              │   (sibling to parsed_documents, keyed by URL so  │
+              │    it survives parser swaps unchanged)           │
+              └──────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+              ┌─── Layer-D — harness.embed_pg.sync ──────────────┐
+              │   _prepare_from_parsed_doc joins link_graph for  │
+              │   HTML docs; emits one PG links row per anchor   │
+              │   with the classified link_type.                 │
+              └──────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+                       PG `links` table  (link_type ∈
+                       hyperlink | reference_number | see_qa |
+                       file_link | page_link)
+                                  │
+                                  ▼
+              ┌─── recursive-CTE traversal / follow_links tool ──┐
+              │   default link_types now includes 'file_link'    │
+              │   → HTML→PDF expansion is the default behaviour  │
+              └──────────────────────────────────────────────────┘
+```
+
+### Running the backfill
+
+```bash
+# Dry-run on a small sample first
+python scripts/backfill_link_graph.py --limit 10 --dry-run
+
+# Full backfill over all 22,743 web_items HTML rows
+python scripts/backfill_link_graph.py
+
+# Resume after an interrupted run (skips URLs already in link_graph)
+python scripts/backfill_link_graph.py --resume
+
+# Targeted re-extract after a single URL's html_raw changes
+python scripts/backfill_link_graph.py --url 'https://www.ema.europa.eu/en/x'
+```
+
+The script is idempotent (`_id=url` upsert). Re-running over the same rows
+overwrites without growing the collection.
+
+### After backfill: how the sync picks up file_link rows
+
+`harness.embed_pg.sync` joins `link_graph` automatically for HTML docs.
+The hash-skip path means an existing HTML doc whose `parsed_text` is
+byte-identical to PG will NOT be re-emitted — to force the link rows to
+refresh, either:
+
+* update `web_items.html_raw` upstream (changes the trafilatura output
+  → hash mismatch → re-emit), **or**
+* `UPDATE documents SET parsed_text_hash = NULL WHERE source_type='html'`
+  before re-running sync (forces a re-emit without an upstream change).
+
+After sync, run `scripts/resolve_links.py` to fill `tgt_doc_id` for the
+new `file_link` / `page_link` rows that point at URLs already in
+`documents`. The default URL-match pass now resolves all three URL-shaped
+link types (`hyperlink`, `file_link`, `page_link`).
+
+### Adding a link type
+
+The `link_type` column is freeform `TEXT` (not a PG `ENUM`) so introducing
+a new type is additive-only:
+
+1. Emit rows with the new value from a new extractor or the existing one
+   (e.g. `link_graph.extract_links` adds a fourth classification).
+2. Update `corpus/pg_schema.sql`'s comment on the `link_type` column to
+   list the new value. No DDL — the column is permissive.
+3. Decide whether the new type should be in the default traversal:
+   * `harness/retrieve_pg.py:_DEFAULT_LINK_TYPES` — auto-traversal default
+   * `harness/pg/tools.py:_DEFAULT_FOLLOW_LINK_TYPES` — `follow_links` tool default
+4. Update the `LinkType` Literal in `harness/retrieve_pg.py` and
+   `corpus/ingestion/link_extractor.py` (string typing only — no runtime
+   check).
+5. Add a test asserting the new default tuple in
+   `tests/test_retrieve_pg_config.py`.
+
+The reason this is intentionally permissive: the recursive CTE clause is
+`link_type = ANY(%(link_types)s)`, so a new value lights up the moment
+it's in the default tuple — no schema migration required.
+
+### Diagnostic queries
+
+```sql
+-- Anchor distribution after a sync
+SELECT link_type, count(*) FROM links GROUP BY 1 ORDER BY 2 DESC;
+
+-- HTML pages with at least one resolved file_link
+SELECT d.source_url, count(*) AS resolved_file_links
+FROM links l JOIN documents d ON d.doc_id = l.src_doc_id
+WHERE l.link_type='file_link' AND l.tgt_doc_id IS NOT NULL
+  AND d.source_type='html'
+GROUP BY 1 ORDER BY 2 DESC LIMIT 20;
+
+-- Traversal smoke from one HTML seed via file_link only
+WITH seed AS (
+  SELECT doc_id FROM documents WHERE source_url = 'https://www.ema.europa.eu/en/...'
+)
+SELECT count(*) FROM links l
+JOIN seed s ON s.doc_id = l.src_doc_id
+WHERE l.link_type = 'file_link' AND l.tgt_doc_id IS NOT NULL;
+```
+
+### Operator runbook
+
+| Variable / file / script | Purpose |
+|--------------------------|---------|
+| `corpus/extractors/link_graph.py` | Per-URL anchor extraction (CLI: `python -m corpus.extractors.link_graph`) |
+| `corpus/sources/link_graph.py` | Mongo `link_graph` writer + `read_link_graph` |
+| `scripts/backfill_link_graph.py` | One-shot 22k-row backfill (idempotent, resumable) |
+| `scripts/resolve_links.py` | Fills `links.tgt_doc_id` for hyperlink / file_link / page_link |
+| `harness/retrieve_pg.py:_DEFAULT_LINK_TYPES` | Default `link_types` for auto-traversal |
+| `harness/pg/tools.py:_DEFAULT_FOLLOW_LINK_TYPES` | Default `link_types` for the `follow_links` ReAct tool |
