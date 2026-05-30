@@ -25,6 +25,7 @@ dependencies = [
     "llama-index-retrievers-bm25>=0.5",           # wraps rank-bm25
     "llama-index-llms-anthropic>=0.6",            # Claude LLM integration
     "llama-index-llms-openai>=0.7",              # OpenAI-compatible LLMs (Together AI / OLMo)
+    "llama-index-graph-stores-neo4j>=0.4",       # Neo4j PropertyGraphStore (LlamaIndex-first refactor)
     # Retrieval backends (used by LlamaIndex)
     "rank-bm25>=0.2.2",
     "faiss-cpu>=1.13",

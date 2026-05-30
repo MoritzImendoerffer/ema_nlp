@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # start_services.sh — bring up the local data services ema_nlp depends on.
 #
-# Services:
-#   1. Postgres + pgvector   (deploy/postgres) — retrieval target  -> :5432
-#   2. MongoDB ema_scraper   (deploy/mongo)    — ingest source     -> :27017
+# Services (LlamaIndex-first refactor — Postgres/pgvector dropped, see work unit 20):
+#   1. MongoDB ema_scraper   (deploy/mongo)  — ingest source         -> :27017
+#   2. Neo4j                 (deploy/neo4j)  — PropertyGraph store    -> :7687 / :7474
 #
 # Both run as Docker containers (see deploy/*/README.md). Mongo is pinned to
 # image 8.0.4 to work around the kernel >= 6.19 incompatibility (SERVER-121912).
@@ -21,8 +21,8 @@ warn() { echo -e "${YELLOW}[warn]${NC} $*"; }
 err()  { echo -e "${RED}[error]${NC} $*" >&2; exit 1; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PG_DIR="${REPO_ROOT}/deploy/postgres"
 MONGO_DIR="${REPO_ROOT}/deploy/mongo"
+NEO4J_DIR="${REPO_ROOT}/deploy/neo4j"
 
 command -v docker >/dev/null 2>&1 || err "docker not found on PATH."
 docker compose version >/dev/null 2>&1 || err "docker compose v2 not available."
@@ -31,14 +31,14 @@ MODE="${1:-up}"
 
 # ── status / down short-circuits ──────────────────────────────────────────────
 if [[ "$MODE" == "--status" ]]; then
-    docker ps --filter name=ema_nlp_pg --filter name=ema_mongo \
+    docker ps --filter name=ema_mongo --filter name=ema_neo4j \
         --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
     exit 0
 fi
 
 if [[ "$MODE" == "--down" ]]; then
+    ( cd "$NEO4J_DIR" && docker compose down ) || true
     ( cd "$MONGO_DIR" && docker compose down ) || true
-    ( cd "$PG_DIR" && docker compose down ) || true
     ok "Both services stopped."
     exit 0
 fi
@@ -64,20 +64,7 @@ echo "Repo:   $REPO_ROOT"
 echo "Kernel: $(uname -r)"
 echo ""
 
-# ── 1. Postgres + pgvector ────────────────────────────────────────────────────
-echo "── Postgres (pgvector) ──"
-( cd "$PG_DIR" && docker compose up -d )
-if wait_healthy ema_nlp_pg 30; then
-    ok "Postgres healthy on :${PG_PORT:-5432}"
-    docker exec ema_nlp_pg psql -U "${POSTGRES_USER:-ema_nlp}" -d "${POSTGRES_DB:-ema_nlp}" -tAc \
-        "SELECT 'pgvector ' || extversion FROM pg_extension WHERE extname='vector';" \
-        2>/dev/null | sed 's/^/       /' || warn "pgvector extension not reported (run scripts/init_db.py?)"
-else
-    err "Postgres did not become healthy — check: docker logs ema_nlp_pg"
-fi
-echo ""
-
-# ── 2. MongoDB ────────────────────────────────────────────────────────────────
+# ── 1. MongoDB (ingest source) ────────────────────────────────────────────────
 echo "── MongoDB (ema_scraper source) ──"
 # Guard: a live native mongod would fight the container over /var/lib/mongodb.
 if systemctl is-active --quiet mongod 2>/dev/null; then
@@ -97,11 +84,22 @@ else
     warn "  the image tag drifted off 8.0.4. Check: docker logs ema_mongo"
     err  "MongoDB unhealthy — see deploy/mongo/README.md"
 fi
+echo ""
+
+# ── 2. Neo4j (PropertyGraph store) ─────────────────────────────────────────────
+echo "── Neo4j (PropertyGraph store) ──"
+( cd "$NEO4J_DIR" && docker compose up -d )
+if wait_healthy ema_neo4j 60; then
+    ok "Neo4j healthy on bolt://localhost:7687 (browser :7474)"
+else
+    warn "Neo4j did not become healthy — check: docker logs ema_neo4j"
+    err  "Neo4j unhealthy — see deploy/neo4j/README.md"
+fi
 
 echo ""
 ok "All services up."
 echo ""
 echo "Next:"
-echo "  Embed corpus:  HF_HUB_OFFLINE=1 .venv/bin/python -m harness.embed_pg --batch-size 16"
-echo "  Chat UI:       ./run_ui.sh"
+echo "  Build index:  python -m harness.indexing.build --profile neo4j_hier   # (LIR-006/007)"
+echo "  Chat UI:      ./run_ui.sh"
 echo ""

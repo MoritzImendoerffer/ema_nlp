@@ -1,5 +1,13 @@
 # CLAUDE.md
 
+> ⚠️ **REFACTOR IN PROGRESS** (branch `refactor/llamaindex-retrieval-pipeline`, work unit
+> [`2026-05-30_20_llamaindex-retrieval-refactor`](.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json)).
+> Retrieval is being rebuilt LlamaIndex-first: a **hierarchical `PropertyGraphIndex` on Neo4j**
+> replaces Postgres + pgvector (dropped), FAISS (dropped), and the hand-rolled SQL retrieval.
+> The benchmark suite was removed from this branch (archived on `archive/pre-llamaindex-refactor`).
+> **Sections below describing pgvector / Postgres / FAISS / `EMA_RETRIEVER` / the MIGR link-graph
+> are STALE** until the LIR-013 doc pass reconciles them. Pre-refactor state: `main` @ `5c3c8a8`.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What this project is

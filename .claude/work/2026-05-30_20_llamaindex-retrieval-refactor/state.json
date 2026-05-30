@@ -4,7 +4,7 @@
   "branch": "refactor/llamaindex-retrieval-pipeline",
   "checkpoint_commit": "5c3c8a8",
   "archive_branch": "archive/pre-llamaindex-refactor",
-  "current_task": null,
+  "current_task": "LIR-002",
   "principles": [
     "YAGNI: ONE index kind (hierarchical Neo4j PropertyGraphIndex) + an extensible registry seam; no flat/FAISS index",
     "Hierarchical chunk nodes (parent/child) are the default per user direction; small-to-big retrieval",
@@ -42,7 +42,8 @@
       "id": "LIR-002",
       "title": "Neo4j infrastructure + dependency + start_services swap",
       "type": "foundation",
-      "status": "pending",
+      "status": "in_progress",
+      "notes": "DONE: installed llama-index-graph-stores-neo4j 0.7.0 + neo4j 5.28.4 (conda base; imports OK); wrote deploy/neo4j/{docker-compose.yml,README.md} (ports env-overridable); rewrote scripts/start_services.sh (Mongo+Neo4j, Postgres dropped); added CLAUDE.md refactor banner. neo4j:5.26 image pulled. BLOCKED on live smoke-test: a NATIVE neo4j service already holds 127.0.0.1:7474/7687 — awaiting user decision (use native+creds / container on alt ports / stop native).",
       "dependencies": [],
       "priority": "high",
       "estimated_hours": 3,

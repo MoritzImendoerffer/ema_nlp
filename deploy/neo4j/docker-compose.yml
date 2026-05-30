@@ -1,0 +1,42 @@
+# Neo4j — PropertyGraphStore backend for the LlamaIndex-first retrieval refactor.
+#
+# Holds entity (page/pdf) + chunk nodes and has_chunk / parent-child / links-to
+# edges; its native vector index (Neo4j >= 5.15) serves chunk-embedding retrieval,
+# so no separate vector store is needed.
+#
+# Credentials come from the environment (NEO4J_USER / NEO4J_PASSWORD); the
+# defaults below are dev-only. Bolt on :7687 (driver), HTTP browser on :7474.
+services:
+  neo4j:
+    image: neo4j:5.26
+    container_name: ema_neo4j
+    restart: unless-stopped
+    ports:
+      # Host ports are env-overridable so the container can coexist with a
+      # native Neo4j already holding 7474/7687 (set NEO4J_BOLT_PORT etc.).
+      - "${NEO4J_HTTP_PORT:-7474}:7474"   # HTTP browser
+      - "${NEO4J_BOLT_PORT:-7687}:7687"   # Bolt (driver / LlamaIndex)
+    environment:
+      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-ema_nlp_dev_pw}"
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
+      NEO4J_server_memory_heap_max__size: "2G"
+      NEO4J_server_memory_pagecache_size: "1G"
+      # Non-NEO4J_-prefixed copies for the healthcheck (Neo4j ignores these;
+      # the cypher-shell check needs the live credentials even if overridden).
+      HC_USER: "${NEO4J_USER:-neo4j}"
+      HC_PASSWORD: "${NEO4J_PASSWORD:-ema_nlp_dev_pw}"
+    volumes:
+      - ema_neo4j_data:/data
+      - ema_neo4j_logs:/logs
+    healthcheck:
+      # cypher-shell ships in the image; RETURN 1 needs neither APOC nor data.
+      test: ["CMD-SHELL", "cypher-shell -u \"$$HC_USER\" -p \"$$HC_PASSWORD\" 'RETURN 1' >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+      start_period: 30s
+
+volumes:
+  ema_neo4j_data:
+  ema_neo4j_logs:
