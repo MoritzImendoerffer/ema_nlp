@@ -94,7 +94,8 @@
       "id": "LIR-005",
       "title": "Link extractor -> links-to edges from parsed_documents/html_raw",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
+      "notes": "harness/indexing/links.py: extract_links(html, base_url) -> [ExtractedLink(tgt_url, anchor, kind)] where kind in file|page|external; resolves relative URLs (urljoin), strips fragments, skips mailto/tel/javascript/#/self-ref, dedups; tgt_doc_id=sha256(tgt_url). 6 unit tests pass; ruff clean. (This is the extractor MIGR-018..025 documented but never shipped — work unit 19.)",
       "dependencies": ["LIR-003"],
       "priority": "high",
       "estimated_hours": 3,
@@ -241,6 +242,6 @@
       ]
     }
   ],
-  "completed_tasks": ["LIR-001", "LIR-002", "LIR-003", "LIR-004"],
-  "next_available": ["LIR-005"]
+  "completed_tasks": ["LIR-001", "LIR-002", "LIR-003", "LIR-004", "LIR-005"],
+  "next_available": ["LIR-006"]
 }
