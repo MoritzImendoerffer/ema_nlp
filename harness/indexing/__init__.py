@@ -12,6 +12,10 @@ land (LIR-006/007/008) add their imports to the "builders" block below.
 
 from __future__ import annotations
 
+# ── builders (self-register on import) ──────────────────────────────────────
+from harness.indexing import (
+    property_graph,  # noqa: F401,E402  (registers property_graph + hierarchical)
+)
 from harness.indexing.profiles import (
     IndexProfile,
     load_index_profile,
@@ -25,10 +29,6 @@ from harness.indexing.registry import (
     register_index,
     register_retriever,
 )
-
-# ── builders (self-register on import) ──────────────────────────────────────
-# LIR-007: from harness.indexing import property_graph_index  # noqa: F401
-# LIR-008: from harness.indexing import hierarchical_retriever  # noqa: F401
 
 __all__ = [
     "IndexProfile",

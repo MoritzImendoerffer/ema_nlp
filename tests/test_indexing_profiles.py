@@ -137,11 +137,11 @@ def test_register_and_dispatch_retriever(clean_registries):
 
 
 def test_unregistered_index_kind_raises():
-    # 'property_graph' builder is not registered until LIR-007.
-    with pytest.raises(NotImplementedError, match="property_graph"):
-        build_index(_minimal_profile(kind="property_graph"))
+    # 'property_graph' is now registered (LIR-007); an unknown kind still raises.
+    with pytest.raises(NotImplementedError, match="flat_faiss"):
+        build_index(_minimal_profile(kind="flat_faiss"))
 
 
 def test_unregistered_retriever_raises():
-    with pytest.raises(NotImplementedError, match="hierarchical"):
-        build_retriever(_minimal_profile(strategy="hierarchical"), index=None)
+    with pytest.raises(NotImplementedError, match="bm25"):
+        build_retriever(_minimal_profile(strategy="bm25"), index=None)
