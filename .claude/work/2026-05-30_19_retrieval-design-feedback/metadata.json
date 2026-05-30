@@ -1,0 +1,21 @@
+{
+  "id": "2026-05-30_19_retrieval-design-feedback",
+  "title": "Design feedback: legacy FAISS-over-Q&A as a benchmark retrieval target, and the PG link-graph traversal vs LlamaIndex recursive retrieval",
+  "status": "exploration",
+  "created_at": "2026-05-30",
+  "requirement_type": "investigation",
+  "phase": "Phase 1 (→ Phase 2 benchmark)",
+  "owner": "moritz",
+  "related": [
+    "harness/retrieve.py",
+    "harness/retrieve_pg.py",
+    "harness/embed.py",
+    "harness/eval_retrieval.py",
+    "harness/pg/queries.py",
+    "harness/pg/tools.py",
+    "DECISIONS.md",
+    "docs/RETRIEVAL_PG.md",
+    "project_roadmap/LEAKAGE.md",
+    ".claude/work/2026-05-27_18_scraper-link-extraction-audit/"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "2026-05-30_18_database-sync",
+  "title": "Unified cross-machine database sync (Mongo + Postgres) via Nextcloud",
+  "status": "planning_complete",
+  "created_at": "2026-05-30",
+  "requirement_type": "natural-language",
+  "phase": "Phase 1",
+  "owner": "moritz",
+  "related": [
+    ".claude/work/2026-05-26_17_mongo-pg-data-architecture/",
+    "scripts/sync_mongo.sh",
+    "deploy/postgres/docker-compose.yml",
+    "deploy/mongo/docker-compose.yml"
+  ]
+}
