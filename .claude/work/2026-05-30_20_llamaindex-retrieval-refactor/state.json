@@ -1,0 +1,242 @@
+{
+  "status": "planning_complete",
+  "work_unit": "2026-05-30_20_llamaindex-retrieval-refactor",
+  "branch": "refactor/llamaindex-retrieval-pipeline",
+  "checkpoint_commit": "5c3c8a8",
+  "archive_branch": "archive/pre-llamaindex-refactor",
+  "current_task": null,
+  "principles": [
+    "YAGNI: ONE index kind (hierarchical Neo4j PropertyGraphIndex) + an extensible registry seam; no flat/FAISS index",
+    "Hierarchical chunk nodes (parent/child) are the default per user direction; small-to-big retrieval",
+    "links-to edges only; richer typed edges later",
+    "Benchmark suite removed completely from this branch; preserved on archive/pre-llamaindex-refactor; rebuilt later",
+    "Documentation/history cleanup is a first-class deliverable"
+  ],
+  "verified_couplings": {
+    "judge.py": "KEEP — harness/workflows/review.py imports harness.judge.Judge for chat-time faithfulness (crag_review/react_review)",
+    "rating.py": "KEEP — app.py imports it for 👍/👎 Phoenix annotation",
+    "label_session.py": "REMOVE — HITL tool over benchmark.jsonl; imports run_eval config helpers",
+    "run_eval.py + eval_retrieval.py": "REMOVE — coupled to the retrieval API being deleted"
+  },
+  "tasks": [
+    {
+      "id": "LIR-001",
+      "title": "Remove the benchmark/eval suite completely (data + judge/rating kept)",
+      "type": "cleanup",
+      "status": "pending",
+      "dependencies": [],
+      "priority": "high",
+      "estimated_hours": 2,
+      "acceptance_criteria": [
+        "Deleted from harness/: run_eval.py, eval_retrieval.py, compute_lift.py, contamination_screen.py, label_session.py",
+        "Deleted eval configs: harness/configs/{ablation_*,baseline_*,workflow_*,diag_*,example_chmp_only,retrieval_recursive}.yaml",
+        "Deleted tests for the removed modules; tests/test_judge.py kept (judge.py stays)",
+        "KEPT: harness/judge.py + harness/judges/ (review workflow), harness/rating.py (app.py), query_cache.py, fewshot_inject.py, models.yaml, parser_preference.yaml",
+        "KEPT: curated data — benchmark/ (benchmark.jsonl, SCHEMA.md, validate_benchmark.py, candidates), corpus/corpus.jsonl",
+        "No dangling imports in kept code (app.py + workflows import-clean); ruff + import check pass",
+        "Everything removed is present on archive/pre-llamaindex-refactor (already created at 5c3c8a8)"
+      ]
+    },
+    {
+      "id": "LIR-002",
+      "title": "Neo4j infrastructure + dependency + start_services swap",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": [],
+      "priority": "high",
+      "estimated_hours": 3,
+      "acceptance_criteria": [
+        "deploy/neo4j/docker-compose.yml added; Neo4j >= 5.x with native vector-index support",
+        "scripts/start_services.sh brings up Mongo + Neo4j with health checks; Postgres removed from it",
+        "NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD documented for ~/.myenvs/ema_nlp.env",
+        "llama-index-graph-stores-neo4j added to pyproject and installs cleanly",
+        "Short 'REFACTOR IN PROGRESS -> see work unit 20' note at the top of CLAUDE.md",
+        "Neo4jPropertyGraphStore connection smoke test passes"
+      ]
+    },
+    {
+      "id": "LIR-003",
+      "title": "Index/retriever registries + EMA_INDEX_PROFILE loader + profile schema",
+      "type": "foundation",
+      "status": "pending",
+      "dependencies": [],
+      "priority": "high",
+      "estimated_hours": 4,
+      "acceptance_criteria": [
+        "INDEX_REGISTRY and RETRIEVER_REGISTRY exist (mirroring workflows/registry.py); one builder each, but adding more is a registry entry + a profile file",
+        "build_index(profile) / build_retriever(profile, index) entry points; stubs raise NotImplementedError until filled",
+        "EMA_INDEX_PROFILE env var (default 'neo4j_hier') resolves to harness/configs/index/<name>.yaml",
+        "Profile schema parsed: index{kind,store,chunking,embed_model,source-scope} + retrieval{strategy,k,graph,merge}",
+        "Unit test: env var selects the right profile; unknown profile errors clearly"
+      ]
+    },
+    {
+      "id": "LIR-004",
+      "title": "Hierarchical chunker -> multi-level chunk nodes (parent/child)",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [],
+      "priority": "high",
+      "estimated_hours": 4,
+      "acceptance_criteria": [
+        "HierarchicalNodeParser produces multi-level chunk nodes (e.g. sizes [2048,512,128]); parent/child relationships retained (NOT discarded as in the old chunker.py:92)",
+        "Deterministic node_id per node (stable across rebuilds); leaf vs parent distinguishable",
+        "Each node carries source_url, doc_id, title, committee, topic_path, page (when known), level, chunk_index",
+        "Document->chunk (has_chunk) linkage represented",
+        "Unit test on a fixture asserts levels, parent/child links, ids, metadata"
+      ]
+    },
+    {
+      "id": "LIR-005",
+      "title": "Link extractor -> links-to edges from parsed_documents/html_raw",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["LIR-003"],
+      "priority": "high",
+      "estimated_hours": 3,
+      "acceptance_criteria": [
+        "Extractor produces (src_url -> tgt_url) links-to edges (this extractor did not exist before; see work unit 19)",
+        "Edges resolvable to doc_id = sha256(url) where the target exists in the corpus subset",
+        "mailto/tel/javascript/#fragment/self-references skipped",
+        "Unit test on an HTML fixture asserts extracted edges"
+      ]
+    },
+    {
+      "id": "LIR-006",
+      "title": "Ingestion: Mongo -> LlamaIndex node/edge graph (subset, fidelity)",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["LIR-003", "LIR-004", "LIR-005"],
+      "priority": "high",
+      "estimated_hours": 4,
+      "acceptance_criteria": [
+        "Reads Mongo parsed_documents -> entity nodes (page/pdf) + hierarchical chunk nodes + has_chunk + parent/child + links-to",
+        "Subset scope filter honored (committee / topic_path / url / doc cap) from the profile",
+        "Metadata-fidelity test: committee/topic_path/source_url/page survive end-to-end into node metadata",
+        "Runs on a small subset in well under a minute"
+      ]
+    },
+    {
+      "id": "LIR-007",
+      "title": "Build hierarchical Neo4j PropertyGraphIndex (persist + vector index, idempotent)",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["LIR-002", "LIR-006"],
+      "priority": "high",
+      "estimated_hours": 4,
+      "acceptance_criteria": [
+        "INDEX_REGISTRY['property_graph'] materializes entity + hierarchical chunk nodes + edges (has_chunk, parent/child, links-to) into Neo4jPropertyGraphStore",
+        "Leaf-chunk embeddings written; Neo4j native vector index created and queryable",
+        "Idempotent re-build (no duplicate nodes/edges; stable ids)",
+        "Subset graph verified in Neo4j (entity/chunk/level counts, parent/child + links-to edges present)"
+      ]
+    },
+    {
+      "id": "LIR-008",
+      "title": "Hierarchical retriever (small-to-big merge + links-to traversal) + default profile",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": ["LIR-003", "LIR-007"],
+      "priority": "high",
+      "estimated_hours": 4,
+      "acceptance_criteria": [
+        "SPIKE FIRST (timeboxed): determine how small-to-big merge composes with PropertyGraphIndex/Neo4j — native AutoMergingRetriever (needs parents in a docstore) vs a custom parent-merge over PG-retriever results via parent/child edges. Record the choice in the work unit.",
+        "RETRIEVER_REGISTRY['property_graph'] returns a LlamaIndex BaseRetriever: vector search on leaf chunks -> merge up via parent/child -> 1-hop links-to expansion",
+        "harness/configs/index/neo4j_hier.yaml is the working default profile",
+        "Retriever returns NodeWithScore with full metadata; smoke test on the subset shows merged parent context (not scattered leaves)"
+      ]
+    },
+    {
+      "id": "LIR-009",
+      "title": "Re-seam workflows to a LlamaIndex retriever; metadata-based citations",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["LIR-008"],
+      "priority": "high",
+      "estimated_hours": 3,
+      "acceptance_criteria": [
+        "get_workflow + all kept strategies (simple_rag, crag, react, summarize_rag, composites, review) consume a retriever/query engine",
+        "Tuple retrieve_fn path and the dual 'index' parameter removed from the workflow seam",
+        "Citations derived from node metadata (doc_id/source_url/chunk), replacing cited_qa_ids",
+        "Each kept workflow runs end-to-end on the subset retriever; review workflow's judge call still works"
+      ]
+    },
+    {
+      "id": "LIR-010",
+      "title": "Chat UI seam: factories + EMA_INDEX_PROFILE + citation rendering",
+      "type": "integration",
+      "status": "pending",
+      "dependencies": ["LIR-009"],
+      "priority": "high",
+      "estimated_hours": 4,
+      "acceptance_criteria": [
+        "app.py loads index/retriever via the factories selected by EMA_INDEX_PROFILE (no FAISS/pgvector branches)",
+        "Source cards render narrative chunks (the Q:/A: parsing at app.py:532 removed/generalized)",
+        "Answer + sources + citations display correctly for narrative chunks",
+        "Workflow profile selection + settings panel still work"
+      ]
+    },
+    {
+      "id": "LIR-011",
+      "title": "Verify tracing + feedback on the subset",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": ["LIR-010"],
+      "priority": "medium",
+      "estimated_hours": 2,
+      "acceptance_criteria": [
+        "Phoenix shows spans for the new retriever/query-engine path (native LlamaIndex instrumentation)",
+        "WorkflowRunner config_attributes stamps index/retriever profile on the root span",
+        "Up/down rating -> Phoenix annotation works; query cache + few-shot injection still function",
+        "End-to-end chat turn traced with feedback recorded"
+      ]
+    },
+    {
+      "id": "LIR-012",
+      "title": "Delete the dead retrieval/PG/FAISS stack",
+      "type": "cleanup",
+      "status": "pending",
+      "dependencies": ["LIR-010"],
+      "priority": "medium",
+      "estimated_hours": 3,
+      "acceptance_criteria": [
+        "Deleted: harness/pg/*, retrieve_pg.py, embed_pg.py, embed.py, retrieve.py, embed_hierarchical.py, corpus/pg_schema.sql, scripts/init_db.py, scripts/resolve_links.py, deploy/postgres/, scripts/sync_pg.sh, PG tests, EMA_RETRIEVER switch",
+        "No dangling imports on the runtime path; ruff + import check pass",
+        "git grep confirms no references to deleted modules outside docs/history"
+      ]
+    },
+    {
+      "id": "LIR-013",
+      "title": "Documentation cleanup (CLAUDE.md, DECISIONS.md, RETRIEVAL_PG -> RETRIEVAL)",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": ["LIR-012"],
+      "priority": "medium",
+      "estimated_hours": 3,
+      "acceptance_criteria": [
+        "CLAUDE.md rewritten: data sources (Mongo + Neo4j, no PG), retrieval section (hierarchical PropertyGraphIndex), commands, current phase; refactor-in-progress note finalized; benchmark noted as archived",
+        "DECISIONS.md: pgvector/FAISS/'link-graph cornerstone'(MIGR-018..025)/three-layer-PG entries marked superseded; new 'Neo4j hierarchical PropertyGraphIndex / LlamaIndex-first' decision added; archive-branch pointer recorded",
+        "docs/RETRIEVAL_PG.md deleted; lean docs/RETRIEVAL.md written incl. 'Adding an index' recipe",
+        "OPEN_QUESTIONS.md and project_roadmap/* references to the dropped stack updated",
+        "No remaining doc claims of pgvector/FAISS/EMA_RETRIEVER/unbuilt link-graph as current"
+      ]
+    },
+    {
+      "id": "LIR-014",
+      "title": "Clean HISTORY.md + memory review",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": ["LIR-013"],
+      "priority": "medium",
+      "estimated_hours": 2,
+      "acceptance_criteria": [
+        ".claude/HISTORY.md reconciled with reality: superseded pgvector/MIGR-018..025 rows marked; a refactor divider + rows added; consistent and not misleading",
+        "Auto-loaded memory files reviewed (project_refactoring_plan.md REFACT-*, project_langgraph_status.md); stale entries flagged",
+        "Stale memory pruned/updated only after explicit user confirmation",
+        "A future agent reading CLAUDE.md + DECISIONS.md + memory gets a consistent picture"
+      ]
+    }
+  ],
+  "completed_tasks": [],
+  "next_available": ["LIR-001", "LIR-002", "LIR-003", "LIR-004"]
+}

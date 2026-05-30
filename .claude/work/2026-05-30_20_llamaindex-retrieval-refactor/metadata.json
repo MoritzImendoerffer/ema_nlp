@@ -1,0 +1,31 @@
+{
+  "id": "2026-05-30_20_llamaindex-retrieval-refactor",
+  "title": "Major refactor: LlamaIndex indexes as first-class, config-driven retrieval pipeline (flat FAISS → PropertyGraphIndex)",
+  "status": "planning_complete",
+  "archive_branch": "archive/pre-llamaindex-refactor",
+  "decisions": {
+    "graph_store": "Neo4jPropertyGraphStore (holds all items)",
+    "index_kind": "hierarchical PropertyGraphIndex only — no FAISS/flat",
+    "postgres": "dropped entirely",
+    "benchmark_suite": "removed completely; preserved on archive/pre-llamaindex-refactor",
+    "scale": "subset-first"
+  },
+  "created_at": "2026-05-30",
+  "requirement_type": "refactor",
+  "phase": "Phase 1 → retrieval-pipeline rebuild (benchmark deferred)",
+  "owner": "moritz",
+  "branch": "refactor/llamaindex-retrieval-pipeline",
+  "checkpoint_commit": "5c3c8a8",
+  "no_backwards_compat": true,
+  "related": [
+    ".claude/work/2026-05-30_19_retrieval-design-feedback/",
+    "app.py",
+    "harness/workflows/registry.py",
+    "harness/embed.py",
+    "harness/embed_pg.py",
+    "harness/retrieve_pg.py",
+    "corpus/ingestion/chunker.py",
+    "harness/configs/retrieval_recursive.yaml",
+    "corpus/sources/parsed_documents.py"
+  ]
+}
