@@ -4,7 +4,7 @@
   "branch": "refactor/llamaindex-retrieval-pipeline",
   "checkpoint_commit": "5c3c8a8",
   "archive_branch": "archive/pre-llamaindex-refactor",
-  "current_task": "LIR-002",
+  "current_task": null,
   "principles": [
     "YAGNI: ONE index kind (hierarchical Neo4j PropertyGraphIndex) + an extensible registry seam; no flat/FAISS index",
     "Hierarchical chunk nodes (parent/child) are the default per user direction; small-to-big retrieval",
@@ -42,8 +42,8 @@
       "id": "LIR-002",
       "title": "Neo4j infrastructure + dependency + start_services swap",
       "type": "foundation",
-      "status": "in_progress",
-      "notes": "DONE: installed llama-index-graph-stores-neo4j 0.7.0 + neo4j 5.28.4 (conda base; imports OK); wrote deploy/neo4j/{docker-compose.yml,README.md} (ports env-overridable); rewrote scripts/start_services.sh (Mongo+Neo4j, Postgres dropped); added CLAUDE.md refactor banner. neo4j:5.26 image pulled. BLOCKED on live smoke-test: a NATIVE neo4j service already holds 127.0.0.1:7474/7687 — awaiting user decision (use native+creds / container on alt ports / stop native).",
+      "status": "completed",
+      "notes": "Installed llama-index-graph-stores-neo4j 0.7.0 + neo4j 5.28.4. deploy/neo4j/{docker-compose.yml,README.md} (env-overridable ports), start_services.sh (Mongo+Neo4j, Postgres dropped), CLAUDE.md banner. VERIFIED: ema_neo4j healthy + Neo4jPropertyGraphStore.structured_query('RETURN 1')=[{'ok':1}]. A native neo4j holds 7474/7687, so the project container runs on ALT ports 7475/7688 (bolt://localhost:7688). Downstream tasks use NEO4J_URI=bolt://localhost:7688 until the user consolidates (set NEO4J_URI / stop native).",
       "dependencies": [],
       "priority": "high",
       "estimated_hours": 3,
@@ -239,6 +239,6 @@
       ]
     }
   ],
-  "completed_tasks": ["LIR-001"],
-  "next_available": ["LIR-002", "LIR-003", "LIR-004"]
+  "completed_tasks": ["LIR-001", "LIR-002"],
+  "next_available": ["LIR-003", "LIR-004"]
 }
