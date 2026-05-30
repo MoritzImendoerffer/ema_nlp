@@ -200,7 +200,7 @@
       "priority": "medium",
       "estimated_hours": 3,
       "acceptance_criteria": [
-        "Deleted: harness/pg/*, retrieve_pg.py, embed_pg.py, embed.py, retrieve.py, embed_hierarchical.py, corpus/pg_schema.sql, scripts/init_db.py, scripts/resolve_links.py, deploy/postgres/, scripts/sync_pg.sh, PG tests, EMA_RETRIEVER switch",
+        "Deleted: harness/pg/*, retrieve_pg.py, embed_pg.py, embed.py, retrieve.py, embed_hierarchical.py, corpus/pg_schema.sql, scripts/init_db.py, scripts/resolve_links.py, deploy/postgres/, PG tests, EMA_RETRIEVER switch (note: DBSYNC scripts/sync_*.sh already removed in commit 6286099)",
         "No dangling imports on the runtime path; ruff + import check pass",
         "git grep confirms no references to deleted modules outside docs/history"
       ]
