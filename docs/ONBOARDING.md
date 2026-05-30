@@ -1,6 +1,15 @@
 # Onboarding — ema_nlp
 
-A one-stop "where am I, what does this do, how do I run things" guide. Read this when returning to the project after time away. It complements `docs/ARCHITECTURE.md` (which goes deeper on data flow) and `docs/RETRIEVAL_PIPELINE.md` (which goes deeper on LlamaIndex internals).
+> ⚠️ **Post-refactor note (2026-05-30).** Much of this guide describes the **pre-refactor**
+> system — FAISS-over-`corpus.jsonl`, `RetrievalConfig`/`retrieve_with_config`, the
+> `run_eval.py` 3-axis eval grid, `label_session.py`, and `harness/index/`. Retrieval was
+> rebuilt on **Neo4j** (hierarchical PropertyGraphIndex — see [`docs/RETRIEVAL.md`](RETRIEVAL.md)),
+> and the **benchmark/eval suite was archived** off this branch (`archive/pre-llamaindex-refactor`),
+> to be rebuilt on the new API. File-map/command entries below that point at `harness/retrieve.py`,
+> `run_eval.py`, `label_session.py`, the ablations, or `harness/index/` refer to legacy/archived
+> code. This guide is refreshed once the eval suite is rebuilt.
+
+A one-stop "where am I, what does this do, how do I run things" guide. Read this when returning to the project after time away. It complements `docs/ARCHITECTURE.md` (data flow + stores) and `docs/RETRIEVAL.md` (the current Neo4j retrieval).
 
 ---
 

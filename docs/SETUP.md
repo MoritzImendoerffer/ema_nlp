@@ -2,10 +2,10 @@
 
 How to get `ema_nlp` running on a new machine (Linux/macOS).
 
-> **Looking for the Postgres + pgvector retrieval stack?** See
-> [`docs/RETRIEVAL_PG.md`](RETRIEVAL_PG.md) for the operator's guide
-> (provisioning, environment variables, schema overview, ingest CLI,
-> retrieval modes, traversal modes, sub-corpus filters, and troubleshooting).
+> **Retrieval stack (Neo4j PropertyGraphIndex):** see [`docs/RETRIEVAL.md`](RETRIEVAL.md)
+> for provisioning, env vars, the node/graph model, build + retrieve, and
+> troubleshooting. Data services (MongoDB + Neo4j) start via `scripts/start_services.sh`.
+> *(The former Postgres+pgvector / FAISS retrieval is being removed in the refactor.)*
 
 ---
 
@@ -80,6 +80,17 @@ CHAINLIT_AUTH_SECRET=<64-char hex string>
 # Change only if MongoDB runs on a non-standard port or requires auth.
 # MONGO_URI=mongodb://localhost:27017/
 
+# Neo4j (retrieval store). Password must be >= 8 chars (Neo4j 5.x). If a native
+# Neo4j already holds 7474/7687, run the project container on alt ports
+# (NEO4J_BOLT_PORT=7688 docker compose -f deploy/neo4j/docker-compose.yml up -d)
+# and set NEO4J_URI to match.
+# NEO4J_URI=bolt://localhost:7687
+# NEO4J_USER=neo4j
+# NEO4J_PASSWORD=ema_nlp_dev_pw
+
+# Active index profile (default: neo4j_hier -> harness/configs/index/neo4j_hier.yaml)
+# EMA_INDEX_PROFILE=neo4j_hier
+
 # Path to Nextcloud datasets folder (default: ~/Nextcloud/Datasets)
 # Used by the MongoDB sync scripts to find/write the archive file.
 # NEXTCLOUD_DATASETS=~/Nextcloud/Datasets
@@ -90,15 +101,11 @@ CHAINLIT_AUTH_SECRET=<64-char hex string>
 # MONGO_SYNC_USER=moritz
 # MONGO_SYNC_SSH_PORT=22
 
-# ── Corpus and index paths ─────────────────────────────────────────────────────
-# Path to the Q&A corpus JSONL used to build the FAISS index.
-# Default: corpus/corpus.jsonl (26 k records).
-# Override when experimenting with a smaller or custom corpus.
-# After changing this, delete harness/index/ to force a rebuild.
-# EMA_CORPUS_PATH=/path/to/corpus.jsonl
-
-# Path to the FAISS index directory (default: harness/index/).
-# EMA_INDEX_PATH=/path/to/index/
+# ── Corpus and index paths (LEGACY) ────────────────────────────────────────────
+# EMA_CORPUS_PATH / EMA_INDEX_PATH belonged to the FAISS-over-corpus.jsonl chat-UI
+# path, which is being removed in the retrieval refactor. The new pipeline indexes
+# the narrative corpus into Neo4j and is selected by EMA_INDEX_PROFILE (above).
+# These remain only until the chat UI is re-seamed (LIR-010). See docs/RETRIEVAL.md.
 ```
 
 ### LLM and embedding model settings

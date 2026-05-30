@@ -2,600 +2,189 @@
 
 How the project stores, processes, and retrieves data — from raw scrape to chat answer.
 
----
-
-## Overview: data flow
-
-```
-EMA website
-    │  (scraped by ema_scraper repo)
-    ▼
-MongoDB  ema_scraper.web_items        ← 115k raw pages (HTML + PDF metadata)
-MongoDB  ema_scraper.parsed_pdfs      ← 65k parsed PDF markdown
-    │
-    │  corpus/build_corpus.py
-    ▼
-corpus/corpus.jsonl                   ← 26,251 normalised Q&A records (versioned in Git)
-    │
-    │  python -m harness.embed[_hierarchical]
-    ▼
-harness/index/                        ← FAISS vector index + docstore (local, not in Git)
-harness/index/hierarchical/           ← page-level parent index (optional, for hierarchical strategy)
-    │
-    ├── harness/workflows/registry.py ← get_workflow(name) — 9 strategies
-    │       │
-    │       └── harness/workflows/{simple_rag,crag,react,composites}.py
-    │
-    ├── app.py  (Chainlit chat UI)    ← LlamaIndex Workflow pipeline → Claude synthesis → Phoenix traces
-    └── harness/run_eval.py           ← retrieval + judge eval → results/<run_id>/
-```
+> ⚠️ **Retrieval refactor in progress.** Retrieval is being rebuilt LlamaIndex-first on
+> **Neo4j** (hierarchical `PropertyGraphIndex`), replacing the former Postgres+pgvector
+> and FAISS paths. The offline pipeline (`harness/indexing/`) is built + verified on a
+> CPU subset; workflow + chat-UI re-seaming and old-stack deletion are pending. See
+> **[RETRIEVAL.md](RETRIEVAL.md)**. This doc reflects the target architecture; lingering
+> `harness/retrieve*.py`, `harness/embed*.py`, and `harness/pg/` modules are legacy
+> awaiting removal (LIR-012).
 
 ---
 
-## 1. MongoDB — raw data store
+## Data flow
 
-Connection is set by `MONGO_URI` (default `mongodb://localhost:27017/`).  
-Database: `ema_scraper`.
+```mermaid
+flowchart TD
+    EMA[EMA website] -->|ema_scraper Scrapy| WI["MongoDB ema_scraper.web_items<br/>raw HTML + PDF metadata (115k)"]
+    EMA --> PPK[Scrapy .pkl cache]
+    PPK -->|scripts/ingest_parsed_pdfs.py| PP["MongoDB ema_scraper.parsed_pdfs<br/>PDF markdown (65k)"]
 
-### Collections
+    WI -->|trafilatura| PD["MongoDB ema_scraper.parsed_documents<br/>canonical parser output"]
+    PP -->|copy markdown| PD
 
-#### `web_items`
+    WI -->|corpus/build_corpus.py| CJ["corpus/corpus.jsonl<br/>26k Q&A pairs (benchmark source)"]
 
-Raw output of the [ema_scraper](https://github.com/MoritzImendoerffer/ema_scraper) Scrapy spider.
+    PD -->|harness.indexing.build_index| NEO[("Neo4j PropertyGraphIndex<br/>:Document :Chunk + edges + vectors")]
+    WI -. links_to .-> NEO
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `_id` | ObjectId | MongoDB ID |
-| `url` | `[str]` | 1-element list; full EMA URL |
+    NEO -->|build_retriever| WF["harness/workflows/* (re-seam pending)"]
+    WF --> APP["app.py — Chainlit chat UI (seam pending)"]
+    APP --> PHX[Arize Phoenix traces + 👍/👎 feedback]
+    CJ -.benchmark.-> BM["benchmark/benchmark.jsonl<br/>(eval suite archived off-branch)"]
+```
+
+Connections: `MONGO_URI` (default `mongodb://localhost:27017/`, db `ema_scraper`);
+`NEO4J_URI` (default `bolt://localhost:7687`). Both start via
+`scripts/start_services.sh` (Docker). Paths/credentials load from
+`~/.myenvs/ema_nlp.env` via `config.py`.
+
+---
+
+## 1. MongoDB — raw + parsed data store
+
+### `web_items` (115k)
+Raw output of the [ema_scraper](https://github.com/MoritzImendoerffer/ema_scraper) spider.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `url` | `[str]` | **1-element list**; full EMA URL |
 | `content_type` | `[str]` | `["text/html"]` or `["application/pdf"]` |
-| `html_raw` | `str` *(HTML pages only)* | Full page HTML |
+| `html_raw` | `[str]` | HTML pages only (22,743 have it); the link source for `LINKS_TO` |
 
-- **22,743 HTML pages** — `html_raw` present; accordion Q&A pages, EPAR summaries, committee pages
-- **92,358 PDF entries** — metadata only; `html_raw` absent; actual content is in `parsed_pdfs`
+### `parsed_pdfs` (65k)
+pymupdf4llm markdown from the Scrapy `.pkl` cache.
 
-Useful queries:
+| Field | Type | Notes |
+|-------|------|-------|
+| `_id` / `url` | str | EMA PDF URL (lookup key) |
+| `markdown` | str | parsed text (empty on failure) |
+| `error` | str | `""` on success (query `{error: ""}`) |
 
-```python
-# All HTML pages with Bootstrap accordion (extractable Q&A)
-db.web_items.count_documents({"html_raw": re.compile("accordion-item")})
-# → 6,095
+### `parsed_documents` — ingestion source
+Canonical parser output, one row per `(url, parser, parser_version)`:
+`url, parser, parser_version, content_type, text, text_format, error`. Read by
+`harness.indexing.ingest`.
 
-# Search HTML content for a term
-db.web_items.find({"html_raw": re.compile("process charact", re.I)}, {"url": 1})
-```
-
-#### `parsed_pdfs`
-
-Parsed PDF content produced by `scripts/ingest_parsed_pdfs.py` from the Scrapy `.pkl` cache
-files in `~/Nextcloud/Datasets/ema_scraper/cache/`.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `_id` | str | EMA PDF URL (used as lookup key) |
-| `url` | str | Same as `_id` |
-| `markdown` | str | pymupdf4llm output (may be empty on parse failure) |
-| `error` | str | Empty string on success; error message on failure |
-
-- **65,263 documents** total; **38,948 with `error: ""`** (successful parses)
-- **10.5% parse failure rate** — scanned PDFs, image-only documents
-- **19,494 legacy entries** where `error` is `null` (pre-validation; markdown present)
-
-Useful queries:
-
-```python
-# All successfully parsed PDFs
-db.parsed_pdfs.find({"error": ""})
-
-# Look up a specific PDF
-db.parsed_pdfs.find_one({"_id": "https://www.ema.europa.eu/en/documents/..."})
-```
-
-### Syncing MongoDB between machines
-
-Two methods — see [SETUP.md → Section 5](SETUP.md#5-mongodb-sync) for full instructions.
-
-```bash
-# Export on source machine (writes archive to Nextcloud)
-bash scripts/sync_mongo.sh export
-
-# Import on destination machine (reads archive from Nextcloud)
-bash scripts/sync_mongo.sh import
-
-# SSH live-pull (both machines online via Tailscale)
-bash scripts/sync_mongo.sh pull --host <tailscale-hostname>
-```
-
-> Both methods **drop the local database** before restoring. Confirm the prompt.
+> **Data note (this host):** `parsed_documents` was never backfilled at scale (and the
+> `link_graph` collection was never built — older docs overstate this). Seed a verify
+> subset with `scripts/backfill_parsed_documents_subset.py`. Full backfill is future
+> work, best on the GPU host.
 
 ---
 
 ## 2. Corpus — `corpus/corpus.jsonl`
 
-The corpus is the canonical, versioned Q&A dataset. It lives in Git.
-
-### Stats
-
-| Metric | Value |
-|--------|-------|
-| Records | 26,251 |
-| HTML accordion records | 17,505 |
-| PDF records | 8,746 |
-| File size | ~95 MB |
-| Unique source URLs | 3,298 |
-
-### Record schema
-
-```jsonc
-{
-  "qa_id": "a341a32a97597497",          // stable 16-hex hash of source_url + question
-  "question": "Do I have to pay a fee…",
-  "answer": "Yes, EMA charges a fee…",
-  "source_url": "https://www.ema.europa.eu/en/…",
-  "source_type": "html_accordion",      // "html_accordion" | "pdf"
-  "source_title": "EMA fees Q&A",
-  "topic_path": "/human-regulatory-overview/about-us/fees-payable-…",
-  "cross_refs": ["b7a3c1d2e5f6a7b8"],   // qa_ids of "see also" Q&As (multi-hop edges)
-  "extraction_confidence": "high",      // "high" | "medium" | "low"
-  "reference_number": "EMA/409815/2020",
-  "revision": "Rev.5",
-  "last_updated": "2024-03"
-}
-```
-
-`qa_id` is computed as `sha256(source_url + "\x00" + normalised_question)[:16]` — stable across
-re-runs as long as the URL and question text don't change.
-
-### Rebuild the corpus from MongoDB
-
-```bash
-python -m corpus.build_corpus
-```
-
-Or using the full pipeline script (also runs dedup and filter logging):
-
-```bash
-python corpus/build_corpus.py \
-  --output corpus/corpus.jsonl \
-  --dedup-log corpus/corpus_dedup_log.jsonl \
-  --filter-log corpus/corpus_filter_log.jsonl
-```
-
-The builder reads from `ema_scraper.web_items` (HTML accordion extractor) and
-`ema_scraper.parsed_pdfs` (PDF Q&A extractor), deduplicates by question hash,
-and writes one JSONL line per surviving record.
-
-Dedup rule: if the same question appears in both HTML and PDF, the PDF version is
-kept (richer metadata). Otherwise the first-seen record wins.
-
-### Mini corpus
-
-`corpus/mini_corpus.jsonl` — 156 records, `human-regulatory-overview` topic only.
-Used for rapid development and unit tests. **Not suitable for production retrieval.**
+The curated, versioned **Q&A** dataset (26,251 records: 17,505 HTML accordion + 8,746
+PDF). It is the **benchmark source**, not the retrieval target — retrieval is over the
+narrative graph in Neo4j. Schema in [`corpus/SCHEMA.md`](../corpus/SCHEMA.md); rebuild
+with `python corpus/build_corpus.py`. `corpus/mini_corpus.jsonl` is a 156-record dev subset.
 
 ---
 
-## 3. FAISS vector index — `harness/index/`
+## 3. Retrieval — Neo4j PropertyGraphIndex
 
-The index is a LlamaIndex `VectorStoreIndex` backed by a FAISS flat-L2 index.
-It is built from `corpus.jsonl` and persisted to `harness/index/`.
-
-**The index directory is excluded from Git** (large binary files). It must be built
-locally on each machine.
-
-### Index files
-
-| File | Description |
-|------|-------------|
-| `faiss.index` | FAISS flat-L2 index (~107 MB: 26k × 1024-dim × 4 bytes float32) |
-| `docstore.json` | LlamaIndex docstore — full node text + metadata for every Q&A |
-| `default__vector_store.json` | Vector store config and node-id mapping |
-| `index_store.json` | Top-level index registry |
-| `graph_store.json`, `image__vector_store.json` | Placeholder files written by LlamaIndex |
-
-### Embedding model
-
-Default: **`BAAI/bge-large-en-v1.5`** — 1,024-dim, ~1.3 GB download on first use.
-The model is cached in `~/.cache/huggingface/` after the first download.
-
-Each node is embedded as: `"Q: {question}\n\nA: {answer}"` (both fields together).
-All metadata fields are excluded from the embedding text.
-
-### Build or rebuild the index
-
-```bash
-# Build from corpus.jsonl (skips if index already exists)
-python -m harness.embed
-
-# Force rebuild even if index exists
-python -m harness.embed --force
-
-# Use a custom corpus or index directory
-python -m harness.embed --corpus /path/to/corpus.jsonl --index-dir /path/to/index/
-```
-
-Via env vars (useful for the chat UI):
-
-```bash
-EMA_CORPUS_PATH=/path/to/corpus.jsonl  # default: corpus/corpus.jsonl
-EMA_INDEX_PATH=/path/to/index/         # default: harness/index/
-```
-
-> **When to rebuild:**
-> - After the corpus changes (`corpus.jsonl` updated)
-> - After changing the embedding model (`EMA_EMBED_MODEL`)
-> - After changing the embedding provider (`EMA_EMBED_PROVIDER`)
-> - If `harness/index/` is deleted or moved
->
-> To force a rebuild, either pass `--force` or delete `harness/index/docstore.json`
-> (the presence of this file is the "index already built" check).
-
-### Estimated rebuild time
-
-| Corpus | Model | Time (CPU) |
-|--------|-------|------------|
-| `mini_corpus.jsonl` (156 records) | BGE-large-en | < 1 min |
-| `corpus.jsonl` (26,251 records) | BGE-large-en | ~25–30 min |
-| `corpus.jsonl` (26,251 records) | BGE-small-en | ~8–10 min |
-
-### Use a lighter model on a laptop
-
-Set in `~/.myenvs/ema_nlp.env`:
-
-```bash
-EMA_EMBED_MODEL=BAAI/bge-small-en-v1.5   # ~130 MB, faster, slightly lower recall
-```
-
-Then delete `harness/index/docstore.json` and run `python -m harness.embed`.
+Full operator's guide, node/graph model, config profiles, and mermaid flows are in
+**[RETRIEVAL.md](RETRIEVAL.md)**. In brief: `harness.indexing.build_index(profile)` reads
+`parsed_documents`, chunks hierarchically, extracts `links_to` from raw HTML, and writes
+`:Document`/`:Chunk` nodes + edges + a chunk vector index into Neo4j;
+`HierarchicalPGRetriever` serves vector hit + small-to-big + `links_to` expansion.
+Selected by `EMA_INDEX_PROFILE` → `harness/configs/index/*.yaml`.
 
 ---
 
-## 4. Retrieval modes and strategies
+## 4. LlamaIndex Workflow layer — `harness/workflows/`
 
-See **[docs/RETRIEVAL_PIPELINE.md](RETRIEVAL_PIPELINE.md)** for a detailed walk-through of LlamaIndex internals, RRF fusion, retrieval strategies, and the ablation A pipeline.
+LlamaIndex-native orchestration on top of retrieval. Every strategy is a typed,
+event-driven `Workflow`. (LangChain/LangGraph are not in the stack.)
 
-### Retrieval modes (`harness/retrieve.py`)
+| Strategy | Description |
+|----------|-------------|
+| `simple_rag` | retrieve → generate (zero / few-shot / CoT via `prompt_strategy`) |
+| `crag` | retrieve → grade ⇄ rewrite → generate |
+| `summarize_rag` | retrieve → summarize → generate |
+| `react` | `ReActNativeWorkflow` — per-step Phoenix spans; tools currently index-coupled (redesign for the graph pending, LIR-009) |
+| `crag_summarize` / `crag_review` / `react_review` | composites |
 
-Three base modes, selectable per YAML config or API call.
-All return `list[(qa_id, score, metadata)]` ordered by descending relevance:
+`get_workflow(name, …)` (in `harness/workflows/registry.py`) is the single entry point;
+every runner exposes `.invoke()` / `.ainvoke()`. Model roles are in
+`harness/configs/models.yaml` (`agent`/`grader`/`rewriter`/`reranker`/`judge`/`reviewer`).
 
-| Mode | How it works | Best for |
-|------|-------------|---------|
-| `dense` (A0) | FAISS flat-L2 similarity on BGE embeddings | Semantic similarity |
-| `bm25` | BM25 keyword ranking over docstore | Exact term matching, abbreviations, numeric values |
-| `hybrid` (A0+) | Reciprocal Rank Fusion of dense + BM25 (RRF_K=60) | General use (default) |
-
-### Retrieval strategies (`harness/retrieve.py` → `RetrievalConfig`)
-
-Four strategies, orthogonal to mode:
-
-| Strategy | Description | Use case |
-|----------|-------------|---------|
-| `flat` | Standard top-k retrieval (default) | Baseline, ablation A runs |
-| `recursive` | Flat retrieval + automatic `cross_refs` expansion (N hops) | T3 multi-hop questions |
-| `hierarchical` | Page-level parent → Q&A child drill-down (requires hierarchical index) | When page-level scoping improves precision |
-| `agentic` | Delegated to a LlamaIndex `FunctionAgent` ReAct workflow via the workflow registry | Complex multi-step queries |
-
-Configure via YAML:
-
-```yaml
-retrieval:
-  strategy: recursive      # flat | recursive | hierarchical | agentic
-  mode: hybrid             # dense | bm25 | hybrid
-  k: 10
-  recursive:
-    max_hops: 1
-  hierarchical:
-    top_doc_k: 5
-    summary_index_dir: harness/index/hierarchical
-```
-
-The chat UI uses `flat` + `hybrid` by default (`PipelineConfig()` defaults). Ablation configs select any combination.
+> **Refactor status:** workflows still consume the legacy tuple `retrieve_fn` /
+> `harness.retrieve`; re-seaming them to the LlamaIndex retriever is LIR-009.
 
 ---
 
-## 5. LlamaIndex Workflow layer — `harness/workflows/`
+## 5. Chat UI — `app.py` (Chainlit)
 
-The `harness/workflows/` package provides a LlamaIndex-native orchestration layer
-**on top of** the retrieval stack. Every strategy is implemented as a typed,
-event-driven `Workflow`.
-LlamaIndex is used for both retrieval and orchestration — LangChain and LangGraph
-are no longer in the stack.
+`bash run_ui.sh` (Phoenix + Chainlit). On session start it loads the index/retriever and
+builds a per-session `WorkflowRunner`; per message it checks the semantic query cache,
+optionally injects rated few-shot examples, runs the workflow, shows sources, and records
+👍/👎 to Phoenix as span annotations. Tracing (Phoenix + OpenInference) and the feedback
+stack (`query_cache.py`, `fewshot_inject.py`, `rating.py`) are **kept** through the refactor.
 
-### Architecture
-
-```
-harness/workflows/
-├── registry.py         get_workflow(name, index, llm) — 9 strategies, single entry point
-├── events.py           typed Event subclasses (RetrievedEvent, GradeEvent, …)
-├── utils.py            WorkflowRunner, Doc, build_rag_messages, format_docs, …
-├── simple_rag.py       SimpleRAGWorkflow — retrieve → generate (zero/few/cot)
-├── crag.py             CRAGWorkflow — retrieve → grade ⇄ rewrite → generate
-├── summarize_rag.py    SummarizeRAGWorkflow — retrieve → summarize → generate
-├── react_native.py     ReActNativeWorkflow — hand-written think/act/observe loop, per-step Phoenix spans
-├── composites.py       CRAGSummarizeWorkflow, CRAGReviewWorkflow, ReactReviewWorkflow
-└── review.py           run_review_step() + ReviewMixin — faithfulness check via Judge
-harness/llms.py         get_llm("agent"|"judge"|"reranker"…) — LlamaIndex LLM instances
-```
-
-### Workflow strategies
-
-All strategies are registered in `WORKFLOW_REGISTRY` and accessible via
-`get_workflow(name, index=..., llm=...)`:
-
-| Strategy | Architecture | Description |
-|----------|-------------|-------------|
-| `simple_rag_zero` | `Workflow` | retrieve → generate (zero-shot) |
-| `simple_rag_few` | `Workflow` | retrieve → generate (SME few-shot examples) |
-| `simple_rag_cot` | `Workflow` | retrieve → generate (chain-of-thought) |
-| `react` | `Workflow` | `ReActNativeWorkflow` — hand-written think/act/observe loop, per-step Phoenix spans; 4 tools: `ema_search`, `follow_cross_refs`, `filter_by_topic`, `get_qa_by_id` |
-| `crag` | `Workflow` | retrieve → grade ⇄ rewrite → generate (Corrective RAG) |
-| `summarize_rag` | `Workflow` | retrieve → summarize → generate |
-| `crag_summarize` | `Workflow` | CRAG loop → summarize → generate |
-| `crag_review` | `Workflow` | CRAG loop → generate → faithfulness review |
-| `react_review` | `Workflow` | ReAct agent + single faithfulness review pass |
-
-```python
-from harness.workflows.registry import get_workflow, list_workflows
-from harness.llms import get_llm
-from harness.embed import build_index
-
-index  = build_index(corpus_path, index_dir)
-llm    = get_llm("frontier")
-runner = get_workflow("crag_review", index=index, llm=llm)
-result = runner.invoke({"question": "What is the AI for NDMA?"})
-```
-
-Every `runner` exposes `.invoke(inputs)` and `.ainvoke(inputs)` — the same
-interface regardless of whether the underlying strategy is a `Workflow` or
-a `FunctionAgent`.
-
-### Model roles (`harness/configs/models.yaml`)
-
-`models.yaml` separates model *definitions* from *roles*. Code calls `get_llm("agent")` etc.; the
-`roles:` block decides which model that resolves to. Swap a model for a role in one place.
-
-| Role | Default model | Used for |
-|------|--------------|---------|
-| `agent` | `claude-opus-4-7` | ReAct loop — Opus required; Haiku skips tool calls (HITL-004a) |
-| `grader` | `claude-haiku-4-5-20251001` | CRAG relevance grader |
-| `rewriter` | `claude-haiku-4-5-20251001` | CRAG query rewriter |
-| `reranker` | `claude-haiku-4-5-20251001` | A3/A4 LLM reranker |
-| `judge` | `claude-opus-4-7` | Faithfulness + correctness judge |
-| `reviewer` | `claude-opus-4-7` | Post-generation answer reviewer |
-
-Additional model definitions: `olmo_32b` (Together AI, contamination-auditable) and `local_qwen32`
-(OpenAI-compatible local server) — bind them to any role in `models.yaml` without code changes.
-
-```python
-from harness.llms import get_llm
-llm = get_llm("agent")   # returns LlamaIndex LLM for the agent role
-```
-
-`olmo_32b` requires `TOGETHER_API_KEY` in `~/.myenvs/ema_nlp.env`.
+> **Refactor status:** `app.py` still branches on the old `EMA_RETRIEVER` switch; wiring it
+> to the index profile + narrative-chunk citations is LIR-010.
 
 ---
 
-## 6. Chat UI — `app.py`
+## 6. Evaluation harness — archived
 
-```bash
-# Full start (Phoenix tracing + Chainlit)
-bash run_ui.sh
-
-# Chainlit only (no tracing)
-PHOENIX_DISABLED=1 bash run_ui.sh
-
-# Custom ports
-PHOENIX_PORT=6007 CHAINLIT_PORT=8001 bash run_ui.sh
-```
-
-| Service | Default URL |
-|---------|-------------|
-| Chat UI | http://localhost:8000 |
-| Phoenix trace viewer | http://localhost:6006 |
-
-On session start the chat UI:
-1. Loads the FAISS index from `harness/index/` (or builds it if missing)
-2. Builds a `WorkflowRunner` for the configured strategy (stateless per turn)
-
-On each message:
-1. Embeds the query (BGE-large-en); checks the semantic query cache for similar past questions
-2. If cache hits exist, prompts the user to use a cached answer or run fresh
-3. Calls `get_fewshot_context()` — automatically injects rated past examples when ≥ 3 rated entries exist
-4. The LlamaIndex Workflow runs hybrid retrieval (top-10 results) and synthesis
-5. Shows sources in a side panel
-6. Records 👍/👎 feedback to Phoenix as span annotations
-
-**Key env vars for the UI:**
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `EMA_CORPUS_PATH` | `corpus/corpus.jsonl` | Corpus file used to build the index |
-| `EMA_INDEX_PATH` | `harness/index/` | Where the FAISS index is stored/loaded from |
-| `EMA_CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | Synthesis model (UI-specific override) |
-| `EMA_LLM_MODEL` | `claude-haiku-4-5-20251001` | Default LLM model across the pipeline |
-| `PHOENIX_URL` | `http://localhost:6006` | Phoenix server for traces and feedback |
-| `PHOENIX_DISABLED` | *(unset)* | Set to `1` to disable all tracing |
+The benchmark/eval suite (`run_eval.py`, `eval_retrieval.py`, ablations, eval configs) was
+**removed from this branch** and preserved on `archive/pre-llamaindex-refactor`. It will be
+rebuilt on the clean retrieval API in a later work unit. The methodology (T1–T4 types, lift,
+contamination handling) is documented in `project_roadmap/{ROADMAP,ABLATIONS,LEAKAGE}.md`.
+The chat-time faithfulness `Judge` (`harness/judge.py`) is **kept** (used by the `review`
+workflows).
 
 ---
 
-## 7. Eval harness
+## 7. File storage layout
 
-Two evaluation entry points:
+**In Git:** `corpus/build_corpus.py` + schemas, `benchmark/benchmark.jsonl`,
+`harness/indexing/`, `harness/workflows/`, `harness/configs/`, `harness/prompts/`,
+`deploy/{mongo,neo4j}/`.
 
-### `harness/run_eval.py` — retrieval + judge eval
+**Local only (gitignored / derived):** `corpus/corpus.jsonl` (rebuild from Mongo); Neo4j
+data (Docker volume `ema_neo4j_data`); `~/.cache/huggingface/` (BGE model); `results/`
+(symlink to Nextcloud); `~/.myenvs/ema_nlp.env`.
 
-Runs a full benchmark evaluation and writes results to `results/<run_id>/`.
-
-```bash
-python -m harness.run_eval --config harness/configs/baseline_a0.yaml
-```
-
-### Run configs (`harness/configs/`)
-
-Each YAML file is one run configuration:
-
-| Config | Description |
-|--------|-------------|
-| `baseline_a0.yaml` | Dense retrieval only (no orchestration — retrieval eval only) |
-| `baseline_a0plus.yaml` | Hybrid retrieval (dense + BM25 + RRF), no orchestration |
-| `ablation_a_a1.yaml` | + Query expansion (acronym disambiguation) |
-| `ablation_a_a2_keyword.yaml` | + Topic filter (keyword post-filter) |
-| `ablation_a_a2_concept.yaml` | + Topic filter (IDMP concept pre-filter) |
-| `ablation_a_a3.yaml` | + SME rubric reranker (Claude) |
-| `ablation_a_a4.yaml` | + Generic reranker (Claude) |
-| `ablation_a_a5.yaml` | + Combined A3+A4 rerankers |
-| `workflow_simple_rag.yaml` | A0+ retrieval + `simple_rag_zero` answer generation |
-| `workflow_crag.yaml` | A0+ retrieval + CRAG workflow |
-| `workflow_react.yaml` | A0+ retrieval + native ReAct workflow |
-| `workflow_crag_review.yaml` | A0+ retrieval + CRAG + faithfulness review |
-| `ablation_c_*.yaml` | Ablation C: prompting matrix (zero/few/cot) × model tiers |
-
-Config fields (retrieval-only example — no `orchestration:` block):
-
-```yaml
-run_id: baseline_a0
-retrieval:
-  mode: hybrid          # dense | bm25 | hybrid
-  k: 10
-index:
-  corpus: corpus/corpus.jsonl
-  index_dir: harness/index
-  embed_model: BAAI/bge-large-en-v1.5
-  force_rebuild: false
-benchmark:
-  path: benchmark/benchmark.jsonl
-judge:
-  enabled: false
-results:
-  base_dir: ~/Nextcloud/Datasets/ema_nlp/results
-```
-
-Configs with answer generation add an `orchestration:` block:
-
-```yaml
-orchestration:
-  strategy: react          # any key from WORKFLOW_REGISTRY
-  cache_inject: false      # true injects rated past examples as few-shot context
-```
-
-### Results structure
-
-```
-results/
-└── baseline_a0_20260517_142301/
-    ├── config.yaml          # copy of the run config
-    ├── retrieval.json       # Recall@k, Precision@k, Citation Accuracy by T1–T4
-    ├── retrieval.png        # bar chart
-    ├── judge_scores.jsonl   # one line per benchmark item (if judge enabled)
-    └── run_summary.md       # human-readable summary
-```
+**Nextcloud:** `~/Nextcloud/Datasets/ema_scraper/cache/` (Scrapy cache → `parsed_pdfs`),
+`mongo_sync/` (Mongo dumps), IDMP ontology RDF.
 
 ---
 
-## 8. File storage layout
-
-### In Git (versioned)
-
-```
-benchmark/benchmark.jsonl      # 45 evaluation questions (T1–T4), complete
-harness/workflows/             # LlamaIndex Workflow strategies (9 registered)
-harness/configs/               # eval run configs
-harness/prompts/               # judge and reranker prompt files
-harness/index/.gitkeep         # placeholder to keep the empty index directory
-ablations/A_evidence_filter/   # acronym dict and related assets
-```
-
-### Local only — gitignored, rebuild from MongoDB
-
-```
-corpus/corpus.jsonl            # 95 MB — rebuilt by: python corpus/build_corpus.py
-corpus/mini_corpus.jsonl       # 156-record dev subset — rebuilt by: scripts/fetch_mini_corpus.py
-corpus/*_log.jsonl             # dedup/filter logs
-harness/index/                 # FAISS index (~300 MB once built) — rebuild with: python -m harness.embed
-results/                       # eval run outputs
-.phoenix.log                   # Phoenix server log
-~/.myenvs/ema_nlp.env          # credentials and machine defaults
-```
-
-> Both the corpus JSONL and the FAISS index are excluded from Git — they are large
-> derived artifacts that can be fully reconstructed from MongoDB + the embedding model.
-> The `.gitkeep` in `harness/index/` is the only tracked file there; it just preserves
-> the directory so `python -m harness.embed` has somewhere to write.
-
-### Nextcloud (shared via cloud sync)
-
-```
-~/Nextcloud/Datasets/
-├── ema_scraper/cache/         # Scrapy HTTP cache (~several GB) — source for parsed_pdfs
-├── mongo_sync/
-│   └── ema_scraper.archive    # MongoDB dump for cross-machine sync
-└── Pistoia-Alliance-Ontologies/IDMP-O/1.3.0/
-    └── IdentificationOfMedicinalProductsOntology.rdf   # IDMP ontology (used by tag_concepts.py)
-```
-
----
-
-## 9. Scripts reference
+## 8. Scripts reference
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/setup.sh` | First-time machine setup (deps, Claude Code, env file) |
-| `scripts/sync_mongo.sh` | MongoDB export/import/pull between machines |
-| `scripts/ingest_parsed_pdfs.py` | Bulk-upsert parsed PDF `.pkl` files → `parsed_pdfs` collection |
-| `scripts/fetch_mini_corpus.py` | Rebuild `mini_corpus.jsonl` from MongoDB |
-| `scripts/tag_concepts.py` | Tag corpus records with IDMP concept labels |
+| `scripts/start_services.sh` | Start + health-check MongoDB + Neo4j (Docker) |
+| `scripts/ingest_parsed_pdfs.py` | Bulk-upsert parsed PDF `.pkl` → `parsed_pdfs` |
+| `scripts/backfill_parsed_documents_subset.py` | Seed a `parsed_documents` verify subset from legacy collections |
 | `corpus/build_corpus.py` | Rebuild `corpus.jsonl` from MongoDB |
-| `python -m harness.embed` | Build or rebuild the flat FAISS index |
-| `python -m harness.embed_hierarchical` | Build the hierarchical (page-level) FAISS index |
-| `python -m harness.run_eval` | Run a retrieval + judge benchmark evaluation |
+| `python -m harness.indexing …` *(build entry pending UI seam)* | Build the Neo4j PropertyGraphIndex (`build_index`) |
 | `bash run_ui.sh` | Start Phoenix + Chainlit chat UI |
 
 ---
 
-## 10. Common operations
-
-### Rebuild everything from scratch on a new machine
+## 9. Common operations
 
 ```bash
-# 1. Sync MongoDB from another machine
-bash scripts/sync_mongo.sh import       # after exporting on the source machine
+# Start services (Mongo + Neo4j)
+scripts/start_services.sh
 
-# 2. Rebuild corpus from MongoDB
-python corpus/build_corpus.py
+# Seed a small parsed_documents subset (until full backfill on GPU)
+python scripts/backfill_parsed_documents_subset.py --max-html 12 --max-pdf 30
 
-# 3. Build the FAISS index
-python -m harness.embed                 # takes ~25 min with BGE-large-en
+# Build the index + verify retrieval (Python)
+python - <<'PY'
+from harness.indexing import load_index_profile, build_index, build_retriever
+p = load_index_profile()
+idx = build_index(p, reset=True)
+r = build_retriever(p, idx)
+print(len(r.retrieve("nitrosamine acceptable intake limit")))
+PY
 
-# 4. Start the chat UI
-bash run_ui.sh
-```
-
-### Change the embedding model
-
-```bash
-# 1. Update ~/.myenvs/ema_nlp.env
-echo "EMA_EMBED_MODEL=BAAI/bge-small-en-v1.5" >> ~/.myenvs/ema_nlp.env
-
-# 2. Delete the old index so it gets rebuilt
-rm harness/index/docstore.json
-
-# 3. Rebuild
-python -m harness.embed
-```
-
-### Update the corpus after new EMA pages are scraped
-
-```bash
-# Re-run the corpus builder (re-reads MongoDB, re-deduplicates)
-python corpus/build_corpus.py
-
-# Delete old index and rebuild
-rm harness/index/docstore.json
-python -m harness.embed
-```
-
-### Run a quick smoke test after a rebuild
-
-```bash
-pytest tests/test_embed.py tests/test_retrieve.py -v
+# Run the indexing unit tests (no infra)
+pytest tests/test_indexing_*.py
 ```

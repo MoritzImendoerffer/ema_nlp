@@ -1,5 +1,12 @@
 # EMA Q&A RAG Benchmark — v1 Roadmap
 
+> ⚠️ **Architecture revision (2026-05-30).** Retrieval is now a **Neo4j hierarchical
+> PropertyGraphIndex** — this revises the original "No Neo4j" v1 non-goal below (graph
+> structure became the chosen retrieval signal). See `DECISIONS.md` and
+> [`docs/RETRIEVAL.md`](../docs/RETRIEVAL.md). The corpus + benchmark methodology (phases,
+> T1–T4 types, lift, ablations) still stands; the eval-suite *code* was archived off the
+> refactor branch (`archive/pre-llamaindex-refactor`), to be rebuilt on the new retrieval API.
+
 **Project goal.** Build a shareable Q&A benchmark from EMA human-regulatory content, plus reference RAG implementations of increasing sophistication, to test where subject-matter expert (SME) effort actually pays off in agentic RAG.
 
 **Scope lock for v1.** EMA human-regulatory Q&A only. ~30–50 benchmark questions mined directly from EMA Q&A documents. Three targeted ablations. Flat baseline first; graph/ontology only introduced if a specific failure class demands it.
@@ -107,7 +114,7 @@ See `docs/LEAKAGE.md` section 7.5 for the full rationale.
 
 ## Phase 1.7 — Narrative corpus on Postgres + pgvector (added 2026-05-25, shipped 2026-05-26)
 
-**Status:** complete (NARR-001..028, 28 tasks). Work unit: [`.claude/work/2026-05-25_16_pgvector-narrative-corpus/`](../.claude/work/2026-05-25_16_pgvector-narrative-corpus/). Operator's guide: [`docs/RETRIEVAL_PG.md`](../docs/RETRIEVAL_PG.md).
+**Status:** complete (NARR-001..028, 28 tasks). Work unit: [`.claude/work/2026-05-25_16_pgvector-narrative-corpus/`](../.claude/work/2026-05-25_16_pgvector-narrative-corpus/). Operator's guide: [`docs/RETRIEVAL.md`](../docs/RETRIEVAL.md) *(this Phase 1.7 pgvector work is superseded by the Neo4j refactor — see the banner at the top).*
 
 **Why this phase exists** (not in the original v1 plan). The curated Q&A pairs in `corpus.jsonl` (Phase 1) are an extract, not the full content surface. T2 scoping ("does CHMP say X about Y") and T4 synthesis ("compare PRAC vs CHMP guidance on Z") both need the full narrative prose — chapter body text, headings, tables, hyperlinks — that the Q&A pair extraction discards. Rather than fight the FAISS-flat layout to accommodate a richer surface, the narrative corpus moved into Postgres + pgvector with a relational `links` table so dense / BM25 / link-traversal all share one store.
 

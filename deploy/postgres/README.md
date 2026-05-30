@@ -1,5 +1,11 @@
 # Postgres + pgvector (ema_nlp)
 
+> ⚠️ **OBSOLETE — being removed.** The retrieval refactor replaced Postgres+pgvector with
+> **Neo4j** (see [`docs/RETRIEVAL.md`](../../docs/RETRIEVAL.md) and `deploy/neo4j/`). This
+> `deploy/postgres/` stack plus `harness/pg/`, `retrieve_pg.py`, and `embed_pg.py` are
+> slated for deletion (LIR-012); `scripts/start_services.sh` no longer starts Postgres.
+> Kept only until that cleanup lands.
+
 Local Postgres 16 with pgvector for the EMA narrative corpus. Single supported
 install path; the apt route is intentionally not documented to avoid drift
 between contributors.

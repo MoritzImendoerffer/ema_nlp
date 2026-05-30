@@ -4,72 +4,73 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 
 **Goal:** Build a shareable benchmark from EMA Q&A documents and measure where expert effort actually pays off in agentic RAG pipelines — corpus quality, retrieval filtering, agent planning, and prompting strategy.
 
+> ⚠️ **Retrieval refactor in progress** (branch `refactor/llamaindex-retrieval-pipeline`).
+> The retrieval layer is being rebuilt **LlamaIndex-first**: a hierarchical
+> `PropertyGraphIndex` on **Neo4j** replaces the former Postgres + pgvector and FAISS
+> paths. The offline pipeline (`harness/indexing/`) is built and verified on a CPU
+> subset; re-seaming the workflows + chat UI and deleting the old stack are pending.
+> See **[docs/RETRIEVAL.md](docs/RETRIEVAL.md)** and the work unit
+> [`2026-05-30_20_llamaindex-retrieval-refactor`](.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json).
+> Pre-refactor state is preserved on `main` and `archive/pre-llamaindex-refactor`.
+
 ## Deliverables
 
 | Artifact | Description |
 |----------|-------------|
-| `corpus/corpus.jsonl` | Normalized Q&A pairs extracted from EMA HTML accordions and PDFs |
+| `corpus/corpus.jsonl` | Normalized Q&A pairs extracted from EMA HTML accordions and PDFs (benchmark source; not the retrieval target) |
 | `benchmark/benchmark.jsonl` | ~50 evaluation questions stratified across four types (T1–T4) with gold answers |
-| `harness/` | MIRAGE-style evaluation pipeline with LLM judges, config-as-code, full tracing |
+| `harness/indexing/` | LlamaIndex-first retrieval pipeline (Neo4j PropertyGraphIndex) |
+| `harness/workflows/` | RAG/agent strategies (simple RAG, CRAG, ReAct, composites) over the retriever |
 
 ## Quick links
 
-- **[Setup guide →](docs/SETUP.md)** — install dependencies, configure credentials, sync the database across machines
-- **[Architecture →](docs/ARCHITECTURE.md)** — data flow, MongoDB collections, corpus pipeline, common operations
-- **[Retrieval pipeline →](docs/RETRIEVAL_PIPELINE.md)** — LlamaIndex usage, dense/BM25/hybrid modes, RRF, ablation A stages, cross-reference traversal
-- **[Postgres retrieval (pgvector) →](docs/RETRIEVAL_PG.md)** — narrative-corpus backend: provisioning, ingest CLI, dense/BM25/hybrid + link traversal, sub-corpus filters
+- **[Setup guide →](docs/SETUP.md)** — install dependencies, configure credentials, start services
+- **[Architecture →](docs/ARCHITECTURE.md)** — data flow, MongoDB collections, corpus pipeline
+- **[Retrieval →](docs/RETRIEVAL.md)** — Neo4j PropertyGraphIndex: node/graph model, config profiles, build + retrieve, mermaid flows
 - **[Decisions →](DECISIONS.md)** — architectural and scope decisions with rationale
 - **[Open questions →](OPEN_QUESTIONS.md)** — decisions not yet made
-- **[Roadmap →](project_roadmap/ROADMAP.md)** — full phase-by-phase plan and success criteria
+- **[Roadmap →](project_roadmap/ROADMAP.md)** — full phase-by-phase plan
 - **[Glossary →](project_roadmap/GLOSSARY.md)** — EMA regulatory terminology (read before touching pharma acronyms)
 
 ## Current status
 
-**Phase 1 — corpus extraction complete.** `corpus/corpus.jsonl` has been produced:
-- 26,251 Q&A records (83,895 extracted, 57,644 deduped)
-- Sources: 17,505 HTML accordion + 8,746 PDF records
-- 65,263 parsed PDFs ingested into MongoDB `parsed_pdfs` collection (10.5% parse-failure rate documented)
+**Phase 1 — corpus extraction complete.** `corpus/corpus.jsonl`: 26,251 Q&A records (17,505 HTML accordion + 8,746 PDF). 65,263 parsed PDFs in MongoDB `parsed_pdfs`.
 
-**Phase 2 — benchmark complete.** `benchmark/benchmark.jsonl` has 45 items:
-- 20×T1 Lookup, 10×T2 Scoping, 10×T3 Multi-hop, 5×T4 Synthesis
-- Covers 7 EMA source documents; 62% of items include specific numeric thresholds for contamination resistance
+**Phase 2 — benchmark drafted.** `benchmark/benchmark.jsonl`: 45 items (20×T1, 10×T2, 10×T3, 5×T4).
 
-**Phase 3 — harness complete.** LlamaIndex Workflow pipeline operational:
-- 9 registered workflow strategies (simple RAG, CRAG, ReAct, CRAG+summarize, CRAG+review, ReAct+review)
-- All orchestration, agent loops, and prompt chains run as LlamaIndex `Workflow` / `FunctionAgent` steps
-- Chainlit chat UI (`app.py`) with hybrid retrieval, Phoenix tracing, and 👍/👎 feedback annotation
-- Semantic query cache with few-shot injection from rated past trajectories
+**Retrieval refactor (current work).** Rebuilding retrieval LlamaIndex-first on Neo4j:
+- ✅ `harness/indexing/` — config profiles + registry, hierarchical chunker, link extractor, Mongo→IR ingestion, Neo4j PropertyGraphIndex build + `HierarchicalPGRetriever` (small-to-big + `links_to`). 36 unit tests; verified live on a CPU subset.
+- ⏳ Pending: re-seam workflows + chat UI to the retriever (LIR-009/010), delete the old pgvector/FAISS stack (LIR-012), rebuild the benchmark/eval suite (removed from this branch; archived).
+- The **benchmark/eval suite** (`run_eval.py`, ablations) was removed from this branch and preserved on `archive/pre-llamaindex-refactor`; it will be rebuilt on the clean retrieval API.
 
-**Phase 4 — ablations.** Ablation A (retrieval variants) and Ablation C (prompting matrix ×3 tiers) runs complete in `results/`. Ablation B (process-reward supervision) infrastructure done; full run pending.
-
-**Narrative corpus (pgvector) — complete.** A second retrieval target was built alongside the Q&A corpus: the full PDF + HTML body text, ingested into Postgres 16 + pgvector with HNSW (dense) and BM25 (`tsvector` + GIN). Schema: `documents` + `chunks` + `links`; chunker via LlamaIndex; BGE-large-en embeddings on local GPU. `EMA_RETRIEVER=pgvector` is the runtime default; `faiss` remains as a back-compat opt-out. See [`docs/RETRIEVAL_PG.md`](docs/RETRIEVAL_PG.md) for the operator's guide and [`.claude/work/2026-05-25_16_pgvector-narrative-corpus/`](.claude/work/2026-05-25_16_pgvector-narrative-corpus/) for the 28-task work unit (NARR-001..028).
-
-See `.claude/work/` for all work unit logs.
+See `.claude/work/` for work unit logs.
 
 ## Stack
 
 | Layer | Choice |
 |-------|--------|
-| Retrieval framework | LlamaIndex (`VectorStoreIndex`, `BM25Retriever`, RRF fusion) |
+| Retrieval framework | LlamaIndex (`PropertyGraphIndex`, custom `BaseRetriever`) |
+| Index + vector store | **Neo4j** — `Neo4jPropertyGraphStore` (graph) + native vector index over chunk embeddings |
 | Workflow orchestration | LlamaIndex Workflows (`Workflow` + typed `Event` steps) |
 | Chat UI | Chainlit 2.11 — streaming answers, source sidebar, 👍/👎 |
 | Embeddings | BGE-large-en-v1.5 via sentence-transformers (local CUDA, no API key) |
-| Vector store (runtime, narrative corpus) | Postgres 16 + pgvector — HNSW dense, `tsvector`+GIN BM25, `links` graph; switch via `EMA_RETRIEVER=pgvector` (default) |
-| Vector store (legacy, Q&A corpus) | FAISS flat-L2 over `corpus.jsonl` + semantic query cache; opt-in via `EMA_RETRIEVER=faiss` |
 | Tracing | Arize Phoenix + OpenInference (model-agnostic, self-hosted) |
 | Feedback | Phoenix span annotations via Chainlit 👍/👎 |
-| LLM | Anthropic Claude (primary); OLMo 2 32B (contamination-verifiable reference) |
-| Data | MongoDB (raw scrape) → Postgres+pgvector (narrative chunks, runtime) + JSONL (corpus/benchmark) |
+| LLM | Anthropic Claude (primary); OLMo 3 (contamination-verifiable reference) |
+| Data | MongoDB (raw scrape + parsed text) → Neo4j (graph + vectors); JSONL (corpus/benchmark) |
 
 ## Data sources
 
-| Store | Collection / table | Contents | Count |
-|-------|--------------------|----------|-------|
-| MongoDB `ema_scraper` | `web_items` | Raw scraped pages — HTML (`html_raw`) and PDF metadata (`url`, `content_type`) | 115k |
-| MongoDB `ema_scraper` | `parsed_pdfs` | Parsed PDF markdown keyed by URL (`_id`), produced by `scripts/ingest_parsed_pdfs.py` | 65k |
-| Postgres `ema_nlp` | `documents`, `chunks`, `links` | Narrative corpus — runtime retrieval target. Populated by `python -m harness.embed_pg` from the two MongoDB collections. HNSW + BM25 indexes; `links` table carries hyperlinks, EMA reference codes, and resolved cross-refs. | extrapolated ~38k PDFs + ~60k HTML at full ingest |
+| Store | Collection | Contents | Count |
+|-------|-----------|----------|-------|
+| MongoDB `ema_scraper` | `web_items` | Raw scraped pages — HTML (`html_raw`) + PDF metadata; `url` is a 1-element list | 115k |
+| MongoDB `ema_scraper` | `parsed_pdfs` | Parsed PDF markdown keyed by URL (`_id`) | 65k |
+| MongoDB `ema_scraper` | `parsed_documents` | Canonical parser output (`url, parser, content_type, text`) — the ingestion source | subset seeded¹ |
+| Neo4j | `:Document` / `:Chunk` + edges | Retrieval graph + chunk vector index | built per profile |
 
-Scraped content comes from the companion repo [ema_scraper](https://github.com/MoritzImendoerffer/ema_scraper). The `parsed_pdfs` collection is built locally from the Scrapy cache (`~/Nextcloud/Datasets/ema_scraper/cache/`). The Postgres narrative corpus is provisioned via Docker Compose in `deploy/postgres/` and populated from MongoDB; see [`docs/RETRIEVAL_PG.md`](docs/RETRIEVAL_PG.md) for the full operator's guide and the setup guide for sync instructions.
+¹ `parsed_documents` was never backfilled at scale on this host; `scripts/backfill_parsed_documents_subset.py` seeds a verify subset. Full backfill is future work — see [docs/RETRIEVAL.md](docs/RETRIEVAL.md).
+
+Scraped content comes from the companion repo [ema_scraper](https://github.com/MoritzImendoerffer/ema_scraper). Services (Mongo + Neo4j) are provisioned via Docker Compose under `deploy/` and started by `scripts/start_services.sh`.
 
 ## License
 

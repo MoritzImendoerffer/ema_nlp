@@ -25,6 +25,14 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 
 ## Retrieval framework
 
+### LlamaIndex-first retrieval: hierarchical PropertyGraphIndex on Neo4j
+**Decided:** 2026-05-30 (branch `refactor/llamaindex-retrieval-pipeline`, work unit `2026-05-30_20_llamaindex-retrieval-refactor`)
+**What:** Retrieval is rebuilt LlamaIndex-first. The single store is a hierarchical LlamaIndex `PropertyGraphIndex` backed by `Neo4jPropertyGraphStore`: `:Document` + `:Chunk` nodes; `HAS_CHUNK` / `PARENT_OF` / `LINKS_TO` edges; Neo4j's native vector index over chunk embeddings. A custom `HierarchicalPGRetriever` does vector hit → small-to-big parent merge + `links_to` expansion in one Cypher. Active index/retriever is chosen by `EMA_INDEX_PROFILE` → `harness/configs/index/*.yaml`; new kinds register through `harness.indexing`'s registries. Built by `harness.indexing.build_index` from Mongo `parsed_documents`.
+**Why:** pgvector was a second store with hand-rolled SQL + a recursive-CTE traversal re-implementing a graph store; FAISS-over-`corpus.jsonl` indexed the curated Q&A surface (not the narrative body) and leaked gold answers. Neo4j holds graph + vectors in one store and makes site structure (links, hierarchy) first-class retrieval edges.
+**Supersedes:** the four retrieval decisions below — *FAISS as the vector store backend*, *Postgres + pgvector as the narrative-corpus retrieval backend*, *Three-layer separation (… → PG)*, and *Link graph as retrieval cornerstone* — retained below for history, no longer current.
+**Status (2026-05-30):** offline pipeline (`harness/indexing/`) built + verified on a CPU subset (LIR-001..008); workflow + chat-UI re-seam (LIR-009/010) and old-stack deletion (LIR-012) pending.
+**Ref:** [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md), [`.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/`](.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/)
+
 ### LlamaIndex as the RAG framework
 **Decided:** 2026-05-15  
 **What:** LlamaIndex is the retrieval and agent framework. Raw FAISS, sentence-transformers, and rank-bm25 are used as backends via LlamaIndex wrappers — they stay in `pyproject.toml` as direct deps.  
@@ -44,6 +52,8 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Ref:** see the new "Postgres + pgvector as the narrative-corpus retrieval backend" decision below.
 
 ### Postgres + pgvector as the narrative-corpus retrieval backend
+> ⚠ **SUPERSEDED 2026-05-30** by *LlamaIndex-first retrieval: hierarchical PropertyGraphIndex on Neo4j* (above). Postgres/pgvector is being removed. Retained for history.
+
 **Decided:** 2026-05-25 (planning); shipped 2026-05-26 (NARR-001..028, default flipped in NARR-028)  
 **What:** Postgres 16 + pgvector 0.8.2 is the runtime retrieval store. Schema: `documents` (one row per source URL), `chunks` (HNSW dense index over `embedding vector(1024)`, BM25 via generated `text_tsv` + GIN), `links` (per-chunk hyperlinks, EMA reference codes, and resolved `tgt_doc_id`s). Provisioned via `deploy/postgres/docker-compose.yml` (image `pgvector/pgvector:pg16`); schema applied by `python scripts/init_db.py`; populated by `python -m harness.embed_pg` from MongoDB. Retrieval surface lives in `harness/retrieve_pg.py` (`retrieve_dense_pg`, `retrieve_bm25_pg`, `retrieve_hybrid_pg`, `retrieve_with_config_pg`, `build_retrieve_fn_pg`) with the same `RetrievalResult = (id, score, metadata)` tuple shape as the FAISS path — workflows are unaware of the backend. Embeddings use the same `BAAI/bge-large-en-v1.5` model (1024-d) as the FAISS path, on local CUDA (3090).  
 **Why:**
@@ -63,7 +73,7 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 - *Keeping FAISS and grafting BM25/links on top* — would have duplicated state across three stores and broken transactional re-ingest.
 
 **Open follow-ups:** none load-bearing. Reranker (A3) and query-expansion (A1) wrappers still sit outside the retriever and apply to both backends via `build_retrieve_fn{,_pg}`.  
-**Ref:** [`docs/RETRIEVAL_PG.md`](docs/RETRIEVAL_PG.md), [`.claude/work/2026-05-25_16_pgvector-narrative-corpus/`](.claude/work/2026-05-25_16_pgvector-narrative-corpus/) (28-task work unit), [`corpus/pg_schema.sql`](corpus/pg_schema.sql), [`harness/retrieve_pg.py`](harness/retrieve_pg.py)
+**Ref:** `docs/RETRIEVAL.md` (was `docs/RETRIEVAL_PG.md`, removed), [`.claude/work/2026-05-25_16_pgvector-narrative-corpus/`](.claude/work/2026-05-25_16_pgvector-narrative-corpus/) (28-task work unit), [`corpus/pg_schema.sql`](corpus/pg_schema.sql), [`harness/retrieve_pg.py`](harness/retrieve_pg.py)
 
 ### BGE-large-en as the embedding model (v1)
 **Decided:** project start  
@@ -226,9 +236,11 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 **Decided:** 2026-05-25  
 **What:** The inline `retrieve_fn` closure that was built inside `run_eval.py` (applying A1→base→A2→A3/A4 in order) was extracted into `build_retrieve_fn(ret_config, abl_config, index)` in `harness/retrieve.py`. A new `AblationConfig` dataclass carries query expansion, topic filter, and reranker settings parsed from the `ablation:` YAML section. All workflows accept an optional `retrieve_fn` parameter; when provided they call it instead of `retrieve_with_config()`. The factory attaches `.ablation_config` to the callable so `config_attributes()` can report the active ablation flags on the span.  
 **Why:** The reranker (A3) could not compose with CRAG or ReAct because the ablation closure was only applied in `run_eval.py`'s retrieval eval loop, not in workflow execution. This is a real architectural limit. The factory also eliminates the drift between `app.py` and `run_eval.py` retrieval paths.  
-**Ref:** [`HARNESS_REFACTORS.md`](HARNESS_REFACTORS.md) Change 2, [`docs/RETRIEVAL_PIPELINE.md`](docs/RETRIEVAL_PIPELINE.md)
+**Ref:** [`HARNESS_REFACTORS.md`](HARNESS_REFACTORS.md) Change 2, `docs/RETRIEVAL.md` (was `docs/RETRIEVAL_PIPELINE.md`, removed)
 
 ### Three-layer separation: parsers → Mongo (parsed_documents) → PG (canonical)
+> ⚠ **SUPERSEDED 2026-05-30.** The PG layer is removed; the flow is now parsers → Mongo `parsed_documents` → `harness.indexing` → Neo4j. Parser layer + `parsed_documents` survive; the PG sink does not. Retained for history.
+
 **Decided:** 2026-05-26 (MIGR-001..017)  
 **What:** The Mongo → Postgres ingest pipeline is split into three layers:
 
@@ -250,9 +262,11 @@ The key design choices and what they replaced:
 - *Nested-by-parser document shape* (`{url, parsers: {pymupdf4llm: {...}, trafilatura: {...}}}`). Rejected — partial-update semantics on subdocuments are messier than compound-key upserts, and the document size grows unboundedly as parser_versions accumulate.
 - *Big-bang migration* (write a one-off script that rewrites everything in one PR). Rejected — would require a maintenance window, conflate the refactor with the backfill, and offer no incremental verification points. The synthetic reader lets each PR land independently.
 
-**Ref:** [`docs/RETRIEVAL_PG.md`](docs/RETRIEVAL_PG.md) §13, [`.claude/work/2026-05-26_17_mongo-pg-data-architecture/`](.claude/work/2026-05-26_17_mongo-pg-data-architecture/)
+**Ref:** `docs/RETRIEVAL.md` (was `docs/RETRIEVAL_PG.md`, removed) §13, [`.claude/work/2026-05-26_17_mongo-pg-data-architecture/`](.claude/work/2026-05-26_17_mongo-pg-data-architecture/)
 
 ### Link graph as retrieval cornerstone — extractor is parser-peer, sibling collection, enum-extended `link_type`
+> ⚠ **NEVER BUILT / SUPERSEDED 2026-05-30.** This entry describes MIGR-018..025 as *shipped* with operational metrics (2.2M anchors, ~6 min, `file_link` defaults), but the code (`corpus/extractors/link_graph.py`, the Mongo `link_graph` collection, the `file_link`/`page_link` defaults) was **never actually committed or run** — verified in work unit `2026-05-30_19_retrieval-design-feedback` (and in the live data: no `link_graph` collection exists). Links are now extracted at ingest from `web_items.html_raw` into Neo4j `LINKS_TO` edges (see the Neo4j decision above). Retained as a cautionary record of doc/reality drift.
+
 **Decided:** 2026-05-27 (MIGR-018..025)
 **What:** Link extraction is now its own data-preparation layer (`corpus/extractors/link_graph.py`), peer to the parsers under `corpus/parsers/`. It walks raw HTML in `web_items.html_raw`, classifies every `<a href>` by URL extension into `file_link` / `page_link` / `external`, and writes results to a new Mongo `link_graph` collection keyed by URL (`_id`). The sync (`harness.embed_pg._prepare_from_parsed_doc`) joins `link_graph` for every HTML doc it processes and emits one PG `links` row per `ClassifiedAnchor` with the classified `link_type`. The `link_type` column in PG remains freeform `TEXT`; the recursive-CTE traversal in `harness.retrieve_pg._expand_via_links` and the `follow_links` ReAct tool default to `('hyperlink', 'reference_number', 'file_link')` (MIGR-020) so HTML→PDF expansion is the default retrieval behaviour.
 
@@ -276,4 +290,4 @@ The four key choices and what they replaced:
 - *Selective scan inside the sync layer* — putting the BeautifulSoup walk in `harness/embed_pg.py`. Rejected — sync should stay thin; data preparation belongs in `corpus/`. Also makes per-URL re-extraction harder.
 - *Promote `link_type` to a PG `ENUM` type* — would tighten typing but force a DDL migration every time a new value lands. Deferred to a follow-up if schema drift becomes an issue.
 
-**Ref:** [`docs/RETRIEVAL_PG.md`](docs/RETRIEVAL_PG.md) §14, [`.claude/work/2026-05-27_18_scraper-link-extraction-audit/`](.claude/work/2026-05-27_18_scraper-link-extraction-audit/), [`.claude/work/2026-05-26_17_mongo-pg-data-architecture/implementation-plan-link-graph.md`](.claude/work/2026-05-26_17_mongo-pg-data-architecture/implementation-plan-link-graph.md), MIGR-018..025.
+**Ref:** `docs/RETRIEVAL.md` (was `docs/RETRIEVAL_PG.md`, removed) §14, [`.claude/work/2026-05-27_18_scraper-link-extraction-audit/`](.claude/work/2026-05-27_18_scraper-link-extraction-audit/), [`.claude/work/2026-05-26_17_mongo-pg-data-architecture/implementation-plan-link-graph.md`](.claude/work/2026-05-26_17_mongo-pg-data-architecture/implementation-plan-link-graph.md), MIGR-018..025.

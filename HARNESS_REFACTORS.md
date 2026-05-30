@@ -10,6 +10,13 @@ Each change is independently shippable. Order matters: **Change 1** is highest R
 
 No backward compatibility is required — old YAML config names and registry keys can be hard-renamed.
 
+> ⚠️ **Status (2026-05-30).** All three changes shipped. **Change 2** (`build_retrieve_fn`
+> composing retrieval ablations) is **superseded** by the LlamaIndex-first retrieval refactor:
+> workflows are being re-seamed to a LlamaIndex retriever from `harness.indexing` (LIR-009),
+> and the `build_retrieve_fn`/ablation machinery is part of the old stack being removed
+> (LIR-012). **Change 1** (Phoenix span stamping) and **Change 3** (`prompt_strategy` YAML)
+> remain in effect. See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md).
+
 ---
 
 ## Change 1 — Stamp configuration onto Phoenix span attributes
@@ -205,5 +212,5 @@ If you'd rather not do them in dependency order, the alternative is Change 1 →
 - Each change should land as its own work unit in `.claude/work/` per the existing project convention.
 - Existing tests in `tests/` must continue to pass after each change. Where a change touches code that has no current test coverage, add at least one new test that exercises the new code path.
 - Update `DECISIONS.md` with a short entry per change explaining what changed and why.
-- Update `docs/RETRIEVAL_PIPELINE.md` after Change 2 to reflect the new shared `build_retrieve_fn` factory.
+- ~~Update `docs/RETRIEVAL_PIPELINE.md` after Change 2~~ — obsolete: that doc and `build_retrieve_fn` are superseded by the Neo4j retrieval refactor (see `docs/RETRIEVAL.md`).
 - Update `README.md` stack table only if the workflow framework or tracing tool changes — which it doesn't, in any of these.

@@ -219,7 +219,8 @@
       "id": "LIR-013",
       "title": "Documentation cleanup (CLAUDE.md, DECISIONS.md, RETRIEVAL_PG -> RETRIEVAL)",
       "type": "documentation",
-      "status": "pending",
+      "status": "completed",
+      "notes": "Pulled forward at user request. Deleted docs/RETRIEVAL_PG.md + docs/RETRIEVAL_PIPELINE.md; wrote new docs/RETRIEVAL.md (mermaid data/process/node-model + sequence flows). Rewrote docs/ARCHITECTURE.md (Neo4j data flow + mermaid). Updated CLAUDE.md (data sources, key decisions, commands, phase), DECISIONS.md (new Neo4j decision + SUPERSEDED banners on pgvector/FAISS/three-layer/link-graph; strong NEVER-BUILT correction on MIGR-018..025), README.md, docs/SETUP.md (NEO4J_* env, legacy FAISS note), docs/ONBOARDING.md (post-refactor banner), HARNESS_REFACTORS.md, deploy/postgres/README.md (obsolete banner), project_roadmap/ROADMAP.md (Neo4j revision banner). Fixed all broken links to the deleted docs. Docs honestly flag refactor-in-progress (LIR-009..012 pending) throughout; a final banner-removal pass is due once those land.",
       "dependencies": ["LIR-012"],
       "priority": "medium",
       "estimated_hours": 3,
@@ -235,7 +236,8 @@
       "id": "LIR-014",
       "title": "Clean HISTORY.md + memory review",
       "type": "documentation",
-      "status": "pending",
+      "status": "in_progress",
+      "notes": "HISTORY.md: added a Corrections callout flagging the false 2026-05-28 MIGR-018..025 link-graph row (never shipped) + the superseded pgvector/EMA_RETRIEVER rows. Pending: review the auto-loaded memory files (project_refactoring_plan.md REFACT-*, project_langgraph_status.md) — defer pruning until user confirmation per the plan.",
       "dependencies": ["LIR-013"],
       "priority": "medium",
       "estimated_hours": 2,
@@ -247,6 +249,6 @@
       ]
     }
   ],
-  "completed_tasks": ["LIR-001", "LIR-002", "LIR-003", "LIR-004", "LIR-005", "LIR-006", "LIR-007", "LIR-008"],
+  "completed_tasks": ["LIR-001", "LIR-002", "LIR-003", "LIR-004", "LIR-005", "LIR-006", "LIR-007", "LIR-008", "LIR-013"],
   "next_available": ["LIR-009"]
 }

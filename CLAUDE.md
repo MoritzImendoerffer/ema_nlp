@@ -23,8 +23,8 @@ See `project_roadmap/ROADMAP.md` for the full phase-by-phase plan. See `project_
 
 Read `DECISIONS.md` before planning any implementation. Short summary of the ones most likely to affect new code:
 
-- **Retrieval framework:** LlamaIndex (`DocumentSummaryIndex`, `NodeRelationship`, `ReActAgent`)
-- **Link graph is a retrieval cornerstone, not metadata.** The `links` table feeds the recursive-CTE auto-traversal (NARR-019) and the `follow_links` agent tool (default `link_types=["hyperlink","reference_number","file_link"]` since MIGR-020). When semantic search underfetches, the system walks the link graph for structural context expansion (inspired by LlamaIndex's recursive retriever). Treat edge loss as a retrieval-quality regression. The audit `.claude/work/2026-05-27_18_scraper-link-extraction-audit/` documented a 96% file-link drop introduced by MIGR-007; MIGR-018..025 repaired it (`corpus/extractors/link_graph.py` writes a Mongo `link_graph` collection that the sync joins for HTML docs). See `docs/RETRIEVAL_PG.md` §14.
+- **Retrieval framework:** LlamaIndex — hierarchical **`PropertyGraphIndex` on Neo4j** (refactor in progress on branch `refactor/llamaindex-retrieval-pipeline`; replaces the former pgvector + FAISS paths). See `docs/RETRIEVAL.md`.
+- **Site structure is the retrieval signal.** Page→PDF/page hyperlinks become `LINKS_TO` edges and section hierarchy becomes `PARENT_OF` edges in Neo4j; the retriever walks them (small-to-big + `links_to`) when semantic search underfetches. *(Historical note: the MIGR-018..025 `link_graph`/recursive-CTE machinery was documented as shipped but **never actually built** — see `docs/RETRIEVAL.md`. Links are now extracted at ingest from `web_items.html_raw` by `harness.indexing.links`.)*
 - **Tracing:** Arize Phoenix + OpenInference — model-agnostic, self-hosted, wired in `run_eval.py`
 - **Feedback store:** Phoenix annotations API — no separate database
 - **Semantic cache:** thin FAISS index over past query embeddings (`harness/index/query_cache.faiss`) — GPTCache is abandoned, do not use it
@@ -42,25 +42,27 @@ Completed: TASK-001 through TASK-007 (Phase 0 scoping, Phase 1 extractors, corpu
 Next phase: **Phase 2 — benchmark construction** (curate 30–50 evaluation questions, T1–T4 types).  
 Full task list and status: `.claude/work/2026-05-10_02_implementation-plan/state.json`
 
+**Current work — retrieval refactor** (branch `refactor/llamaindex-retrieval-pipeline`): retrieval is being rebuilt LlamaIndex-first on Neo4j (`harness/indexing/`, hierarchical `PropertyGraphIndex`). Offline pipeline built + verified on a CPU subset (LIR-001..008); workflow/chat-UI re-seam + old-stack deletion pending (LIR-009..014). The benchmark/eval suite was removed from this branch (archived on `archive/pre-llamaindex-refactor`). See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) and `.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/`.
+
 ## Data sources
 
-> **Starting the data services:** `scripts/start_services.sh` brings up both Postgres (`deploy/postgres/`) and MongoDB (`deploy/mongo/`) as Docker containers and health-checks them. On this host (kernel ≥ 6.19) MongoDB **must** run via the pinned `mongo:8.0.4` container — the native package crashes (SERVER-121912). See `deploy/mongo/README.md`.
+> **Starting the data services:** `scripts/start_services.sh` brings up MongoDB (`deploy/mongo/`) and Neo4j (`deploy/neo4j/`) as Docker containers and health-checks them. *(Postgres/pgvector is being removed by the retrieval refactor — see `docs/RETRIEVAL.md`.)* On this host (kernel ≥ 6.19) MongoDB **must** run via the pinned `mongo:8.0.4` container — the native package crashes (SERVER-121912). See `deploy/mongo/README.md` and `deploy/neo4j/README.md`.
 
 - **MongoDB** `ema_scraper.web_items` — raw scraped EMA pages; HTML stored as `html_raw` (1-element list), PDFs as metadata only
 - **MongoDB** `ema_scraper.parsed_pdfs` — pymupdf4llm markdown keyed by URL; built by `scripts/ingest_parsed_pdfs.py --legacy`; 65k docs; query `{error: ""}` for clean parses
-- **MongoDB** `ema_scraper.parsed_documents` (MIGR-001) — canonical parser-output sink. One row per `(url, parser, parser_version)`. Populated by `corpus/parsers/*.py` CLIs and the backfill in `scripts/migrate_mongo_to_parsed_documents.py`. Mongo is the parser sink; PG is the canonical retrieval store with `parsed_text` + parser identity columns (MIGR-006).
-- **MongoDB** `ema_scraper.link_graph` (MIGR-019) — sibling-to-parsed_documents collection holding classified anchors per URL. One row per source URL (`_id=url`); fields: `anchors=[{tgt_url, anchor, link_type}]`, `extracted_at`, `extractor_version`. Populated by `python -m corpus.extractors.link_graph` or `scripts/backfill_link_graph.py`. Read by `harness.embed_pg._prepare_from_parsed_doc` to emit classified `links` rows in PG.
-- **Postgres + pgvector** `ema_nlp` (Docker, `deploy/postgres/`) — the narrative corpus. Tables: `documents` (carries `parser`, `parser_version`, `parsed_at`, `parsed_text`, `parsed_text_hash` since MIGR-006), `chunks` (HNSW + BM25), `links`. Populated from MongoDB by `python -m harness.embed_pg`. This is the retrieval target at runtime; `corpus.jsonl` is benchmark-only.
+- **MongoDB** `ema_scraper.parsed_documents` (MIGR-001) — canonical parser-output sink. One row per `(url, parser, parser_version)`. Populated by `corpus/parsers/*.py` CLIs. **Ingestion source for `harness.indexing.ingest`.** *(Not backfilled at scale on this host — `scripts/backfill_parsed_documents_subset.py` seeds a verify subset; see `docs/RETRIEVAL.md`.)*
+- **`ema_scraper.link_graph` — never built.** Older docs (MIGR-018..025) describe this collection; it was never populated here. Links are extracted at ingest time from `web_items.html_raw` by `harness.indexing.links.extract_links` and become `LINKS_TO` edges in Neo4j.
+- **Neo4j** (Docker, `deploy/neo4j/`) — the retrieval store: a LlamaIndex `PropertyGraphIndex` of `:Document` + `:Chunk` nodes with `HAS_CHUNK`/`PARENT_OF`/`LINKS_TO` edges and a native vector index over chunk embeddings. Built by `harness.indexing.build_index` from Mongo `parsed_documents`. This is the retrieval target; `corpus.jsonl` is benchmark-only. See `docs/RETRIEVAL.md`. *(Replaces the former Postgres+pgvector store, being removed in the refactor.)*
 - **Nextcloud**: `~/Nextcloud/Datasets/` — Scrapy cache (`ema_scraper/cache/`) + IDMP ontology RDF files
 - Paths are configured in `config.py`, which loads `~/.myenvs/ema_nlp.env` via python-dotenv
 - MongoDB source adaptors: `corpus/sources/mongo_source.py` yields `QARecord` for the Q&A pipeline; `corpus/sources/parsed_documents.py` exposes the writer and index bootstrap for the parsers layer; `corpus/sources/synthetic_legacy_reader.py` (MIGR-008) bridges `parsed_pdfs` + `web_items` rows to the sync as a transition fixture until MIGR-013 backfills.
-- Retrieval backend switch: `EMA_RETRIEVER=pgvector` (default since NARR-028). See `docs/RETRIEVAL_PG.md` for the full operator's guide, including §13 "Three-layer data flow" + "Adding a parser".
+- Retrieval is selected by `EMA_INDEX_PROFILE` (default `neo4j_hier` → `harness/configs/index/*.yaml`). See `docs/RETRIEVAL.md`. *(The old `EMA_RETRIEVER=faiss|pgvector` switch is removed.)*
 
 ## Commands
 
 ```bash
 pip install -e ".[dev]"       # install project + dev deps (or: uv pip install -e ".[dev]")
-scripts/start_services.sh     # start Postgres + MongoDB (Docker) and health-check them
+scripts/start_services.sh     # start MongoDB + Neo4j (Docker) and health-check them
 pytest                        # run all tests
 pytest tests/path/to/test.py  # run a single test file
 ruff check .                  # lint
