@@ -60,7 +60,8 @@
       "id": "LIR-003",
       "title": "Index/retriever registries + EMA_INDEX_PROFILE loader + profile schema",
       "type": "foundation",
-      "status": "pending",
+      "status": "completed",
+      "notes": "harness/indexing/{profiles,registry,__init__}.py — dataclass profile schema (index/retrieval/scope/chunking), load_index_profile() resolving explicit>EMA_INDEX_PROFILE>default, INDEX_REGISTRY/RETRIEVER_REGISTRY with @register decorators + build_index/build_retriever dispatch (NotImplementedError until LIR-007/008). Profile harness/configs/index/neo4j_hier.yaml. 16 unit tests pass; ruff clean.",
       "dependencies": [],
       "priority": "high",
       "estimated_hours": 4,
@@ -239,6 +240,6 @@
       ]
     }
   ],
-  "completed_tasks": ["LIR-001", "LIR-002"],
-  "next_available": ["LIR-003", "LIR-004"]
+  "completed_tasks": ["LIR-001", "LIR-002", "LIR-003"],
+  "next_available": ["LIR-004", "LIR-005"]
 }

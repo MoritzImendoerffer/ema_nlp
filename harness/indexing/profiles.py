@@ -1,0 +1,172 @@
+"""Index profile schema + loader for the LlamaIndex-first retrieval pipeline.
+
+A *profile* is a YAML file under ``harness/configs/index/<name>.yaml`` that
+describes how to build an index and which retriever to attach. The active
+profile is selected by the ``EMA_INDEX_PROFILE`` env var (default
+``neo4j_hier``), so swapping retrieval setups is an env change, not a code edit.
+
+Neo4j connection details are deliberately *not* in the profile — they are
+credentials and come from ``NEO4J_URI`` / ``NEO4J_USER`` / ``NEO4J_PASSWORD`` at
+build time (see ``harness.indexing.neo4j_store``, added in LIR-007).
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+DEFAULT_PROFILE = "neo4j_hier"
+PROFILE_ENV = "EMA_INDEX_PROFILE"
+PROFILE_DIR = Path(__file__).resolve().parent.parent / "configs" / "index"
+
+
+def _as_str_list(value: Any) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(v) for v in value]
+
+
+@dataclass
+class ScopeConfig:
+    """Subset selector applied during ingestion (R3 — subset-first)."""
+
+    committee: list[str] = field(default_factory=list)
+    topic_prefix: str | None = None
+    limit: int | None = None
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> ScopeConfig:
+        d = d or {}
+        topic = d.get("topic_prefix") or None
+        raw_limit = d.get("limit")
+        limit = int(raw_limit) if raw_limit not in (None, "", 0, "0") else None
+        return cls(committee=_as_str_list(d.get("committee")), topic_prefix=topic, limit=limit)
+
+
+@dataclass
+class ChunkingConfig:
+    parser: str = "hierarchical"
+    chunk_sizes: list[int] = field(default_factory=lambda: [2048, 512, 128])
+    min_chunk_chars: int = 80
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> ChunkingConfig:
+        d = d or {}
+        sizes = d.get("chunk_sizes") or [2048, 512, 128]
+        chunk_sizes = [int(s) for s in sizes]
+        if any(s <= 0 for s in chunk_sizes):
+            raise ValueError(f"chunk_sizes must be positive, got {chunk_sizes}")
+        return cls(
+            parser=str(d.get("parser", "hierarchical")),
+            chunk_sizes=chunk_sizes,
+            min_chunk_chars=int(d.get("min_chunk_chars", 80)),
+        )
+
+
+@dataclass
+class StoreConfig:
+    """Backing store selector. Connection comes from env, not the profile."""
+
+    graph: str = "neo4j"
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> StoreConfig:
+        d = d or {}
+        return cls(graph=str(d.get("graph", "neo4j")))
+
+
+@dataclass
+class IndexConfig:
+    kind: str = "property_graph"
+    source: str = "mongo_parsed_documents"
+    embed_model: str = "BAAI/bge-large-en-v1.5"
+    store: StoreConfig = field(default_factory=StoreConfig)
+    chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
+    scope: ScopeConfig = field(default_factory=ScopeConfig)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> IndexConfig:
+        d = d or {}
+        return cls(
+            kind=str(d.get("kind", "property_graph")),
+            source=str(d.get("source", "mongo_parsed_documents")),
+            embed_model=str(d.get("embed_model", "BAAI/bge-large-en-v1.5")),
+            store=StoreConfig.from_dict(d.get("store")),
+            chunking=ChunkingConfig.from_dict(d.get("chunking")),
+            scope=ScopeConfig.from_dict(d.get("scope")),
+        )
+
+
+@dataclass
+class GraphRetrievalConfig:
+    max_hops: int = 1
+    edge_types: list[str] = field(default_factory=lambda: ["links_to"])
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> GraphRetrievalConfig:
+        d = d or {}
+        max_hops = int(d.get("max_hops", 1))
+        if max_hops < 0:
+            raise ValueError("graph.max_hops must be >= 0")
+        return cls(max_hops=max_hops, edge_types=_as_str_list(d.get("edge_types")) or ["links_to"])
+
+
+@dataclass
+class RetrievalConfig:
+    strategy: str = "hierarchical"
+    k: int = 10
+    merge: bool = True
+    graph: GraphRetrievalConfig = field(default_factory=GraphRetrievalConfig)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> RetrievalConfig:
+        d = d or {}
+        k = int(d.get("k", 10))
+        if k <= 0:
+            raise ValueError("retrieval.k must be > 0")
+        return cls(
+            strategy=str(d.get("strategy", "hierarchical")),
+            k=k,
+            merge=bool(d.get("merge", True)),
+            graph=GraphRetrievalConfig.from_dict(d.get("graph")),
+        )
+
+
+@dataclass
+class IndexProfile:
+    name: str
+    index: IndexConfig
+    retrieval: RetrievalConfig
+
+    @classmethod
+    def from_dict(cls, name: str, d: dict[str, Any]) -> IndexProfile:
+        return cls(
+            name=name,
+            index=IndexConfig.from_dict(d.get("index")),
+            retrieval=RetrievalConfig.from_dict(d.get("retrieval")),
+        )
+
+
+def resolve_profile_name(name: str | None = None) -> str:
+    """Profile name: explicit arg > ``EMA_INDEX_PROFILE`` env > default."""
+    return name or os.getenv(PROFILE_ENV) or DEFAULT_PROFILE
+
+
+def load_index_profile(name: str | None = None, *, profile_dir: Path | None = None) -> IndexProfile:
+    """Load and parse the named profile (or the env-selected / default one)."""
+    name = resolve_profile_name(name)
+    profile_dir = profile_dir or PROFILE_DIR
+    path = profile_dir / f"{name}.yaml"
+    if not path.exists():
+        available = sorted(p.stem for p in profile_dir.glob("*.yaml")) if profile_dir.exists() else []
+        raise FileNotFoundError(
+            f"index profile {name!r} not found at {path}. Available: {available}"
+        )
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return IndexProfile.from_dict(name, data)

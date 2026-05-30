@@ -1,0 +1,28 @@
+# Default index profile — hierarchical PropertyGraphIndex on Neo4j.
+# Selected by EMA_INDEX_PROFILE (default: neo4j_hier).
+#
+# Neo4j connection is NOT here (it's credentials) — set NEO4J_URI / NEO4J_USER /
+# NEO4J_PASSWORD in ~/.myenvs/ema_nlp.env. On this host the project container
+# runs on alt ports, so: NEO4J_URI=bolt://localhost:7688
+
+index:
+  kind: property_graph              # only kind in v1 (INDEX_REGISTRY seam allows more)
+  source: mongo_parsed_documents    # narrative corpus (Mongo parsed_documents), not corpus.jsonl
+  embed_model: BAAI/bge-large-en-v1.5
+  store:
+    graph: neo4j                    # Neo4jPropertyGraphStore (holds nodes/edges + native vector index)
+  chunking:
+    parser: hierarchical            # multi-level; parent/child kept (R4/FR6)
+    chunk_sizes: [2048, 512, 128]   # big -> small, for small-to-big retrieval
+  scope:                            # subset-first (R3): cap ingestion for fast iteration
+    committee: []                   # [] = all committees
+    topic_prefix: ""                # "" = no topic filter
+    limit: 50                       # cap on documents ingested (raise/remove for full corpus)
+
+retrieval:
+  strategy: hierarchical            # small-to-big merge + links-to traversal (v1)
+  k: 10
+  merge: true                       # merge retrieved leaf chunks up to their parents
+  graph:
+    max_hops: 1
+    edge_types: [links_to]
