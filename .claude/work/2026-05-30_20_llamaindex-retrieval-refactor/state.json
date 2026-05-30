@@ -110,7 +110,8 @@
       "id": "LIR-006",
       "title": "Ingestion: Mongo -> LlamaIndex node/edge graph (subset, fidelity)",
       "type": "integration",
-      "status": "pending",
+      "status": "completed",
+      "notes": "harness/indexing/ingest.py: ingest(profile) reads parsed_documents (error=''), dedups one row/url, derives metadata via url_metadata/text_metadata, chunks (hierarchical), extracts links_to from web_items.html_raw for HTML docs; returns list[IngestedDoc(doc_id,source_url,source_type,title,metadata,chunk_nodes,links)]. Subset scope: topic_prefix+limit (URL-level), committee (post-derivation). 5 mongomock tests pass (dedup/skip/metadata/links/limit/committee); full indexing suite 34 tests green; ruff clean. Also hardened chunking.py: Document excluded_*_metadata_keys so the splitter ignores provenance metadata. mongomock installed in conda base.",
       "dependencies": ["LIR-003", "LIR-004", "LIR-005"],
       "priority": "high",
       "estimated_hours": 4,
@@ -242,6 +243,6 @@
       ]
     }
   ],
-  "completed_tasks": ["LIR-001", "LIR-002", "LIR-003", "LIR-004", "LIR-005"],
-  "next_available": ["LIR-006"]
+  "completed_tasks": ["LIR-001", "LIR-002", "LIR-003", "LIR-004", "LIR-005", "LIR-006"],
+  "next_available": ["LIR-007"]
 }

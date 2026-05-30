@@ -50,7 +50,16 @@ def chunk_document(
         meta.update({k: v for k, v in base_metadata.items() if v is not None})
 
     parser = HierarchicalNodeParser.from_defaults(chunk_sizes=list(config.chunk_sizes))
-    doc = Document(text=text, metadata=dict(meta), doc_id=doc_id)
+    # Exclude provenance metadata on the Document so the splitter's
+    # metadata-aware sizing ignores it (otherwise long URLs blow the smallest
+    # chunk size); the parser propagates these excluded keys to child nodes.
+    doc = Document(
+        text=text,
+        metadata=dict(meta),
+        doc_id=doc_id,
+        excluded_embed_metadata_keys=list(_EXCLUDED_META),
+        excluded_llm_metadata_keys=list(_EXCLUDED_META),
+    )
     nodes = parser.get_nodes_from_documents([doc])
 
     # Assign deterministic ids (stable across rebuilds) and rewrite the
