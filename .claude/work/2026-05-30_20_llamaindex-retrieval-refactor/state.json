@@ -4,7 +4,7 @@
   "branch": "refactor/llamaindex-retrieval-pipeline",
   "checkpoint_commit": "5c3c8a8",
   "archive_branch": "archive/pre-llamaindex-refactor",
-  "current_task": null,
+  "current_task": "LIR-007",
   "principles": [
     "YAGNI: ONE index kind (hierarchical Neo4j PropertyGraphIndex) + an extensible registry seam; no flat/FAISS index",
     "Hierarchical chunk nodes (parent/child) are the default per user direction; small-to-big retrieval",
@@ -126,7 +126,8 @@
       "id": "LIR-007",
       "title": "Build hierarchical Neo4j PropertyGraphIndex (persist + vector index, idempotent)",
       "type": "integration",
-      "status": "pending",
+      "status": "blocked",
+      "blocker": "Live native mongod (ema_scraper, :27017) has web_items=115093 + parsed_pdfs=65263 but NO parsed_documents and NO link_graph collection. The canonical parsed_documents source that LIR-006 ingest reads is EMPTY — the MIGR-013/018..025 backfills (HISTORY claims 80,083 parsed_documents / 22,743 link_graph) were never actually run here (confirms work unit 19's code finding extends to the data). Native mongod active => the pinned 8.0.4 container is off-limits (WiredTiger corruption guard); use mongodb://localhost:27017 directly. DECISION NEEDED: (a) populate a ~50-doc parsed_documents subset from the legacy collections (parsed_pdfs markdown for PDFs + trafilatura over web_items.html_raw for HTML) then ingest->build; (b) adapt ingest to read legacy collections directly for the subset.",
       "dependencies": ["LIR-002", "LIR-006"],
       "priority": "high",
       "estimated_hours": 4,
