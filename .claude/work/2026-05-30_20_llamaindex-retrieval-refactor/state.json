@@ -1,5 +1,5 @@
 {
-  "status": "planning_complete",
+  "status": "implementing",
   "work_unit": "2026-05-30_20_llamaindex-retrieval-refactor",
   "branch": "refactor/llamaindex-retrieval-pipeline",
   "checkpoint_commit": "5c3c8a8",
@@ -23,7 +23,8 @@
       "id": "LIR-001",
       "title": "Remove the benchmark/eval suite completely (data + judge/rating kept)",
       "type": "cleanup",
-      "status": "pending",
+      "status": "completed",
+      "notes": "Removed run_eval/eval_retrieval/compute_lift/contamination_screen/label_session + test_eval_retrieval + 24 eval configs. Kept judge/judges/rating/query_cache/fewshot_inject + models.yaml/parser_preference.yaml + data. Verified: no dangling imports; kept modules import OK. Stale run_eval mentions remain only in comments of files slated for LIR-012/013.",
       "dependencies": [],
       "priority": "high",
       "estimated_hours": 2,
@@ -237,6 +238,6 @@
       ]
     }
   ],
-  "completed_tasks": [],
-  "next_available": ["LIR-001", "LIR-002", "LIR-003", "LIR-004"]
+  "completed_tasks": ["LIR-001"],
+  "next_available": ["LIR-002", "LIR-003", "LIR-004"]
 }
