@@ -77,7 +77,8 @@
       "id": "LIR-004",
       "title": "Hierarchical chunker -> multi-level chunk nodes (parent/child)",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
+      "notes": "harness/indexing/chunking.py: chunk_document() uses HierarchicalNodeParser (keeps ALL levels, unlike old chunker.py:92), deterministic ids via post-parse remap (parent/child refs rewritten), is_leaf flag (no CHILD rel), metadata stamped (doc_id=sha256(url), source_url, title, committee, topic_path), excluded_embed/llm keys set, min_chunk_chars filter. leaf_nodes() helper. 7 unit tests pass; ruff clean.",
       "dependencies": [],
       "priority": "high",
       "estimated_hours": 4,
@@ -240,6 +241,6 @@
       ]
     }
   ],
-  "completed_tasks": ["LIR-001", "LIR-002", "LIR-003"],
-  "next_available": ["LIR-004", "LIR-005"]
+  "completed_tasks": ["LIR-001", "LIR-002", "LIR-003", "LIR-004"],
+  "next_available": ["LIR-005"]
 }
