@@ -220,3 +220,6 @@ harness/index/*
 
 # Eval results — symlink to ~/Nextcloud/Datasets/ema_nlp/results/; never store in-repo
 results
+
+# Build/embedding run logs
+logs/
