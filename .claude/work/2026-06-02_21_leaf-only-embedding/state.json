@@ -1,0 +1,115 @@
+{
+  "status": "implementing",
+  "work_unit": "2026-06-02_21_leaf-only-embedding",
+  "branch": "refactor/llamaindex-retrieval-pipeline",
+  "parent_work_unit": "2026-05-30_20_llamaindex-retrieval-refactor",
+  "current_task": "LOE-005",
+  "revised": "2026-06-02 \u2014 replanned per user: STOP the running build + WIPE the graph for a clean fresh rebuild (the explore-generated plan only did in-place remediation; user wants a from-scratch rebuild). Old LOE-003 'remediate without re-embed' dropped \u2014 superseded by full wipe+rebuild.",
+  "principles": [
+    "HierarchicalNodeParser emitting all levels is correct; embed leaves only (canonical small-to-big; corroborated by NVIDIA GenerativeAIExamples notebook 04).",
+    "Parents stay stored (text + PARENT_OF) but UNEMBEDDED; Neo4j vector index auto-excludes null-embedding nodes.",
+    "Fresh start: stop the buggy all-levels run, wipe the graph, rebuild from scratch with the fix \u2014 no in-place patching.",
+    "EPAR scope (D1) determines rebuild ingestion size; resolve BEFORE launching the multi-hour rebuild to avoid a throwaway run."
+  ],
+  "open_decision": {
+    "D1_epar_scope": "RESOLVED 2026-06-02 \u2014 user chose KEEP EPARs. They are now in scope for the narrative retrieval corpus (CLAUDE.md + DECISIONS.md amended). => LOE-003 SKIPPED (no ingest filter); LOE-005 rebuilds the FULL ~80k corpus.",
+    "status": "resolved: keep"
+  },
+  "tasks": [
+    {
+      "id": "LOE-001",
+      "title": "Cleanup: stop the running build + wipe the graph (fresh slate)",
+      "type": "cleanup",
+      "status": "completed",
+      "dependencies": [],
+      "priority": "high",
+      "estimated_hours": 0.5,
+      "notes": "Killed pid 17498 (GPU back to idle). Stopped at 5,463 docs / 1,411,402 chunks / 8,135 LINKS_TO. Dropped ema_chunk_embedding vector index + DETACH DELETE all nodes (batched). Graph verified empty.",
+      "acceptance_criteria": [
+        "Running embedding process stopped; no stray harness.indexing.build process; GPU idle",
+        "Neo4j: all nodes/edges deleted; ema_chunk_embedding vector index dropped; graph verified empty",
+        "Stop point recorded (docs/chunks) for the record"
+      ]
+    },
+    {
+      "id": "LOE-002",
+      "title": "Embed leaf chunks only in the build path",
+      "type": "fix",
+      "status": "completed",
+      "dependencies": [
+        "LOE-001"
+      ],
+      "priority": "high",
+      "estimated_hours": 1,
+      "acceptance_criteria": [
+        "_embed_pass.flush() embeds ONLY ChunkNodes with properties.is_leaf == true",
+        "Parent (non-leaf) ChunkNodes still upserted (text + HAS_CHUNK/PARENT_OF) but carry NO embedding",
+        "ensure_chunk_vector_index dims taken from a LEAF embedding (not chs[0], which may now be a parent)",
+        "Rate logging still meaningful (log embedded-leaf count alongside total chunks); resume/idempotency preserved; ruff clean"
+      ],
+      "notes": "flush() embeds only is_leaf chunks; parents upserted with text, no embedding; vector index sized from a leaf vector. Live-verified on a 30-doc slice: 137/137 leaves embedded, 0 parent embeddings, retriever returns merged parent context."
+    },
+    {
+      "id": "LOE-003",
+      "title": "Exclude out-of-scope EPAR docs at ingest (conditional on D1)",
+      "type": "feature",
+      "status": "skipped",
+      "notes": "SKIPPED \u2014 D1 resolved 'keep EPARs' (2026-06-02). EPARs now in scope for the retrieval corpus; CLAUDE.md + DECISIONS.md amended. No ingest filter; rebuild runs the full ~80k corpus.",
+      "dependencies": [
+        "LOE-001"
+      ],
+      "priority": "high",
+      "estimated_hours": 1.5,
+      "acceptance_criteria": [
+        "N/A \u2014 task skipped per D1=keep"
+      ]
+    },
+    {
+      "id": "LOE-004",
+      "title": "Unit tests: leaf-only embedding (+ EPAR exclusion if LOE-003)",
+      "type": "testing",
+      "status": "completed",
+      "dependencies": [
+        "LOE-002"
+      ],
+      "priority": "high",
+      "estimated_hours": 1,
+      "acceptance_criteria": [
+        "Mock embedder records inputs; assert it is called with ONLY leaf chunk texts",
+        "Assert non-leaf ChunkNodes are still upserted (text present, embedding is None) with PARENT_OF",
+        "If LOE-003 implemented: test asserting EPAR-pattern docs are filtered from ingestion",
+        "Full indexing suite green; ruff clean"
+      ],
+      "notes": "tests/test_indexing_property_graph.py::test_embed_pass_embeds_leaves_only \u2014 mock embedder asserts ONLY leaf texts embedded; parents upserted with embedding=None; vector index created. 48 indexing tests green."
+    },
+    {
+      "id": "LOE-005",
+      "title": "Fresh full GPU rebuild (leaf-only, full ~80k incl. EPARs) + verify",
+      "type": "integration",
+      "status": "pending",
+      "blocked_reason": "",
+      "notes": "D1=keep => full corpus. Unblocks once LOE-002 + LOE-004 land.",
+      "dependencies": [
+        "LOE-002",
+        "LOE-004"
+      ],
+      "priority": "high",
+      "estimated_hours": 1,
+      "acceptance_criteria": [
+        "Launch: build --full --reset --embed-device cuda --pause-every-docs 1000 --pause-seconds 60 (background, resumable)",
+        "Post-build: MATCH (c:Chunk {is_leaf:false}) WHERE c.embedding IS NOT NULL => 0; leaves all embedded; vector index covers leaves only",
+        "Retriever smoke on the rebuilt graph returns relevant, provenance-bearing parent context",
+        "Final counts (docs/leaf-chunks/parents/links_to) recorded in HISTORY.md + work unit 20"
+      ]
+    }
+  ],
+  "completed_tasks": [
+    "LOE-001",
+    "LOE-002",
+    "LOE-004"
+  ],
+  "next_available": [
+    "LOE-005"
+  ],
+  "notes": "Investigation in exploration.md (confirmed our-code bug, not the splitter; NVIDIA notebook corroborates leaf-only indexing). LOE-002+LOE-004 are unblocked now; LOE-003 + LOE-005 wait on the EPAR (D1) decision."
+}

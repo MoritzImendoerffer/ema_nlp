@@ -222,25 +222,35 @@ def _embed_pass(
     ents: list[EntityNode] = []
     chs: list[ChunkNode] = []
     rels: list[Relation] = []
-    n_docs = n_chunks = skipped = 0
+    n_docs = n_chunks = n_embedded = skipped = 0
     last_pause_at = 0
     vindex = {"done": False}
 
     def flush() -> None:
-        nonlocal ents, chs, rels
+        nonlocal ents, chs, rels, n_embedded
         if not chs:
             return
-        embs = embed.get_text_embedding_batch([c.text for c in chs], show_progress=False)
-        for c, e in zip(chs, embs):
-            c.embedding = e
-        store.upsert_nodes(ents + chs)
+        # Embed LEAF chunks only. Parent (mid/root) chunks are reached via PARENT_OF
+        # for small-to-big merge-up and are never vector-matched, so embedding them
+        # wastes compute and pollutes the vector index with mixed granularities. This
+        # is the canonical AutoMerging pattern (index leaves; keep parents in the store).
+        leaves = [c for c in chs if c.properties.get("is_leaf")]
+        if leaves:
+            embs = embed.get_text_embedding_batch([c.text for c in leaves], show_progress=False)
+            for c, e in zip(leaves, embs):
+                c.embedding = e
+            n_embedded += len(leaves)
+            if not vindex["done"]:
+                ensure_chunk_vector_index(store, len(embs[0]))
+                vindex["done"] = True
+        store.upsert_nodes(ents + chs)  # parents upserted with text but no embedding
         if rels:
             store.upsert_relations(rels)
-        if not vindex["done"] and chs[0].embedding:
-            ensure_chunk_vector_index(store, len(chs[0].embedding))
-            vindex["done"] = True
-        rate = n_chunks / max(time.time() - t0, 1e-6)
-        _log.info("flush: %d docs, %d chunks (%.0f ch/s)", n_docs, n_chunks, rate)
+        rate = n_embedded / max(time.time() - t0, 1e-6)
+        _log.info(
+            "flush: %d docs, %d chunks, %d leaf-embedded (%.0f emb/s)",
+            n_docs, n_chunks, n_embedded, rate,
+        )
         ents, chs, rels = [], [], []
 
     for row in iter_source_rows(scope, client=client):
@@ -274,8 +284,8 @@ def _embed_pass(
             time.sleep(pause_seconds)
     flush()
     _log.info(
-        "embed pass: %d docs, %d chunks, %d skipped, %.0fs",
-        n_docs, n_chunks, skipped, time.time() - t0,
+        "embed pass: %d docs, %d chunks (%d leaf-embedded), %d skipped, %.0fs",
+        n_docs, n_chunks, n_embedded, skipped, time.time() - t0,
     )
 
 

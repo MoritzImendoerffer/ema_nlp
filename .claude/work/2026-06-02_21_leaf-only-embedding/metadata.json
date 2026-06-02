@@ -1,0 +1,11 @@
+{
+  "id": "2026-06-02_21_leaf-only-embedding",
+  "created_at": "2026-06-02",
+  "status": "exploration_complete",
+  "requirement_type": "defect-investigation+fix",
+  "branch": "refactor/llamaindex-retrieval-pipeline",
+  "parent_work_unit": "2026-05-30_20_llamaindex-retrieval-refactor",
+  "origin": "Spun out of LIR-007 during the full-corpus GPU embedding run: the build embeds ALL hierarchical chunk levels, not just leaves.",
+  "summary": "Confirmed bug in OUR build code (not the splitter): _embed_pass.flush() embeds every node returned by HierarchicalNodeParser instead of only leaf chunks. Splitter emitting all levels is correct/by-design. Fix = embed leaves only; parents stay stored (text only) for small-to-big merge-up.",
+  "related": ["LIR-007", "LIR-008"]
+}

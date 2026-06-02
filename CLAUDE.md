@@ -76,7 +76,7 @@ Currently in **Phase 1 (corpus extraction)**. Do not introduce work from later p
 
 ## V1 scope locks
 
-- EMA human-regulatory content only. No EPARs, no FDA content, no clinical trial documents.
+- EMA human-regulatory content only — no FDA content, no clinical trial documents. **(2026-06-02: EPARs are now IN scope for the narrative retrieval corpus** — the ~18k EPAR assessment reports in `parsed_documents` are indexed into Neo4j. The earlier "No EPARs" lock is lifted *for retrieval*; benchmark Q&A curation scope is unchanged.)
 - **Narrative corpus is in scope** (the full PDF + HTML body text, ingested into Postgres). `corpus.jsonl` is the curated Q&A pair extract — used by the benchmark and as a fallback FAISS index; retrieval at runtime is over the pg `chunks` table.
 - No ontology/graph infrastructure (IDMP, SPOR, Neo4j) — deferred to v2+. IDMP RDF used only for lightweight node metadata tagging (TASK-016.5). `idmp_dabbling.py` is exploratory scratch.
 - No multilingual content.

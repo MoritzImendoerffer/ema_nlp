@@ -10,9 +10,11 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 
 ### EMA human-regulatory Q&As only — v1 scope lock
 **Decided:** project start  
-**What:** Corpus and benchmark cover only EMA human-regulatory Q&A documents (HTML accordions and numbered-section PDFs). No EPARs, no FDA content, no biomedical literature, no clinical trial documents, no multilingual content.  
+**What:** Corpus and benchmark cover only EMA human-regulatory Q&A documents (HTML accordions and numbered-section PDFs). No FDA content, no biomedical literature, no clinical trial documents, no multilingual content.  
 **Why:** Keeps the corpus extractable in one week of evenings, the benchmark curated by one SME, and the ablations controlled. Complexity is introduced only when a benchmark failure demands it.  
-**Deferred to v2+:** EPARs, multilingual (OPUS EMEA is a hook), biomedical/clinical questions beyond regulatory scope.
+**Deferred to v2+:** multilingual (OPUS EMEA is a hook), biomedical/clinical questions beyond regulatory scope.
+
+**Amended 2026-05-30 / 2026-06-02 (retrieval refactor):** EPARs are **now in scope for the narrative retrieval corpus.** The ~18k EPAR public-assessment-report PDFs already in `parsed_documents` are indexed into the Neo4j `PropertyGraphIndex` (work unit 21). The original "No EPARs" lock applied to the v1 *benchmark Q&A* curation, which is unchanged; this amendment only brings EPARs into the retrieval index. (User decision, 2026-06-02.)
 
 ### No ontology or graph infrastructure in v1
 **Decided:** project start; refined 2026-05-15  

@@ -64,3 +64,83 @@ def test_links_to_dropped_when_target_absent():
     doc_a = _doc(_URL_A, links=[ExtractedLink(tgt_url=_URL_B, anchor="b", kind="file")])
     _ents, _chunks, rels = to_graph([doc_a])  # B not ingested
     assert [r for r in rels if r.label == "LINKS_TO"] == []
+
+
+# ── LOE-002: the build embeds LEAF chunks only (parents stored, unembedded) ──────
+
+class _FakeEmbed:
+    """Records every text it is asked to embed; returns dummy vectors."""
+
+    def __init__(self) -> None:
+        self.embedded: list[str] = []
+
+    def get_text_embedding_batch(self, texts, show_progress=False):
+        self.embedded.extend(texts)
+        return [[0.1, 0.2, 0.3] for _ in texts]
+
+
+class _FakeStore:
+    """Captures upserted nodes/relations; structured_query is a no-op (vector index)."""
+
+    def __init__(self) -> None:
+        self.nodes: list = []
+        self.relations: list = []
+        self.queries: list = []
+
+    def upsert_nodes(self, nodes):
+        self.nodes.extend(nodes)
+
+    def upsert_relations(self, rels):
+        self.relations.extend(rels)
+
+    def structured_query(self, query, param_map=None):
+        self.queries.append(query)
+        return []
+
+
+def test_embed_pass_embeds_leaves_only():
+    """Regression for LOE-002: only is_leaf chunks get embeddings; parents are
+    upserted with text but no embedding (so the Neo4j vector index is leaf-only)."""
+    import mongomock
+
+    from config import MONGO_DB
+    from harness.indexing.ingest import PARSED_COLLECTION
+    from harness.indexing.profiles import (
+        IndexConfig,
+        IndexProfile,
+        RetrievalConfig,
+        ScopeConfig,
+    )
+    from harness.indexing.property_graph import _embed_pass
+
+    client = mongomock.MongoClient()
+    client[MONGO_DB][PARSED_COLLECTION].insert_one(
+        {  # one large doc -> guaranteed multi-level hierarchy (leaves + parents)
+            "url": "https://www.ema.europa.eu/en/doc_en.pdf",
+            "parser": "p", "parser_version": "1", "content_type": "application/pdf",
+            "text_format": "markdown", "error": "",
+            "text": "# Title\n\n" + ("A sentence about acceptable intake and CHMP assessment. " * 400),
+        }
+    )
+    profile = IndexProfile(
+        name="t",
+        index=IndexConfig(chunking=ChunkingConfig(chunk_sizes=[512, 128]), scope=ScopeConfig()),
+        retrieval=RetrievalConfig(),
+    )
+    store, embed = _FakeStore(), _FakeEmbed()
+    _embed_pass(
+        profile, store, client, lambda _u: None, embed, done=set(), flush_chunks=1_000_000
+    )
+
+    chunk_nodes = [n for n in store.nodes if "is_leaf" in getattr(n, "properties", {})]
+    leaves = [n for n in chunk_nodes if n.properties["is_leaf"]]
+    parents = [n for n in chunk_nodes if not n.properties["is_leaf"]]
+
+    assert leaves and parents, "fixture must produce both leaf and parent chunks"
+    assert all(n.embedding is not None for n in leaves), "leaves must be embedded"
+    assert all(n.embedding is None for n in parents), "parents must NOT be embedded"
+    # the embedder saw ONLY leaf texts, exactly once each
+    assert sorted(embed.embedded) == sorted(n.text for n in leaves)
+    assert len(embed.embedded) == len(leaves)
+    # the vector index was created (sized from a leaf embedding)
+    assert any("VECTOR INDEX" in q for q in store.queries)
