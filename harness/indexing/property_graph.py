@@ -210,9 +210,11 @@ def _embed_pass(
 
     When ``pause_every_docs`` > 0, the pass flushes and then sleeps
     ``pause_seconds`` after every that-many *new* documents. This throttles
-    sustained GPU load (the 3090's GSP firmware wedges under uninterrupted CUDA
-    load on this host's kernel) and leaves the graph fully persisted at each
-    pause, so a kill during the sleep loses nothing.
+    sustained GPU load: on this host the 3090's GSP firmware wedges under
+    uninterrupted CUDA load (root cause unconfirmed — observed across kernels,
+    so not kernel-specific; capping power + pausing avoids it empirically). The
+    flush leaves the graph fully persisted at each pause, so a kill during the
+    sleep loses nothing.
     """
     scope = profile.index.scope
     chunking = profile.index.chunking
