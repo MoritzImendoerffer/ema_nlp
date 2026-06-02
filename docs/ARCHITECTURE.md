@@ -123,8 +123,11 @@ optionally injects rated few-shot examples, runs the workflow, shows sources, an
 👍/👎 to Phoenix as span annotations. Tracing (Phoenix + OpenInference) and the feedback
 stack (`query_cache.py`, `fewshot_inject.py`, `rating.py`) are **kept** through the refactor.
 
-> **Refactor status:** `app.py` still branches on the old `EMA_RETRIEVER` switch; wiring it
-> to the index profile + narrative-chunk citations is LIR-010.
+> **Refactor status (LIR-010 done, 2026-06-02):** `app.py` now loads the Neo4j
+> `PropertyGraphIndex` via `EMA_INDEX_PROFILE` and builds a `HierarchicalPGRetriever`
+> (the old `EMA_RETRIEVER` faiss/pgvector switch is removed); source cards render
+> narrative-chunk snippets and citations key on node `source_url`. Live end-to-end
+> verification (tracing + feedback) is LIR-011, pending the full index build.
 
 ---
 
