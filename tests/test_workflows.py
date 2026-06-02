@@ -1,8 +1,8 @@
 """
 Unit tests for LlamaIndex Workflow implementations.
 
-All tests use a tiny in-memory index (3 records) via FakeEmbedModel so they
-run offline without API keys or a FAISS index on disk.
+All tests use a fake BaseRetriever (fixed NodeWithScore results) so they run
+offline without Neo4j, API keys, or an index on disk.
 
 A FakeLLM produces deterministic responses so no Anthropic calls are made.
 
@@ -12,80 +12,52 @@ locally-defined workflow classes.
 """
 
 import asyncio
-from typing import Any, ClassVar
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse, MessageRole
-from llama_index.core.embeddings import BaseEmbedding
+from llama_index.core.retrievers import BaseRetriever
+from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 from llama_index.core.workflow import Context, StartEvent, StopEvent, Workflow, step
 
-from corpus.extractors.html_extractor import _qa_id
-from corpus.models import QARecord
-from harness.embed import EMBED_DIM, build_index
-from llama_index.core.schema import TextNode
-
-from harness.workflows.utils import WorkflowRunner, format_docs, extract_answer
-
+from harness.workflows.utils import WorkflowRunner, extract_answer, format_docs
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
-def _rec(question: str, answer: str = "Test answer.", topic: str = "/safety") -> QARecord:
-    url = f"https://ema.europa.eu/{question[:10].replace(' ', '-')}"
-    return QARecord(
-        qa_id=_qa_id(url, question),
-        question=question,
-        answer=answer,
-        source_url=url,
-        source_type="html_accordion",  # type: ignore[arg-type]
-        source_title="Test",
-        topic_path=topic,
-        cross_refs=[],
-        extraction_confidence="high",
-    )
+class _FakeRetriever(BaseRetriever):
+    """Returns fixed NodeWithScore results, mirroring HierarchicalPGRetriever's
+    output shape (TextNodes carrying source_url/doc_id metadata) without Neo4j."""
+
+    def __init__(self, nodes: list | None = None) -> None:
+        self._nodes = nodes if nodes is not None else [
+            NodeWithScore(
+                node=TextNode(
+                    text="The AI for NDMA is 96 ng/day.",
+                    metadata={"source_url": "https://ema.europa.eu/ndma",
+                              "doc_id": "d1ndma", "topic_path": "/safety"},
+                ),
+                score=0.91,
+            ),
+            NodeWithScore(
+                node=TextNode(
+                    text="ASMF is the Active Substance Master File.",
+                    metadata={"source_url": "https://ema.europa.eu/asmf",
+                              "doc_id": "d2asmf", "topic_path": "/quality"},
+                ),
+                score=0.75,
+            ),
+        ]
+        super().__init__()
+
+    def _retrieve(self, query_bundle: QueryBundle) -> list:
+        return list(self._nodes)
 
 
-class FakeEmbedModel(BaseEmbedding):
-    dim: ClassVar[int] = EMBED_DIM
-
-    def _get_query_embedding(self, query: str) -> list[float]:
-        import hashlib, random
-        h = int(hashlib.md5(query.encode()).hexdigest(), 16)
-        rng = random.Random(h)
-        raw = [rng.gauss(0, 1) for _ in range(self.dim)]
-        norm = sum(x**2 for x in raw) ** 0.5
-        return [x / norm for x in raw]
-
-    def _get_text_embedding(self, text: str) -> list[float]:
-        return self._get_query_embedding(text)
-
-    async def _aget_query_embedding(self, query: str) -> list[float]:
-        return self._get_query_embedding(query)
-
-    async def _aget_text_embedding(self, text: str) -> list[float]:
-        return self._get_text_embedding(text)
-
-
-def _make_index():
-    import tempfile
-    from pathlib import Path
-    records = [
-        _rec("What is the AI for NDMA?", "The AI for NDMA is 96 ng/day.", "/safety"),
-        _rec("What is an ASMF?", "ASMF is Active Substance Master File.", "/quality"),
-        _rec("What is ICH Q3C?", "ICH Q3C covers residual solvents.", "/quality"),
-    ]
-    with tempfile.TemporaryDirectory() as tmp:
-        corpus = Path(tmp) / "corpus.jsonl"
-        corpus.write_text(
-            "\n".join(r.to_json() for r in records), encoding="utf-8"
-        )
-        return build_index(
-            corpus_path=corpus,
-            index_dir=Path(tmp) / "idx",
-            embed_model=FakeEmbedModel(),
-        )
+def _make_fake_retriever() -> _FakeRetriever:
+    return _FakeRetriever()
 
 
 def _make_fake_llm(response_text: str = "Fake answer.") -> Any:
@@ -110,13 +82,13 @@ class TestUtils:
 
     def test_format_docs_with_doc(self):
         node = TextNode(
-            text="Q: What?\n\nA: Answer.",
-            metadata={"qa_id": "qa1", "score": 0.9, "source_url": "https://x.com"},
+            text="Narrative chunk about acceptable intake limits.",
+            metadata={"doc_id": "d1ndma00", "score": 0.9, "source_url": "https://x.com"},
         )
         result = format_docs([node])
-        assert "qa1" in result
+        assert "https://x.com" in result          # citation keys on source_url now
         assert "0.900" in result
-        assert "What?" in result
+        assert "acceptable intake" in result        # the chunk text is included
 
     def test_extract_answer_zero_shot(self):
         assert extract_answer("Simple answer.", "zero_shot") == "Simple answer."
@@ -170,14 +142,14 @@ class TestWorkflowRunner:
 
 class TestSimpleRAGWorkflow:
     @pytest.fixture(scope="class")
-    def index(self):
-        return _make_index()
+    def retriever(self):
+        return _make_fake_retriever()
 
-    def test_zero_shot_returns_expected_keys(self, index):
+    def test_zero_shot_returns_expected_keys(self, retriever):
         from harness.workflows.simple_rag import SimpleRAGWorkflow
 
         llm = _make_fake_llm("NDMA AI is 96 ng/day.")
-        wf = SimpleRAGWorkflow(index=index, llm=llm, prompt_strategy="zero_shot", timeout=30)
+        wf = SimpleRAGWorkflow(retriever=retriever, llm=llm, prompt_strategy="zero_shot", timeout=30)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "What is the AI for NDMA?"})
         assert "answer_text" in result
@@ -185,21 +157,22 @@ class TestSimpleRAGWorkflow:
         assert "prompt_strategy" in result
         assert result["prompt_strategy"] == "zero_shot"
 
-    def test_answer_text_comes_from_llm(self, index):
+    def test_answer_text_comes_from_llm(self, retriever):
         from harness.workflows.simple_rag import SimpleRAGWorkflow
 
         expected = "The AI for NDMA is 96 ng/day per ICH M7."
         llm = _make_fake_llm(expected)
-        wf = SimpleRAGWorkflow(index=index, llm=llm, prompt_strategy="zero_shot", timeout=30)
+        wf = SimpleRAGWorkflow(retriever=retriever, llm=llm, prompt_strategy="zero_shot", timeout=30)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "NDMA limit?"})
         assert result["answer_text"] == expected
 
-    def test_docs_are_textnodes(self, index):
-        from harness.workflows.simple_rag import SimpleRAGWorkflow
+    def test_docs_are_textnodes(self, retriever):
         from llama_index.core.schema import TextNode
 
-        wf = SimpleRAGWorkflow(index=index, llm=_make_fake_llm(), prompt_strategy="zero_shot", timeout=30)
+        from harness.workflows.simple_rag import SimpleRAGWorkflow
+
+        wf = SimpleRAGWorkflow(retriever=retriever, llm=_make_fake_llm(), prompt_strategy="zero_shot", timeout=30)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "ASMF?"})
         assert isinstance(result["docs"], list)
@@ -208,21 +181,21 @@ class TestSimpleRAGWorkflow:
             assert hasattr(node, "text")
             assert hasattr(node, "metadata")
 
-    def test_few_shot_strategy_accepted(self, index):
+    def test_few_shot_strategy_accepted(self, retriever):
         from harness.workflows.simple_rag import SimpleRAGWorkflow
 
-        wf = SimpleRAGWorkflow(index=index, llm=_make_fake_llm(), prompt_strategy="few_shot", timeout=30)
+        wf = SimpleRAGWorkflow(retriever=retriever, llm=_make_fake_llm(), prompt_strategy="few_shot", timeout=30)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "ASMF?"})
         assert result["prompt_strategy"] == "few_shot"
 
-    def test_invalid_strategy_raises(self, index):
+    def test_invalid_strategy_raises(self, retriever):
         from harness.workflows.simple_rag import SimpleRAGWorkflow
 
         with pytest.raises(ValueError, match="Unknown prompt_strategy"):
-            SimpleRAGWorkflow(index=index, llm=_make_fake_llm(), prompt_strategy="bad_strategy")
+            SimpleRAGWorkflow(retriever=retriever, llm=_make_fake_llm(), prompt_strategy="bad_strategy")
 
-    def test_few_shot_context_forwarded(self, index):
+    def test_few_shot_context_forwarded(self, retriever):
         """The LLM receives few_shot_context in the system prompt."""
         from harness.workflows.simple_rag import SimpleRAGWorkflow
 
@@ -236,7 +209,7 @@ class TestSimpleRAGWorkflow:
         mock_llm = MagicMock()
         mock_llm.achat = achat
 
-        wf = SimpleRAGWorkflow(index=index, llm=mock_llm, prompt_strategy="zero_shot", timeout=30)
+        wf = SimpleRAGWorkflow(retriever=retriever, llm=mock_llm, prompt_strategy="zero_shot", timeout=30)
         runner = WorkflowRunner(wf)
         runner.invoke({"question": "test", "few_shot_context": "EXAMPLE: ..."})
 
@@ -254,10 +227,10 @@ _GRADE_INSUFFICIENT = '{"per_doc": [{"qa_id": "qa1", "score": 1}], "missing_fact
 
 class TestCRAGWorkflow:
     @pytest.fixture(scope="class")
-    def index(self):
-        return _make_index()
+    def retriever(self):
+        return _make_fake_retriever()
 
-    def test_returns_expected_keys(self, index):
+    def test_returns_expected_keys(self, retriever):
         from harness.workflows.crag import CRAGWorkflow
 
         call_count = {"n": 0}
@@ -275,7 +248,7 @@ class TestCRAGWorkflow:
         mock_llm = MagicMock()
         mock_llm.achat = achat
 
-        wf = CRAGWorkflow(index=index, llm=mock_llm, timeout=60)
+        wf = CRAGWorkflow(retriever=retriever, llm=mock_llm, timeout=60)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "What is NDMA AI?"})
 
@@ -285,7 +258,7 @@ class TestCRAGWorkflow:
         assert "graded_docs" in result
         assert result["rewrite_cycles_used"] == 0
 
-    def test_rewrite_cycle_increments(self, index):
+    def test_rewrite_cycle_increments(self, retriever):
         from harness.workflows.crag import CRAGWorkflow
 
         grade_calls = {"n": 0}
@@ -309,12 +282,12 @@ class TestCRAGWorkflow:
         mock_llm = MagicMock()
         mock_llm.achat = achat
 
-        wf = CRAGWorkflow(index=index, llm=mock_llm, max_cycles=2, timeout=120)
+        wf = CRAGWorkflow(retriever=retriever, llm=mock_llm, max_cycles=2, timeout=120)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "test"})
         assert result["rewrite_cycles_used"] >= 0
 
-    def test_grade_sufficient_when_score2_and_no_missing(self, index):
+    def test_grade_sufficient_when_score2_and_no_missing(self, retriever):
         """A doc scoring 2 with empty missing_facts produces GradeEvent (no rewrite)."""
         from harness.workflows.crag import CRAGWorkflow
 
@@ -329,12 +302,12 @@ class TestCRAGWorkflow:
         mock_llm = MagicMock()
         mock_llm.achat = achat
 
-        wf = CRAGWorkflow(index=index, llm=mock_llm, timeout=60)
+        wf = CRAGWorkflow(retriever=retriever, llm=mock_llm, timeout=60)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "NDMA limit?"})
         assert result["rewrite_cycles_used"] == 0
 
-    def test_rewrite_grounded_in_missing_facts(self, index):
+    def test_rewrite_grounded_in_missing_facts(self, retriever):
         """Rewrite prompt receives missing_facts from grader."""
         from harness.workflows.crag import CRAGWorkflow
 
@@ -359,7 +332,7 @@ class TestCRAGWorkflow:
         mock_llm = MagicMock()
         mock_llm.achat = achat
 
-        wf = CRAGWorkflow(index=index, llm=mock_llm, max_cycles=2, timeout=120)
+        wf = CRAGWorkflow(retriever=retriever, llm=mock_llm, max_cycles=2, timeout=120)
         runner = WorkflowRunner(wf)
         runner.invoke({"question": "test"})
 
@@ -373,10 +346,10 @@ class TestCRAGWorkflow:
 
 class TestSummarizeRAGWorkflow:
     @pytest.fixture(scope="class")
-    def index(self):
-        return _make_index()
+    def retriever(self):
+        return _make_fake_retriever()
 
-    def test_returns_summary_key(self, index):
+    def test_returns_summary_key(self, retriever):
         from harness.workflows.summarize_rag import SummarizeRAGWorkflow
 
         call_n = {"n": 0}
@@ -390,7 +363,7 @@ class TestSummarizeRAGWorkflow:
         mock_llm = MagicMock()
         mock_llm.achat = achat
 
-        wf = SummarizeRAGWorkflow(index=index, llm=mock_llm, timeout=60)
+        wf = SummarizeRAGWorkflow(retriever=retriever, llm=mock_llm, timeout=60)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "What is ICH Q3C?"})
 
@@ -405,8 +378,8 @@ class TestSummarizeRAGWorkflow:
 
 class TestReActNativeWorkflow:
     @pytest.fixture(scope="class")
-    def index(self):
-        return _make_index()
+    def retriever(self):
+        return _make_fake_retriever()
 
     def _make_react_llm(self, responses: list[str]) -> Any:
         """LLM that returns canned responses in order."""
@@ -423,14 +396,14 @@ class TestReActNativeWorkflow:
         mock.achat = achat
         return mock
 
-    def test_returns_expected_keys(self, index):
+    def test_returns_expected_keys(self, retriever):
         from harness.workflows.react_native import ReActNativeWorkflow
 
         llm = self._make_react_llm([
             "Thought: Let me search.\nAction: ema_search\nAction Input: NDMA acceptable intake",
             "Thought: I found the answer.\nFinal Answer: The AI for NDMA is 96 ng/day.",
         ])
-        wf = ReActNativeWorkflow(index=index, llm=llm, timeout=60)
+        wf = ReActNativeWorkflow(retriever=retriever, llm=llm, timeout=60)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "What is the AI for NDMA?"})
 
@@ -440,20 +413,20 @@ class TestReActNativeWorkflow:
         assert "trajectory" in result
         assert result["prompt_strategy"] == "react_native"
 
-    def test_final_answer_direct(self, index):
+    def test_final_answer_direct(self, retriever):
         """LLM provides final answer on first think step."""
         from harness.workflows.react_native import ReActNativeWorkflow
 
         llm = self._make_react_llm([
             "Thought: I know this.\nFinal Answer: ASMF is Active Substance Master File.",
         ])
-        wf = ReActNativeWorkflow(index=index, llm=llm, timeout=60)
+        wf = ReActNativeWorkflow(retriever=retriever, llm=llm, timeout=60)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "What is ASMF?"})
 
         assert result["answer_text"] == "ASMF is Active Substance Master File."
 
-    def test_think_act_observe_cycle(self, index):
+    def test_think_act_observe_cycle(self, retriever):
         """Full think→act→observe→think→final cycle."""
         from harness.workflows.react_native import ReActNativeWorkflow
 
@@ -461,7 +434,7 @@ class TestReActNativeWorkflow:
             "Thought: Let me search.\nAction: ema_search\nAction Input: ICH Q3C residual solvents",
             "Thought: Found it.\nFinal Answer: ICH Q3C covers residual solvents.",
         ])
-        wf = ReActNativeWorkflow(index=index, llm=llm, timeout=60)
+        wf = ReActNativeWorkflow(retriever=retriever, llm=llm, timeout=60)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "What is ICH Q3C?"})
 
@@ -471,56 +444,21 @@ class TestReActNativeWorkflow:
         assert "thought" in roles
         assert "observation" in roles
 
-    def test_max_iterations_guard(self, index):
+    def test_max_iterations_guard(self, retriever):
         """Workflow terminates after max_iterations even with no Final Answer."""
         from harness.workflows.react_native import ReActNativeWorkflow
 
         # Always return a tool call — never a final answer
         always_search = "Thought: Still looking.\nAction: ema_search\nAction Input: NDMA"
         llm = self._make_react_llm([always_search] * 10)
-        wf = ReActNativeWorkflow(index=index, llm=llm, max_iterations=2, timeout=120)
+        wf = ReActNativeWorkflow(retriever=retriever, llm=llm, max_iterations=2, timeout=120)
         runner = WorkflowRunner(wf)
         result = runner.invoke({"question": "NDMA limit?"})
 
         assert "answer_text" in result
         assert "[Max iterations reached]" in result["answer_text"]
 
-    def test_get_qa_by_id_adds_cited(self, index):
-        """get_qa_by_id tool adds qa_id to cited_qa_ids."""
-        from harness.workflows.react_native import ReActNativeWorkflow
-
-        # First search to get a real qa_id, then fetch by id, then answer
-        call_n = {"n": 0}
-        qa_ids_found: list = []
-
-        async def achat(messages, **kw):
-            n = call_n["n"]
-            call_n["n"] += 1
-            if n == 0:
-                text = "Thought: Search first.\nAction: ema_search\nAction Input: ASMF"
-            elif n == 1:
-                # After observing search results, pick a qa_id from them
-                content = next(
-                    m.content for m in messages if m.role == MessageRole.USER
-                )
-                # Extract first qa_id= token from observation
-                import re
-                m = re.search(r"qa_id=([^\s]+) score", content)
-                qa_id = m.group(1) if m else "fallback_id"
-                qa_ids_found.append(qa_id)
-                text = f"Thought: Fetch specific entry.\nAction: get_qa_by_id\nAction Input: {qa_id}"
-            else:
-                text = "Thought: Done.\nFinal Answer: ASMF stands for Active Substance Master File."
-            msg = ChatMessage(role=MessageRole.ASSISTANT, content=text)
-            return ChatResponse(message=msg)
-
-        mock_llm = MagicMock()
-        mock_llm.achat = achat
-
-        wf = ReActNativeWorkflow(index=index, llm=mock_llm, timeout=60)
-        runner = WorkflowRunner(wf)
-        result = runner.invoke({"question": "What is an ASMF?"})
-
-        assert "answer_text" in result
-        if qa_ids_found:
-            assert qa_ids_found[0] in result["cited_qa_ids"]
+    # NOTE: tests for the get_qa_by_id / follow_cross_refs tools were removed in
+    # LIR-009 — those tools were backed by the FAISS docstore API (harness.embed)
+    # and the qa_id citation model, both retired by the Neo4j re-seam. The ReAct
+    # toolset is now ema_search + filter_by_topic.

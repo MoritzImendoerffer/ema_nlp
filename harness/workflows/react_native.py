@@ -15,19 +15,20 @@ Workflow::
                                                                      (via observe loop)
 
 Tools::
-    ema_search <query>        — hybrid RRF retrieval; call this first
-    follow_cross_refs <qa_id> — expand cross-referenced Q&A entries
-    filter_by_topic <topic>   — narrow last docs_snapshot by topic/URL keyword
-    get_qa_by_id <qa_id>      — fetch a specific Q&A entry by its ID
+    ema_search <query>      — hierarchical Neo4j retrieval; call this first
+    filter_by_topic <topic> — narrow last docs_snapshot by topic/URL keyword
 
 Usage::
 
     from harness.workflows.react_native import build_react_native
     from harness.llms import get_llm
-    from harness.embed import build_index
+    from harness.indexing import load_index_profile
+    from harness.indexing.property_graph import open_index
+    from harness.indexing.registry import build_retriever
 
-    index  = build_index(corpus_path, index_dir)
-    runner = build_react_native(index=index, llm=get_llm("agent"))
+    profile   = load_index_profile()
+    retriever = build_retriever(profile, open_index(profile))
+    runner = build_react_native(retriever=retriever, llm=get_llm("agent"))
     result = runner.invoke({"question": "What is the AI for NDMA?"})
     print(result["answer_text"])
 """
@@ -40,14 +41,17 @@ from typing import Any
 from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.core.workflow import Context, StartEvent, StopEvent, Workflow, step
 
-from harness.retrieve import RetrievalConfig, retrieve_with_config
 from harness.workflows.events import (
     ActionEvent,
     FinishEvent,
     ObservationEvent,
     ThoughtEvent,
 )
-from harness.workflows.utils import WorkflowRunner, results_to_docs
+from harness.workflows.utils import (
+    WorkflowRunner,
+    nodes_from_retrieval,
+    retriever_attributes,
+)
 
 log = logging.getLogger(__name__)
 
@@ -58,10 +62,8 @@ You are an expert on European Medicines Agency (EMA) human-regulatory procedures
 Answer questions by using the available tools to retrieve EMA regulatory Q&As.
 
 Available tools:
-  ema_search        — Search the EMA Q&A corpus using hybrid retrieval.
-  follow_cross_refs — Follow cross-references from a Q&A entry to related entries.
-  filter_by_topic   — Filter last search results by topic path or source URL keyword.
-  get_qa_by_id      — Fetch a specific Q&A entry by its ID.
+  ema_search      — Search the EMA regulatory corpus using hierarchical retrieval.
+  filter_by_topic — Filter last search results by topic path or source URL keyword.
 
 REQUIREMENT: You MUST call ema_search at least once before writing "Final Answer:".
 Do NOT write "Final Answer:" on your first response. Always begin with a tool call.
@@ -73,9 +75,9 @@ Use this exact format every response:
 
 After you have retrieved sufficient information:
   Thought: <your synthesis reasoning>
-  Final Answer: <complete multi-sentence answer, citing qa_id values>
+  Final Answer: <complete multi-sentence answer, citing the source URLs of the documents you used>
 
-Do not fabricate qa_id values. Every qa_id must come from a tool result.
+Do not fabricate source URLs. Every source must come from a tool result.
 """
 
 
@@ -156,9 +158,9 @@ def _format_docs(nodes: list) -> str:
     lines: list[str] = []
     for i, node in enumerate(nodes, 1):
         meta = node.metadata
-        qa_id = meta.get("qa_id", "?")
+        source = meta.get("source_url", "?")
         score = meta.get("score", 0.0)
-        lines.append(f"[{i}] qa_id={qa_id} score={score:.3f}")
+        lines.append(f"[{i}] source={source} score={score:.3f}")
         lines.append(node.text[:400])
         lines.append("")
     return "\n".join(lines)
@@ -169,27 +171,22 @@ class ReActNativeWorkflow(Workflow):
     Hand-written ReAct loop: each think/act/observe is a separate @step.
 
     Args:
-        index:            LlamaIndex VectorStoreIndex.
+        retriever:        LlamaIndex BaseRetriever (HierarchicalPGRetriever).
         llm:              LlamaIndex LLM.
-        retrieval_config: RetrievalConfig (defaults to flat hybrid k=10).
         max_iterations:   Max think-act-observe cycles before forcing an answer.
     """
 
     def __init__(
         self,
         *,
-        index: Any,
+        retriever: Any,
         llm: Any,
-        retrieval_config: RetrievalConfig | None = None,
-        retrieve_fn: Any | None = None,
         max_iterations: int = MAX_ITERATIONS,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        self._index = index
+        self._retriever = retriever
         self._llm = llm
-        self._config = retrieval_config or RetrievalConfig()
-        self._retrieve_fn = retrieve_fn
         self._max_iterations = max_iterations
         # Apply A1 acronym expansion on ema_search queries (handles AI→Acceptable Intake etc.)
         try:
@@ -199,17 +196,11 @@ class ReActNativeWorkflow(Workflow):
             self._expander = None
 
     def config_attributes(self) -> dict:
-        abl = getattr(self._retrieve_fn, "ablation_config", None)
         return {
             "ema.orchestration.strategy": "react",
             "ema.orchestration.prompt_strategy": "react_native",
-            "ema.retrieval.strategy": self._config.strategy,
-            "ema.retrieval.mode": self._config.mode,
-            "ema.retrieval.k": self._config.k,
-            "ema.retrieval.reranker": abl.reranker or "none" if abl else "none",
-            "ema.retrieval.query_expansion": abl.query_expansion_enabled if abl else False,
-            "ema.retrieval.topic_filter": abl.topic_filter_mode or "none" if abl else "none",
             "ema.react.max_iterations": self._max_iterations,
+            **retriever_attributes(self._retriever),
         }
 
     # ------------------------------------------------------------------
@@ -367,21 +358,10 @@ class ReActNativeWorkflow(Workflow):
     ) -> tuple[str, list, list]:
         if tool_name == "ema_search":
             query = tool_args.strip()
-            if self._retrieve_fn is not None:
-                results = self._retrieve_fn(query)
-            else:
-                if self._expander is not None:
-                    query = self._expander.expand(query)
-                results = retrieve_with_config(self._config, self._index, query)
-            docs = results_to_docs(results, self._index)
+            if self._expander is not None:
+                query = self._expander.expand(query)
+            docs = nodes_from_retrieval(await self._retriever.aretrieve(query))
             return _format_docs(docs), docs, cited_qa_ids
-
-        if tool_name == "follow_cross_refs":
-            from harness.embed import follow_cross_refs as _follow
-            nodes = _follow(self._index, tool_args.strip())
-            if nodes:
-                return _format_docs(nodes), nodes, cited_qa_ids
-            return f"No cross-refs found for {tool_args.strip()!r}", docs_snapshot, cited_qa_ids
 
         if tool_name == "filter_by_topic":
             topic_lower = tool_args.strip().lower()
@@ -394,19 +374,8 @@ class ReActNativeWorkflow(Workflow):
                 return _format_docs(filtered), filtered, cited_qa_ids
             return f"No results after filtering by {tool_args.strip()!r}", docs_snapshot, cited_qa_ids
 
-        if tool_name == "get_qa_by_id":
-            from harness.embed import get_node_by_id
-            qa_id = tool_args.strip()
-            node = get_node_by_id(self._index, qa_id)
-            new_cited = list(cited_qa_ids)
-            if qa_id not in new_cited:
-                new_cited.append(qa_id)
-            if node:
-                return node.text, docs_snapshot, new_cited
-            return f"No entry found for qa_id={qa_id!r}", docs_snapshot, new_cited
-
         return (
-            f"Unknown tool {tool_name!r}. Available: ema_search, follow_cross_refs, filter_by_topic, get_qa_by_id",
+            f"Unknown tool {tool_name!r}. Available: ema_search, filter_by_topic",
             docs_snapshot,
             cited_qa_ids,
         )
@@ -414,18 +383,14 @@ class ReActNativeWorkflow(Workflow):
 
 def build_react_native(
     *,
-    index: Any,
+    retriever: Any,
     llm: Any,
-    retrieval_config: RetrievalConfig | None = None,
-    retrieve_fn: Any | None = None,
     max_iterations: int = MAX_ITERATIONS,
 ) -> WorkflowRunner:
     """Factory function matching the registry interface."""
     wf = ReActNativeWorkflow(
-        index=index,
+        retriever=retriever,
         llm=llm,
-        retrieval_config=retrieval_config,
-        retrieve_fn=retrieve_fn,
         max_iterations=max_iterations,
         timeout=300,
     )

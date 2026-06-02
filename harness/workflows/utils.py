@@ -2,12 +2,13 @@
 Shared utilities for LlamaIndex workflow steps.
 
 Provides:
-  - load_system_prompt()   read prompt from harness/prompts/
-  - results_to_docs()      convert RetrievalResult tuples to TextNode objects
-  - format_docs()          render TextNode list as a formatted context string
-  - extract_answer()       strip CoT reasoning block from raw LLM output
-  - build_rag_messages()   construct system+user ChatMessage list for RAG prompts
-  - WorkflowRunner         thin sync/async wrapper for LlamaIndex Workflow instances
+  - load_system_prompt()    read prompt from harness/prompts/
+  - nodes_from_retrieval()  convert LlamaIndex NodeWithScore results to TextNodes
+  - retriever_attributes()  derive ema.retrieval.* span attributes from a retriever
+  - format_docs()           render TextNode list as a formatted context string
+  - extract_answer()        strip CoT reasoning block from raw LLM output
+  - build_rag_messages()    construct system+user ChatMessage list for RAG prompts
+  - WorkflowRunner          thin sync/async wrapper for LlamaIndex Workflow instances
 """
 
 from __future__ import annotations
@@ -50,39 +51,38 @@ def load_system_prompt(strategy: str) -> str:
 # Retrieval result helpers
 # ---------------------------------------------------------------------------
 
-def results_to_docs(results: list, index: Any) -> list:
-    """Convert (qa_id, score, metadata) triples to TextNode objects.
+def nodes_from_retrieval(results: list) -> list[TextNode]:
+    """Convert LlamaIndex ``NodeWithScore`` results to a list of TextNodes.
 
-    Two paths:
-      * pgvector — metadata already carries the chunk text under ``"text"``
-        (populated by ``harness.pg.adapter.row_to_result``); use it directly.
-      * FAISS — fall back to ``harness.embed.get_node_by_id(index, qa_id)``
-        on the docstore. Requires ``index`` to be non-None.
+    The retriever (e.g. ``HierarchicalPGRetriever``) already returns nodes whose
+    metadata carries ``source_url`` / ``doc_id`` / ``matched_chunk``; here we
+    just stamp the similarity ``score`` into each node's metadata so downstream
+    formatting and citation can read it uniformly.
     """
-    nodes: list[TextNode] = []
-    for qa_id, score, meta in results:
-        text_in_meta = meta.get("text")
-        if text_in_meta:
-            md = {k: v for k, v in meta.items() if k != "text"}
-            md["qa_id"] = qa_id
-            md["score"] = score
-            nodes.append(TextNode(text=text_in_meta, metadata=md))
-            continue
+    docs: list[TextNode] = []
+    for nws in results:
+        node = getattr(nws, "node", nws)
+        score = getattr(nws, "score", None)
+        meta = dict(node.metadata or {})
+        if score is not None:
+            meta["score"] = float(score)
+        node.metadata = meta
+        docs.append(node)
+    return docs
 
-        node = None
-        if index is not None:
-            from harness.embed import get_node_by_id
-            node = get_node_by_id(index, qa_id)
 
-        if node is not None:
-            merged = {**node.metadata, **meta, "qa_id": qa_id, "score": score}
-            nodes.append(TextNode(text=node.text, metadata=merged))
-        else:
-            nodes.append(TextNode(
-                text=f"[qa_id: {qa_id}]",
-                metadata={**meta, "qa_id": qa_id, "score": score},
-            ))
-    return nodes
+def retriever_attributes(retriever: Any) -> dict:
+    """Derive ``ema.retrieval.*`` span attributes from a LlamaIndex retriever.
+
+    Reads the small public-ish knobs the hierarchical retriever exposes (``_k``,
+    ``_merge``) plus the active index profile; tolerant of plain BaseRetrievers.
+    """
+    return {
+        "ema.retrieval.strategy": "hierarchical",
+        "ema.retrieval.k": getattr(retriever, "_k", None),
+        "ema.retrieval.merge": getattr(retriever, "_merge", None),
+        "ema.index.profile": os.getenv("EMA_INDEX_PROFILE", "neo4j_hier"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -92,13 +92,14 @@ def results_to_docs(results: list, index: Any) -> list:
 def format_docs(nodes: list) -> str:
     if not nodes:
         return "No relevant documents retrieved."
-    lines: list[str] = ["## Retrieved Q&A documents", ""]
+    lines: list[str] = ["## Retrieved context", ""]
     for i, node in enumerate(nodes, 1):
         meta = node.metadata
-        qa_id = meta.get("qa_id", "unknown")
-        source = meta.get("source_title") or meta.get("source_url") or "unknown source"
+        source = meta.get("source_url") or meta.get("title") or "unknown source"
+        doc_id = (meta.get("doc_id") or "")[:8]
         score = meta.get("score", 0.0)
-        lines.append(f"[{i}] qa_id: {qa_id} | source: {source} | relevance score: {score:.3f}")
+        tag = f"doc {doc_id}" if doc_id else "doc ?"
+        lines.append(f"[{i}] source: {source} | {tag} | relevance score: {score:.3f}")
         lines.append(node.text)
         lines.append("")
     return "\n".join(lines)
@@ -169,8 +170,8 @@ class WorkflowRunner:
             if source := inputs.get("source"):
                 span.set_attribute("ema.run.source", str(source))
             span.set_attribute(
-                "ema.retrieval.backend",
-                os.getenv("EMA_RETRIEVER", "faiss").lower(),
+                "ema.index.profile",
+                os.getenv("EMA_INDEX_PROFILE", "neo4j_hier"),
             )
         except Exception:
             pass  # Phoenix disabled or OTel not installed — never raise from here

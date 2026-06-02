@@ -30,7 +30,6 @@ from typing import Any
 from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.core.workflow import Context, Event, StartEvent, StopEvent, Workflow, step
 
-from harness.retrieve import RetrievalConfig, retrieve_with_config
 from harness.workflows.events import (
     GeneratedEvent,
     GradeEvent,
@@ -45,7 +44,8 @@ from harness.workflows.utils import (
     extract_answer,
     format_docs,
     load_system_prompt,
-    results_to_docs,
+    nodes_from_retrieval,
+    retriever_attributes,
 )
 
 log = logging.getLogger(__name__)
@@ -82,20 +82,16 @@ class CRAGSummarizeWorkflow(Workflow):
     def __init__(
         self,
         *,
-        index: Any,
+        retriever: Any,
         llm: Any,
         prompt_strategy: str = "zero_shot",
-        retrieval_config: RetrievalConfig | None = None,
-        retrieve_fn: Any | None = None,
         max_cycles: int = MAX_CYCLES,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        self._index = index
+        self._retriever = retriever
         self._llm = llm
         self._prompt_strategy = prompt_strategy
-        self._config = retrieval_config or RetrievalConfig()
-        self._retrieve_fn = retrieve_fn
         self._max_cycles = max_cycles
         self._system_prompt = load_system_prompt(prompt_strategy)
         from pathlib import Path
@@ -103,17 +99,11 @@ class CRAGSummarizeWorkflow(Workflow):
         self._summarize_prompt = (_prompts / "system_summarize.md").read_text(encoding="utf-8")
 
     def config_attributes(self) -> dict:
-        abl = getattr(self._retrieve_fn, "ablation_config", None)
         return {
             "ema.orchestration.strategy": "crag_summarize",
             "ema.orchestration.prompt_strategy": self._prompt_strategy,
-            "ema.retrieval.strategy": self._config.strategy,
-            "ema.retrieval.mode": self._config.mode,
-            "ema.retrieval.k": self._config.k,
-            "ema.retrieval.reranker": abl.reranker or "none" if abl else "none",
-            "ema.retrieval.query_expansion": abl.query_expansion_enabled if abl else False,
-            "ema.retrieval.topic_filter": abl.topic_filter_mode or "none" if abl else "none",
             "ema.crag.max_cycles": self._max_cycles,
+            **retriever_attributes(self._retriever),
         }
 
     @step
@@ -126,12 +116,7 @@ class CRAGSummarizeWorkflow(Workflow):
             question = ev.question
             few_shot_context = ev.few_shot_context
             rewrite_cycles = ev.rewrite_cycles
-        results = (
-            self._retrieve_fn(question)
-            if self._retrieve_fn is not None
-            else retrieve_with_config(self._config, self._index, question)
-        )
-        docs = results_to_docs(results, self._index)
+        docs = nodes_from_retrieval(await self._retriever.aretrieve(question))
         return RetrievedEvent(
             question=question, few_shot_context=few_shot_context,
             docs=docs, rewrite_cycles=rewrite_cycles,
@@ -231,37 +216,27 @@ class CRAGReviewWorkflow(Workflow):
     def __init__(
         self,
         *,
-        index: Any,
+        retriever: Any,
         llm: Any,
         prompt_strategy: str = "zero_shot",
-        retrieval_config: RetrievalConfig | None = None,
-        retrieve_fn: Any | None = None,
         max_cycles: int = MAX_CYCLES,
         review_threshold: float = 0.6,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        self._index = index
+        self._retriever = retriever
         self._llm = llm
         self._prompt_strategy = prompt_strategy
-        self._config = retrieval_config or RetrievalConfig()
-        self._retrieve_fn = retrieve_fn
         self._max_cycles = max_cycles
         self._review_threshold = review_threshold
         self._system_prompt = load_system_prompt(prompt_strategy)
 
     def config_attributes(self) -> dict:
-        abl = getattr(self._retrieve_fn, "ablation_config", None)
         return {
             "ema.orchestration.strategy": "crag_review",
             "ema.orchestration.prompt_strategy": self._prompt_strategy,
-            "ema.retrieval.strategy": self._config.strategy,
-            "ema.retrieval.mode": self._config.mode,
-            "ema.retrieval.k": self._config.k,
-            "ema.retrieval.reranker": abl.reranker or "none" if abl else "none",
-            "ema.retrieval.query_expansion": abl.query_expansion_enabled if abl else False,
-            "ema.retrieval.topic_filter": abl.topic_filter_mode or "none" if abl else "none",
             "ema.crag.max_cycles": self._max_cycles,
+            **retriever_attributes(self._retriever),
         }
 
     @step
@@ -274,12 +249,7 @@ class CRAGReviewWorkflow(Workflow):
             question = ev.question
             few_shot_context = ev.few_shot_context
             rewrite_cycles = ev.rewrite_cycles
-        results = (
-            self._retrieve_fn(question)
-            if self._retrieve_fn is not None
-            else retrieve_with_config(self._config, self._index, question)
-        )
-        docs = results_to_docs(results, self._index)
+        docs = nodes_from_retrieval(await self._retriever.aretrieve(question))
         return RetrievedEvent(
             question=question, few_shot_context=few_shot_context,
             docs=docs, rewrite_cycles=rewrite_cycles,
@@ -359,10 +329,8 @@ class ReactReviewWorkflow(Workflow):
     def __init__(
         self,
         *,
-        index: Any,
+        retriever: Any,
         llm: Any,
-        retrieval_config: RetrievalConfig | None = None,
-        retrieve_fn: Any | None = None,
         review_threshold: float = 0.6,
         max_iterations: int = 10,
         **kwargs: Any,
@@ -370,27 +338,18 @@ class ReactReviewWorkflow(Workflow):
         super().__init__(**kwargs)
         from harness.workflows.react_native import build_react_native
         self._react = build_react_native(
-            index=index,
+            retriever=retriever,
             llm=llm,
-            retrieval_config=retrieval_config,
-            retrieve_fn=retrieve_fn,
             max_iterations=max_iterations,
         )
         self._review_threshold = review_threshold
-        self._config = retrieval_config or RetrievalConfig()
-        self._retrieve_fn = retrieve_fn
+        self._retriever = retriever
 
     def config_attributes(self) -> dict:
-        abl = getattr(self._retrieve_fn, "ablation_config", None)
         return {
             "ema.orchestration.strategy": "react_review",
             "ema.orchestration.prompt_strategy": "react_native",
-            "ema.retrieval.strategy": self._config.strategy,
-            "ema.retrieval.mode": self._config.mode,
-            "ema.retrieval.k": self._config.k,
-            "ema.retrieval.reranker": abl.reranker or "none" if abl else "none",
-            "ema.retrieval.query_expansion": abl.query_expansion_enabled if abl else False,
-            "ema.retrieval.topic_filter": abl.topic_filter_mode or "none" if abl else "none",
+            **retriever_attributes(self._retriever),
         }
 
     @step
@@ -422,31 +381,25 @@ class ReactReviewWorkflow(Workflow):
 
 def build_crag_summarize(
     *,
-    index: Any,
+    retriever: Any,
     llm: Any,
     prompt_strategy: str = "zero_shot",
-    retrieval_config: RetrievalConfig | None = None,
-    retrieve_fn: Any | None = None,
 ) -> WorkflowRunner:
     wf = CRAGSummarizeWorkflow(
-        index=index, llm=llm, prompt_strategy=prompt_strategy,
-        retrieval_config=retrieval_config, retrieve_fn=retrieve_fn, timeout=300,
+        retriever=retriever, llm=llm, prompt_strategy=prompt_strategy, timeout=300,
     )
     return WorkflowRunner(wf)
 
 
 def build_crag_review(
     *,
-    index: Any,
+    retriever: Any,
     llm: Any,
     prompt_strategy: str = "zero_shot",
-    retrieval_config: RetrievalConfig | None = None,
-    retrieve_fn: Any | None = None,
     review_threshold: float = 0.6,
 ) -> WorkflowRunner:
     wf = CRAGReviewWorkflow(
-        index=index, llm=llm, prompt_strategy=prompt_strategy,
-        retrieval_config=retrieval_config, retrieve_fn=retrieve_fn,
+        retriever=retriever, llm=llm, prompt_strategy=prompt_strategy,
         review_threshold=review_threshold,
         timeout=300,
     )
@@ -455,15 +408,12 @@ def build_crag_review(
 
 def build_react_review(
     *,
-    index: Any,
+    retriever: Any,
     llm: Any,
-    retrieval_config: RetrievalConfig | None = None,
-    retrieve_fn: Any | None = None,
     review_threshold: float = 0.6,
 ) -> WorkflowRunner:
     wf = ReactReviewWorkflow(
-        index=index, llm=llm,
-        retrieval_config=retrieval_config, retrieve_fn=retrieve_fn,
+        retriever=retriever, llm=llm,
         review_threshold=review_threshold,
         timeout=300,
     )

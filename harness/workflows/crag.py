@@ -50,7 +50,6 @@ from typing import Any
 from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.core.workflow import Context, Event, StartEvent, StopEvent, Workflow, step
 
-from harness.retrieve import RetrievalConfig, retrieve_with_config
 from harness.workflows.events import GradeEvent, InsufficientEvent, RetrievedEvent
 from harness.workflows.utils import (
     WorkflowRunner,
@@ -58,7 +57,8 @@ from harness.workflows.utils import (
     extract_answer,
     format_docs,
     load_system_prompt,
-    results_to_docs,
+    nodes_from_retrieval,
+    retriever_attributes,
 )
 
 log = logging.getLogger(__name__)
@@ -133,45 +133,34 @@ class CRAGWorkflow(Workflow):
     Corrective RAG: retrieve → grade ⇄ rewrite → generate.
 
     Args:
-        index:            LlamaIndex VectorStoreIndex.
+        retriever:        LlamaIndex BaseRetriever (HierarchicalPGRetriever).
         llm:              LlamaIndex LLM.
         prompt_strategy:  Answer generation strategy.
-        retrieval_config: RetrievalConfig (defaults to flat hybrid k=10).
         max_cycles:       Max retrieve-rewrite cycles (default MAX_CYCLES=2).
     """
 
     def __init__(
         self,
         *,
-        index: Any,
+        retriever: Any,
         llm: Any,
         prompt_strategy: str = "zero_shot",
-        retrieval_config: RetrievalConfig | None = None,
-        retrieve_fn: Any | None = None,
         max_cycles: int = MAX_CYCLES,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        self._index = index
+        self._retriever = retriever
         self._llm = llm
         self._prompt_strategy = prompt_strategy
-        self._config = retrieval_config or RetrievalConfig()
-        self._retrieve_fn = retrieve_fn
         self._max_cycles = max_cycles
         self._system_prompt = load_system_prompt(prompt_strategy)
 
     def config_attributes(self) -> dict:
-        abl = getattr(self._retrieve_fn, "ablation_config", None)
         return {
             "ema.orchestration.strategy": "crag",
             "ema.orchestration.prompt_strategy": self._prompt_strategy,
-            "ema.retrieval.strategy": self._config.strategy,
-            "ema.retrieval.mode": self._config.mode,
-            "ema.retrieval.k": self._config.k,
-            "ema.retrieval.reranker": abl.reranker or "none" if abl else "none",
-            "ema.retrieval.query_expansion": abl.query_expansion_enabled if abl else False,
-            "ema.retrieval.topic_filter": abl.topic_filter_mode or "none" if abl else "none",
             "ema.crag.max_cycles": self._max_cycles,
+            **retriever_attributes(self._retriever),
         }
 
     # ------------------------------------------------------------------
@@ -191,12 +180,7 @@ class CRAGWorkflow(Workflow):
             few_shot_context = ev.few_shot_context
             rewrite_cycles = ev.rewrite_cycles
 
-        results = (
-            self._retrieve_fn(question)
-            if self._retrieve_fn is not None
-            else retrieve_with_config(self._config, self._index, question)
-        )
-        docs = results_to_docs(results, self._index)
+        docs = nodes_from_retrieval(await self._retriever.aretrieve(question))
 
         return RetrievedEvent(
             question=question,
@@ -318,19 +302,15 @@ class CRAGWorkflow(Workflow):
 
 def build_crag(
     *,
-    index: Any,
+    retriever: Any,
     llm: Any,
     prompt_strategy: str = "zero_shot",
-    retrieval_config: RetrievalConfig | None = None,
-    retrieve_fn: Any | None = None,
 ) -> WorkflowRunner:
     """Factory function matching the registry interface."""
     wf = CRAGWorkflow(
-        index=index,
+        retriever=retriever,
         llm=llm,
         prompt_strategy=prompt_strategy,
-        retrieval_config=retrieval_config,
-        retrieve_fn=retrieve_fn,
         timeout=300,
     )
     return WorkflowRunner(wf)

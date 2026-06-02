@@ -4,7 +4,7 @@
   "branch": "refactor/llamaindex-retrieval-pipeline",
   "checkpoint_commit": "5c3c8a8",
   "archive_branch": "archive/pre-llamaindex-refactor",
-  "current_task": null,
+  "current_task": "LIR-011",
   "principles": [
     "YAGNI: ONE index kind (hierarchical Neo4j PropertyGraphIndex) + an extensible registry seam; no flat/FAISS index",
     "Hierarchical chunk nodes (parent/child) are the default per user direction; small-to-big retrieval",
@@ -13,10 +13,10 @@
     "Documentation/history cleanup is a first-class deliverable"
   ],
   "verified_couplings": {
-    "judge.py": "KEEP — harness/workflows/review.py imports harness.judge.Judge for chat-time faithfulness (crag_review/react_review)",
-    "rating.py": "KEEP — app.py imports it for 👍/👎 Phoenix annotation",
-    "label_session.py": "REMOVE — HITL tool over benchmark.jsonl; imports run_eval config helpers",
-    "run_eval.py + eval_retrieval.py": "REMOVE — coupled to the retrieval API being deleted"
+    "judge.py": "KEEP \u2014 harness/workflows/review.py imports harness.judge.Judge for chat-time faithfulness (crag_review/react_review)",
+    "rating.py": "KEEP \u2014 app.py imports it for \ud83d\udc4d/\ud83d\udc4e Phoenix annotation",
+    "label_session.py": "REMOVE \u2014 HITL tool over benchmark.jsonl; imports run_eval config helpers",
+    "run_eval.py + eval_retrieval.py": "REMOVE \u2014 coupled to the retrieval API being deleted"
   },
   "tasks": [
     {
@@ -33,7 +33,7 @@
         "Deleted eval configs: harness/configs/{ablation_*,baseline_*,workflow_*,diag_*,example_chmp_only,retrieval_recursive}.yaml",
         "Deleted tests for the removed modules; tests/test_judge.py kept (judge.py stays)",
         "KEPT: harness/judge.py + harness/judges/ (review workflow), harness/rating.py (app.py), query_cache.py, fewshot_inject.py, models.yaml, parser_preference.yaml",
-        "KEPT: curated data — benchmark/ (benchmark.jsonl, SCHEMA.md, validate_benchmark.py, candidates), corpus/corpus.jsonl",
+        "KEPT: curated data \u2014 benchmark/ (benchmark.jsonl, SCHEMA.md, validate_benchmark.py, candidates), corpus/corpus.jsonl",
         "No dangling imports in kept code (app.py + workflows import-clean); ruff + import check pass",
         "Everything removed is present on archive/pre-llamaindex-refactor (already created at 5c3c8a8)"
       ]
@@ -61,7 +61,7 @@
       "title": "Index/retriever registries + EMA_INDEX_PROFILE loader + profile schema",
       "type": "foundation",
       "status": "completed",
-      "notes": "harness/indexing/{profiles,registry,__init__}.py — dataclass profile schema (index/retrieval/scope/chunking), load_index_profile() resolving explicit>EMA_INDEX_PROFILE>default, INDEX_REGISTRY/RETRIEVER_REGISTRY with @register decorators + build_index/build_retriever dispatch (NotImplementedError until LIR-007/008). Profile harness/configs/index/neo4j_hier.yaml. 16 unit tests pass; ruff clean.",
+      "notes": "harness/indexing/{profiles,registry,__init__}.py \u2014 dataclass profile schema (index/retrieval/scope/chunking), load_index_profile() resolving explicit>EMA_INDEX_PROFILE>default, INDEX_REGISTRY/RETRIEVER_REGISTRY with @register decorators + build_index/build_retriever dispatch (NotImplementedError until LIR-007/008). Profile harness/configs/index/neo4j_hier.yaml. 16 unit tests pass; ruff clean.",
       "dependencies": [],
       "priority": "high",
       "estimated_hours": 4,
@@ -95,8 +95,10 @@
       "title": "Link extractor -> links-to edges from parsed_documents/html_raw",
       "type": "feature",
       "status": "completed",
-      "notes": "harness/indexing/links.py: extract_links(html, base_url) -> [ExtractedLink(tgt_url, anchor, kind)] where kind in file|page|external; resolves relative URLs (urljoin), strips fragments, skips mailto/tel/javascript/#/self-ref, dedups; tgt_doc_id=sha256(tgt_url). 6 unit tests pass; ruff clean. (This is the extractor MIGR-018..025 documented but never shipped — work unit 19.)",
-      "dependencies": ["LIR-003"],
+      "notes": "harness/indexing/links.py: extract_links(html, base_url) -> [ExtractedLink(tgt_url, anchor, kind)] where kind in file|page|external; resolves relative URLs (urljoin), strips fragments, skips mailto/tel/javascript/#/self-ref, dedups; tgt_doc_id=sha256(tgt_url). 6 unit tests pass; ruff clean. (This is the extractor MIGR-018..025 documented but never shipped \u2014 work unit 19.)",
+      "dependencies": [
+        "LIR-003"
+      ],
       "priority": "high",
       "estimated_hours": 3,
       "acceptance_criteria": [
@@ -112,7 +114,11 @@
       "type": "integration",
       "status": "completed",
       "notes": "harness/indexing/ingest.py: ingest(profile) reads parsed_documents (error=''), dedups one row/url, derives metadata via url_metadata/text_metadata, chunks (hierarchical), extracts links_to from web_items.html_raw for HTML docs; returns list[IngestedDoc(doc_id,source_url,source_type,title,metadata,chunk_nodes,links)]. Subset scope: topic_prefix+limit (URL-level), committee (post-derivation). 5 mongomock tests pass (dedup/skip/metadata/links/limit/committee); full indexing suite 34 tests green; ruff clean. Also hardened chunking.py: Document excluded_*_metadata_keys so the splitter ignores provenance metadata. mongomock installed in conda base.",
-      "dependencies": ["LIR-003", "LIR-004", "LIR-005"],
+      "dependencies": [
+        "LIR-003",
+        "LIR-004",
+        "LIR-005"
+      ],
       "priority": "high",
       "estimated_hours": 4,
       "acceptance_criteria": [
@@ -127,12 +133,15 @@
       "title": "Build hierarchical Neo4j PropertyGraphIndex (persist + vector index, idempotent)",
       "type": "integration",
       "status": "completed",
-      "result": "harness/indexing/property_graph.py: to_graph() maps IngestedDoc IR -> EntityNode(Document) + ChunkNode + Relation(HAS_CHUNK/PARENT_OF/LINKS_TO); build_property_graph_index embeds chunks (bge-large) + upserts to Neo4j + creates a dedicated Chunk vector index (ema_chunk_embedding, 1024-d cosine); from_existing uses MockLLM (no OpenAI). VERIFIED LIVE on Neo4j (7688) with an 8-doc/49-chunk slice: build OK, retrieval returns relevant chunks with scores + source_url. 2 to_graph unit tests; full indexing suite 36 tests pass; ruff clean. NOTE: full 40-doc build deferred — CPU embed ~0.7s/chunk => ~17 min for 1462 chunks (run build_index(reset=True) in background, or on GPU).",
-      "blocker_resolved": "Chose (a): scripts/backfill_parsed_documents_subset.py populated 40 parsed_documents (12 HTML via trafilatura + 28 linked PDFs copied from parsed_pdfs) into the live native mongod (:27017). Coherent subset (HTML pages chosen by their resolvable PDF links) so links_to lands in-subset. Remaining for LIR-007: write harness/indexing/property_graph.py (build the PropertyGraphIndex over Neo4j from the ingest IR — entity+chunk nodes + has_chunk/parent-child/links_to + leaf-chunk embeddings + Neo4j vector index), download bge-large, run the 40-doc build, verify the graph. Coupled to the LIR-008 small-to-big retriever spike.",
+      "result": "harness/indexing/property_graph.py: to_graph() maps IngestedDoc IR -> EntityNode(Document) + ChunkNode + Relation(HAS_CHUNK/PARENT_OF/LINKS_TO); build_property_graph_index embeds chunks (bge-large) + upserts to Neo4j + creates a dedicated Chunk vector index (ema_chunk_embedding, 1024-d cosine); from_existing uses MockLLM (no OpenAI). VERIFIED LIVE on Neo4j (7688) with an 8-doc/49-chunk slice: build OK, retrieval returns relevant chunks with scores + source_url. 2 to_graph unit tests; full indexing suite 36 tests pass; ruff clean. NOTE: full 40-doc build deferred \u2014 CPU embed ~0.7s/chunk => ~17 min for 1462 chunks (run build_index(reset=True) in background, or on GPU).",
+      "blocker_resolved": "Chose (a): scripts/backfill_parsed_documents_subset.py populated 40 parsed_documents (12 HTML via trafilatura + 28 linked PDFs copied from parsed_pdfs) into the live native mongod (:27017). Coherent subset (HTML pages chosen by their resolvable PDF links) so links_to lands in-subset. Remaining for LIR-007: write harness/indexing/property_graph.py (build the PropertyGraphIndex over Neo4j from the ingest IR \u2014 entity+chunk nodes + has_chunk/parent-child/links_to + leaf-chunk embeddings + Neo4j vector index), download bge-large, run the 40-doc build, verify the graph. Coupled to the LIR-008 small-to-big retriever spike.",
       "note_data": "parsed_documents/link_graph were absent on this host; backfilled a 40-doc verify subset. Native mongod active => pinned container stays off (corruption guard).",
       "defect_spun_out_2026-06-02": "LIR-007's build embeds ALL hierarchical chunk levels, not just leaves (missing is_leaf filter in property_graph._embed_pass). Live graph: 269,112/1,285,159 chunks are non-leaf and ALL embedded. The splitter (HierarchicalNodeParser) is correct; the bug is ours. Investigation + fix plan: work unit 2026-06-02_21_leaf-only-embedding (LOE-001..004). Affects retrieval quality (mixed-granularity vector index breaks small-to-big) + ~21% wasted embed compute. Fix is independent of the EPAR-scope question.",
-      "full_build_2026-06-02": "Full-corpus GPU build LAUNCHED. parsed_documents now holds 80,083 clean docs in the mongo:8.0.4 container (:27017) — native mongod is down, container is the live source. Added harness/indexing/build.py CLI + batched/resumable streaming build in property_graph.py (flush every --flush-chunks, resume skips docs with >=1 chunk) + a GPU throttle (--pause-every-docs/--pause-seconds: flush then sleep, crash-safe). nvidia driver reinstalled, power capped 250W; the 60s/1000-doc pause mitigates the GSP-wedge-under-sustained-load failure (root cause UNCONFIRMED, NOT kernel-specific — user saw the same crash on Ubuntu 24.04). Resume cmd: HF_HUB_OFFLINE=1 .venv/bin/python -m harness.indexing.build --full --embed-device cuda --pause-every-docs 1000 --pause-seconds 60. Neo4j had 300 docs built pre-launch; run skips those. Verified throttle live (49-doc/166-chunk slice, pause fired). Log: logs/build_full_*.log.",
-      "dependencies": ["LIR-002", "LIR-006"],
+      "full_build_2026-06-02": "Full-corpus GPU build LAUNCHED. parsed_documents now holds 80,083 clean docs in the mongo:8.0.4 container (:27017) \u2014 native mongod is down, container is the live source. Added harness/indexing/build.py CLI + batched/resumable streaming build in property_graph.py (flush every --flush-chunks, resume skips docs with >=1 chunk) + a GPU throttle (--pause-every-docs/--pause-seconds: flush then sleep, crash-safe). nvidia driver reinstalled, power capped 250W; the 60s/1000-doc pause mitigates the GSP-wedge-under-sustained-load failure (root cause UNCONFIRMED, NOT kernel-specific \u2014 user saw the same crash on Ubuntu 24.04). Resume cmd: HF_HUB_OFFLINE=1 .venv/bin/python -m harness.indexing.build --full --embed-device cuda --pause-every-docs 1000 --pause-seconds 60. Neo4j had 300 docs built pre-launch; run skips those. Verified throttle live (49-doc/166-chunk slice, pause fired). Log: logs/build_full_*.log.",
+      "dependencies": [
+        "LIR-002",
+        "LIR-006"
+      ],
       "priority": "high",
       "estimated_hours": 4,
       "acceptance_criteria": [
@@ -147,12 +156,15 @@
       "title": "Hierarchical retriever (small-to-big merge + links-to traversal) + default profile",
       "type": "feature",
       "status": "completed",
-      "spike_outcome": "Small-to-big does NOT need AutoMergingRetriever. The default VectorContextRetriever searches Neo4j's `entity` index (__Entity__ nodes only) — useless for our chunk-centric model. Resolved with a custom HierarchicalPGRetriever(BaseRetriever): embeds the query, runs db.index.vector.queryNodes over the dedicated Chunk vector index, then in ONE Cypher expands HAS_CHUNK (-> source_url/doc_id) + PARENT_OF (-> parent text) and returns the parent chunk when merge=True (small-to-big), deduped. Verified live: relevant hits + provenance for 2 queries. Default profile neo4j_hier wired.",
-      "dependencies": ["LIR-003", "LIR-007"],
+      "spike_outcome": "Small-to-big does NOT need AutoMergingRetriever. The default VectorContextRetriever searches Neo4j's `entity` index (__Entity__ nodes only) \u2014 useless for our chunk-centric model. Resolved with a custom HierarchicalPGRetriever(BaseRetriever): embeds the query, runs db.index.vector.queryNodes over the dedicated Chunk vector index, then in ONE Cypher expands HAS_CHUNK (-> source_url/doc_id) + PARENT_OF (-> parent text) and returns the parent chunk when merge=True (small-to-big), deduped. Verified live: relevant hits + provenance for 2 queries. Default profile neo4j_hier wired.",
+      "dependencies": [
+        "LIR-003",
+        "LIR-007"
+      ],
       "priority": "high",
       "estimated_hours": 4,
       "acceptance_criteria": [
-        "SPIKE FIRST (timeboxed): determine how small-to-big merge composes with PropertyGraphIndex/Neo4j — native AutoMergingRetriever (needs parents in a docstore) vs a custom parent-merge over PG-retriever results via parent/child edges. Record the choice in the work unit.",
+        "SPIKE FIRST (timeboxed): determine how small-to-big merge composes with PropertyGraphIndex/Neo4j \u2014 native AutoMergingRetriever (needs parents in a docstore) vs a custom parent-merge over PG-retriever results via parent/child edges. Record the choice in the work unit.",
         "RETRIEVER_REGISTRY['property_graph'] returns a LlamaIndex BaseRetriever: vector search on leaf chunks -> merge up via parent/child -> 1-hop links-to expansion",
         "harness/configs/index/neo4j_hier.yaml is the working default profile",
         "Retriever returns NodeWithScore with full metadata; smoke test on the subset shows merged parent context (not scattered leaves)"
@@ -162,8 +174,10 @@
       "id": "LIR-009",
       "title": "Re-seam workflows to a LlamaIndex retriever; metadata-based citations",
       "type": "integration",
-      "status": "pending",
-      "dependencies": ["LIR-008"],
+      "status": "completed",
+      "dependencies": [
+        "LIR-008"
+      ],
       "priority": "high",
       "estimated_hours": 3,
       "acceptance_criteria": [
@@ -171,14 +185,17 @@
         "Tuple retrieve_fn path and the dual 'index' parameter removed from the workflow seam",
         "Citations derived from node metadata (doc_id/source_url/chunk), replacing cited_qa_ids",
         "Each kept workflow runs end-to-end on the subset retriever; review workflow's judge call still works"
-      ]
+      ],
+      "notes": "DONE (offline-validated). Re-seamed all workflows to consume a LlamaIndex BaseRetriever: get_workflow(retriever=...), each strategy calls retriever.aretrieve() -> nodes_from_retrieval(); dropped the dual index/retrieve_fn/RetrievalConfig path + ablation_config span attrs (utils.retriever_attributes instead). format_docs + citations key on node metadata (source_url/doc_id) not qa_id. ReAct toolset reduced to ema_search + filter_by_topic (FAISS-backed follow_cross_refs/get_qa_by_id removed). 29 workflow tests rewritten to a fake retriever + green; 427-test collection clean; ruff clean. review/judge chain intact. Live end-to-end verification is LIR-011 (post-build)."
     },
     {
       "id": "LIR-010",
       "title": "Chat UI seam: factories + EMA_INDEX_PROFILE + citation rendering",
       "type": "integration",
-      "status": "pending",
-      "dependencies": ["LIR-009"],
+      "status": "completed",
+      "dependencies": [
+        "LIR-009"
+      ],
       "priority": "high",
       "estimated_hours": 4,
       "acceptance_criteria": [
@@ -186,14 +203,17 @@
         "Source cards render narrative chunks (the Q:/A: parsing at app.py:532 removed/generalized)",
         "Answer + sources + citations display correctly for narrative chunks",
         "Workflow profile selection + settings panel still work"
-      ]
+      ],
+      "notes": "DONE (code; live UI verify deferred to LIR-011). app.py: removed EMA_RETRIEVER switch; _load_index_sync opens the Neo4j PropertyGraphIndex via EMA_INDEX_PROFILE (open_index) + configure_embed_model; _build_session_workflow builds the retriever (build_retriever) and calls get_workflow(retriever=...); source cards render narrative-chunk snippets (Q:/A: parsing removed); cache citations key on source_url. Syntax+imports resolve, ruff clean, no old-stack refs. Cannot import app.py in .venv (chainlit not installed there \u2014 pre-existing) so live UI is verified in LIR-011."
     },
     {
       "id": "LIR-011",
       "title": "Verify tracing + feedback on the subset",
       "type": "testing",
       "status": "pending",
-      "dependencies": ["LIR-010"],
+      "dependencies": [
+        "LIR-010"
+      ],
       "priority": "medium",
       "estimated_hours": 2,
       "acceptance_criteria": [
@@ -208,7 +228,9 @@
       "title": "Delete the dead retrieval/PG/FAISS stack",
       "type": "cleanup",
       "status": "pending",
-      "dependencies": ["LIR-010"],
+      "dependencies": [
+        "LIR-010"
+      ],
       "priority": "medium",
       "estimated_hours": 3,
       "acceptance_criteria": [
@@ -223,7 +245,9 @@
       "type": "documentation",
       "status": "completed",
       "notes": "Pulled forward at user request. Deleted docs/RETRIEVAL_PG.md + docs/RETRIEVAL_PIPELINE.md; wrote new docs/RETRIEVAL.md (mermaid data/process/node-model + sequence flows). Rewrote docs/ARCHITECTURE.md (Neo4j data flow + mermaid). Updated CLAUDE.md (data sources, key decisions, commands, phase), DECISIONS.md (new Neo4j decision + SUPERSEDED banners on pgvector/FAISS/three-layer/link-graph; strong NEVER-BUILT correction on MIGR-018..025), README.md, docs/SETUP.md (NEO4J_* env, legacy FAISS note), docs/ONBOARDING.md (post-refactor banner), HARNESS_REFACTORS.md, deploy/postgres/README.md (obsolete banner), project_roadmap/ROADMAP.md (Neo4j revision banner). Fixed all broken links to the deleted docs. Docs honestly flag refactor-in-progress (LIR-009..012 pending) throughout; a final banner-removal pass is due once those land.",
-      "dependencies": ["LIR-012"],
+      "dependencies": [
+        "LIR-012"
+      ],
       "priority": "medium",
       "estimated_hours": 3,
       "acceptance_criteria": [
@@ -239,8 +263,10 @@
       "title": "Clean HISTORY.md + memory review",
       "type": "documentation",
       "status": "in_progress",
-      "notes": "HISTORY.md: added a Corrections callout flagging the false 2026-05-28 MIGR-018..025 link-graph row (never shipped) + the superseded pgvector/EMA_RETRIEVER rows. Pending: review the auto-loaded memory files (project_refactoring_plan.md REFACT-*, project_langgraph_status.md) — defer pruning until user confirmation per the plan.",
-      "dependencies": ["LIR-013"],
+      "notes": "HISTORY.md: added a Corrections callout flagging the false 2026-05-28 MIGR-018..025 link-graph row (never shipped) + the superseded pgvector/EMA_RETRIEVER rows. Pending: review the auto-loaded memory files (project_refactoring_plan.md REFACT-*, project_langgraph_status.md) \u2014 defer pruning until user confirmation per the plan.",
+      "dependencies": [
+        "LIR-013"
+      ],
       "priority": "medium",
       "estimated_hours": 2,
       "acceptance_criteria": [
@@ -251,6 +277,20 @@
       ]
     }
   ],
-  "completed_tasks": ["LIR-001", "LIR-002", "LIR-003", "LIR-004", "LIR-005", "LIR-006", "LIR-007", "LIR-008", "LIR-013"],
-  "next_available": ["LIR-009"]
+  "completed_tasks": [
+    "LIR-001",
+    "LIR-002",
+    "LIR-003",
+    "LIR-004",
+    "LIR-005",
+    "LIR-006",
+    "LIR-007",
+    "LIR-008",
+    "LIR-009",
+    "LIR-010",
+    "LIR-013"
+  ],
+  "next_available": [
+    "LIR-009"
+  ]
 }

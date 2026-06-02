@@ -24,16 +24,19 @@ Usage::
 
     from harness.workflows.registry import get_workflow, list_workflows
     from harness.llms import get_llm
-    from harness.embed import build_index
+    from harness.indexing import load_index_profile
+    from harness.indexing.property_graph import open_index
+    from harness.indexing.registry import build_retriever
 
-    index = build_index(corpus_path, index_dir)
-    llm   = get_llm("frontier")
+    profile   = load_index_profile()              # EMA_INDEX_PROFILE -> neo4j_hier
+    retriever = build_retriever(profile, open_index(profile))
+    llm       = get_llm("frontier")
 
-    runner = get_workflow("crag_review", index=index, llm=llm)
+    runner = get_workflow("crag_review", retriever=retriever, llm=llm)
     result = runner.invoke({"question": "What is the AI for NDMA?"})
 
     # With explicit prompt strategy:
-    runner = get_workflow("simple_rag", index=index, llm=llm, prompt_strategy="cot_self")
+    runner = get_workflow("simple_rag", retriever=retriever, llm=llm, prompt_strategy="cot_self")
 
     print(list_workflows())
 
@@ -47,9 +50,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from harness.retrieve import RetrievalConfig
-
-# Builder signature: (index, llm, **kwargs) → WorkflowRunner-compatible object
+# Builder signature: (retriever, llm, **kwargs) → WorkflowRunner-compatible object
 WorkflowBuilder = Any
 
 
@@ -57,39 +58,39 @@ WorkflowBuilder = Any
 # Builder functions
 # ---------------------------------------------------------------------------
 
-def _build_simple_rag(index: Any, llm: Any, **kw: Any) -> Any:
+def _build_simple_rag(retriever: Any, llm: Any, **kw: Any) -> Any:
     from harness.workflows.simple_rag import build_simple_rag
-    return build_simple_rag(index=index, llm=llm, **kw)
+    return build_simple_rag(retriever=retriever, llm=llm, **kw)
 
 
-def _build_react(index: Any, llm: Any, **kw: Any) -> Any:
+def _build_react(retriever: Any, llm: Any, **kw: Any) -> Any:
     from harness.workflows.react_native import build_react_native
-    return build_react_native(index=index, llm=llm, **kw)
+    return build_react_native(retriever=retriever, llm=llm, **kw)
 
 
-def _build_crag(index: Any, llm: Any, **kw: Any) -> Any:
+def _build_crag(retriever: Any, llm: Any, **kw: Any) -> Any:
     from harness.workflows.crag import build_crag
-    return build_crag(index=index, llm=llm, **kw)
+    return build_crag(retriever=retriever, llm=llm, **kw)
 
 
-def _build_summarize_rag(index: Any, llm: Any, **kw: Any) -> Any:
+def _build_summarize_rag(retriever: Any, llm: Any, **kw: Any) -> Any:
     from harness.workflows.summarize_rag import build_summarize_rag
-    return build_summarize_rag(index=index, llm=llm, **kw)
+    return build_summarize_rag(retriever=retriever, llm=llm, **kw)
 
 
-def _build_crag_summarize(index: Any, llm: Any, **kw: Any) -> Any:
+def _build_crag_summarize(retriever: Any, llm: Any, **kw: Any) -> Any:
     from harness.workflows.composites import build_crag_summarize
-    return build_crag_summarize(index=index, llm=llm, **kw)
+    return build_crag_summarize(retriever=retriever, llm=llm, **kw)
 
 
-def _build_crag_review(index: Any, llm: Any, **kw: Any) -> Any:
+def _build_crag_review(retriever: Any, llm: Any, **kw: Any) -> Any:
     from harness.workflows.composites import build_crag_review
-    return build_crag_review(index=index, llm=llm, **kw)
+    return build_crag_review(retriever=retriever, llm=llm, **kw)
 
 
-def _build_react_review(index: Any, llm: Any, **kw: Any) -> Any:
+def _build_react_review(retriever: Any, llm: Any, **kw: Any) -> Any:
     from harness.workflows.composites import build_react_review
-    return build_react_review(index=index, llm=llm, **kw)
+    return build_react_review(retriever=retriever, llm=llm, **kw)
 
 
 # ---------------------------------------------------------------------------
@@ -110,11 +111,9 @@ WORKFLOW_REGISTRY: dict[str, WorkflowBuilder] = {
 def get_workflow(
     name: str,
     *,
-    index: Any,
+    retriever: Any,
     llm: Any | None = None,
-    retrieval_config: RetrievalConfig | None = None,
     prompt_strategy: str | None = None,
-    retrieve_fn: Any | None = None,
     **kwargs: Any,
 ) -> Any:
     """
@@ -126,15 +125,11 @@ def get_workflow(
 
     Args:
         name:             Strategy name (key in WORKFLOW_REGISTRY).
-        index:            LlamaIndex VectorStoreIndex.
+        retriever:        LlamaIndex BaseRetriever (e.g. HierarchicalPGRetriever)
+                          built via harness.indexing.registry.build_retriever().
         llm:              Pre-built LlamaIndex LLM; auto-built from 'agent' role if None.
-        retrieval_config: Override retrieval settings.
         prompt_strategy:  Prompt variant ("zero_shot" | "few_shot" | "cot_self").
                           Passed to builders that support it (simple_rag, crag, etc.).
-        retrieve_fn:      Pre-built retrieval callable from build_retrieve_fn().
-                          When provided, workflows use it instead of building one from
-                          retrieval_config alone.  The callable must have a
-                          .ablation_config attribute for span stamping.
         **kwargs:         Passed to the builder.
 
     Raises:
@@ -150,16 +145,10 @@ def get_workflow(
         from harness.llms import get_llm
         llm = get_llm("agent")
 
-    if retrieval_config is not None:
-        kwargs.setdefault("retrieval_config", retrieval_config)
-
     if prompt_strategy is not None:
         kwargs.setdefault("prompt_strategy", prompt_strategy)
 
-    if retrieve_fn is not None:
-        kwargs.setdefault("retrieve_fn", retrieve_fn)
-
-    return WORKFLOW_REGISTRY[name](index, llm, **kwargs)
+    return WORKFLOW_REGISTRY[name](retriever, llm, **kwargs)
 
 
 def list_workflows() -> list[str]:

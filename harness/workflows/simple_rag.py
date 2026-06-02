@@ -14,12 +14,14 @@ Usage::
     from harness.workflows.simple_rag import SimpleRAGWorkflow
     from harness.workflows.utils import WorkflowRunner
     from harness.llms import get_llm
-    from harness.embed import build_index
-    from harness.retrieve import RetrievalConfig
+    from harness.indexing import load_index_profile
+    from harness.indexing.property_graph import open_index
+    from harness.indexing.registry import build_retriever
 
-    index = build_index(corpus_path, index_dir)
-    llm   = get_llm("frontier")
-    wf    = WorkflowRunner(SimpleRAGWorkflow(index=index, llm=llm, strategy="cot_self"))
+    profile   = load_index_profile()
+    retriever = build_retriever(profile, open_index(profile))
+    llm       = get_llm("frontier")
+    wf    = WorkflowRunner(SimpleRAGWorkflow(retriever=retriever, llm=llm, prompt_strategy="cot_self"))
     result = wf.invoke({"question": "What is the AI for NDMA?"})
 """
 
@@ -30,14 +32,14 @@ from typing import Any
 
 from llama_index.core.workflow import Context, StartEvent, StopEvent, Workflow, step
 
-from harness.retrieve import RetrievalConfig, retrieve_with_config
 from harness.workflows.utils import (
     WorkflowRunner,
     build_rag_messages,
     extract_answer,
     format_docs,
     load_system_prompt,
-    results_to_docs,
+    nodes_from_retrieval,
+    retriever_attributes,
 )
 
 log = logging.getLogger(__name__)
@@ -50,43 +52,32 @@ class SimpleRAGWorkflow(Workflow):
     Single-step RAG: retrieve → generate.
 
     Args:
-        index:            LlamaIndex VectorStoreIndex.
+        retriever:        LlamaIndex BaseRetriever (HierarchicalPGRetriever).
         llm:              LlamaIndex LLM (from harness.llms.get_llm).
         prompt_strategy:  "zero_shot" | "few_shot" | "cot_self".
-        retrieval_config: RetrievalConfig (defaults to flat hybrid k=10).
     """
 
     def __init__(
         self,
         *,
-        index: Any,
+        retriever: Any,
         llm: Any,
         prompt_strategy: str = "zero_shot",
-        retrieval_config: RetrievalConfig | None = None,
-        retrieve_fn: Any | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         if prompt_strategy not in _VALID_STRATEGIES:
             raise ValueError(f"Unknown prompt_strategy {prompt_strategy!r}. Choose from: {_VALID_STRATEGIES}")
-        self._index = index
+        self._retriever = retriever
         self._llm = llm
         self._prompt_strategy = prompt_strategy
-        self._config = retrieval_config or RetrievalConfig()
-        self._retrieve_fn = retrieve_fn
         self._system_prompt = load_system_prompt(prompt_strategy)
 
     def config_attributes(self) -> dict:
-        abl = getattr(self._retrieve_fn, "ablation_config", None)
         return {
             "ema.orchestration.strategy": "simple_rag",
             "ema.orchestration.prompt_strategy": self._prompt_strategy,
-            "ema.retrieval.strategy": self._config.strategy,
-            "ema.retrieval.mode": self._config.mode,
-            "ema.retrieval.k": self._config.k,
-            "ema.retrieval.reranker": abl.reranker or "none" if abl else "none",
-            "ema.retrieval.query_expansion": abl.query_expansion_enabled if abl else False,
-            "ema.retrieval.topic_filter": abl.topic_filter_mode or "none" if abl else "none",
+            **retriever_attributes(self._retriever),
         }
 
     @step
@@ -94,12 +85,7 @@ class SimpleRAGWorkflow(Workflow):
         question: str = ev.get("question", "")
         few_shot_context: str = ev.get("few_shot_context", "")
 
-        results = (
-            self._retrieve_fn(question)
-            if self._retrieve_fn is not None
-            else retrieve_with_config(self._config, self._index, question)
-        )
-        docs = results_to_docs(results, self._index)
+        docs = nodes_from_retrieval(await self._retriever.aretrieve(question))
         context_str = format_docs(docs)
 
         messages = build_rag_messages(
@@ -118,19 +104,15 @@ class SimpleRAGWorkflow(Workflow):
 
 def build_simple_rag(
     *,
-    index: Any,
+    retriever: Any,
     llm: Any,
     prompt_strategy: str = "zero_shot",
-    retrieval_config: RetrievalConfig | None = None,
-    retrieve_fn: Any | None = None,
 ) -> WorkflowRunner:
     """Factory function matching the registry interface."""
     wf = SimpleRAGWorkflow(
-        index=index,
+        retriever=retriever,
         llm=llm,
         prompt_strategy=prompt_strategy,
-        retrieval_config=retrieval_config,
-        retrieve_fn=retrieve_fn,
         timeout=120,
     )
     return WorkflowRunner(wf)

@@ -34,11 +34,7 @@ load_dotenv(Path.home() / ".myenvs" / "ema_nlp.env", override=False)
 PHOENIX_URL = os.getenv("PHOENIX_URL", "http://localhost:6006")
 PHOENIX_DISABLED = os.getenv("PHOENIX_DISABLED", "").lower() in ("1", "true", "yes")
 WORKFLOW_STRATEGY = os.getenv("EMA_WORKFLOW_STRATEGY", "simple_rag")
-EMA_RETRIEVER = os.getenv("EMA_RETRIEVER", "pgvector").lower()
-if EMA_RETRIEVER not in ("faiss", "pgvector"):
-    raise ValueError(
-        f"EMA_RETRIEVER must be 'faiss' or 'pgvector', got {EMA_RETRIEVER!r}"
-    )
+EMA_INDEX_PROFILE = os.getenv("EMA_INDEX_PROFILE", "neo4j_hier")
 RETRIEVAL_K = 10
 SOURCES_SHOWN = 5
 
@@ -232,23 +228,17 @@ async def set_chat_profiles(user: cl.User | None) -> list[cl.ChatProfile]:
 # ── Index loading ─────────────────────────────────────────────────────────────
 
 def _load_index_sync():
-    # pgvector path doesn't need a FAISS index, but Settings.embed_model must
-    # still be configured here so _embed_query_sync (semantic cache) works
-    # before the first retrieval call lazy-configures it.
-    if EMA_RETRIEVER == "pgvector":
-        from harness.providers import configure_embed_model
-        configure_embed_model()
-        log.info("EMA_RETRIEVER=pgvector — skipping FAISS index load")
-        return None
+    # Open the existing Neo4j PropertyGraphIndex selected by EMA_INDEX_PROFILE
+    # (no rebuild / re-embed). configure_embed_model() also sets
+    # Settings.embed_model so _embed_query_sync (semantic cache) works.
+    from harness.indexing import load_index_profile
+    from harness.indexing.property_graph import open_index
+    from harness.providers import configure_embed_model
 
-    from harness.embed import DEFAULT_CORPUS as _DEFAULT_CORPUS
-    from harness.embed import DEFAULT_INDEX_DIR as _DEFAULT_IDX
-    from harness.embed import _configure_embed_model, build_index
-
-    corpus_path = Path(os.getenv("EMA_CORPUS_PATH", str(_DEFAULT_CORPUS)))
-    index_dir = Path(os.getenv("EMA_INDEX_PATH", str(_DEFAULT_IDX)))
-    _configure_embed_model()
-    return build_index(corpus_path=corpus_path, index_dir=index_dir)
+    configure_embed_model()
+    profile = load_index_profile(EMA_INDEX_PROFILE)
+    log.info("Loading index profile %s", profile.name)
+    return open_index(profile)
 
 
 def _embed_query_sync(query: str) -> np.ndarray | None:
@@ -270,26 +260,19 @@ def _build_session_workflow(
     temperature: float = 0.0,
     retrieval_k: int = RETRIEVAL_K,
 ) -> Any:
+    from harness.indexing import load_index_profile
+    from harness.indexing.registry import build_retriever
     from harness.llms import get_llm_for_model
-    from harness.retrieve import AblationConfig, RetrievalConfig, build_retrieve_fn
     from harness.workflows.registry import get_workflow
 
     llm = get_llm_for_model(model_name, temperature_override=temperature)
-    # Legacy RetrievalConfig kept for workflow config_attributes() compatibility;
-    # the pgvector retrieve_fn ignores it and consults RetrievalConfigPG instead.
-    cfg = RetrievalConfig(mode="hybrid", k=retrieval_k)
-
-    if EMA_RETRIEVER == "pgvector":
-        from harness.retrieve_pg import RetrievalConfigPG, build_retrieve_fn_pg
-        retrieve_fn = build_retrieve_fn_pg(
-            RetrievalConfigPG(mode="hybrid", k=retrieval_k)
-        )
-    else:
-        retrieve_fn = build_retrieve_fn(cfg, AblationConfig(), index)
+    profile = load_index_profile(EMA_INDEX_PROFILE)
+    if retrieval_k:
+        profile.retrieval.k = retrieval_k
+    retriever = build_retriever(profile, index)
 
     return get_workflow(
-        strategy, index=index, llm=llm, retrieval_config=cfg,
-        prompt_strategy=prompt_strategy, retrieve_fn=retrieve_fn,
+        strategy, retriever=retriever, llm=llm, prompt_strategy=prompt_strategy,
     )
 
 
@@ -528,14 +511,16 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
         score = meta.get("score", 0.0)
         topic = meta.get("topic_path", "")
         url = meta.get("source_url", "")
-        text = doc.text
-        q_part, _, _ = text.partition("\n\nA: ")
-        short_q = q_part.removeprefix("Q: ")[:120] + ("…" if len(q_part) > 120 else "")
+        # Narrative chunks (no Q:/A: structure) — show a collapsed snippet of the
+        # retrieved passage instead of parsing a question out of it.
+        snippet = " ".join((doc.text or "").split())
+        snippet = snippet[:240] + ("…" if len(snippet) > 240 else "")
         link = f"[{url}]({url})" if url else "_no URL_"
         card = (
-            f"**Q{msg_num}·{i}. {short_q}**\n\n"
+            f"**Q{msg_num}·{i}**\n\n"
             f"Score: `{score:.3f}` · Topic: `{topic or '—'}`\n\n"
-            f"Source: {link}"
+            f"Source: {link}\n\n"
+            f"{snippet}"
         )
         source_elements.append(cl.Text(name=f"Q{msg_num} · Src {i}", content=card, display="side"))
 
@@ -545,7 +530,13 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
 
     # ── Store in cache ────────────────────────────────────────────────────────
     if cache is not None and query_vec is not None and answer_text:
-        cited_ids = result.get("cited_qa_ids", [])
+        # Citations now key on retrieved-chunk source URLs (node metadata),
+        # replacing the old cited_qa_ids the FAISS/pgvector path produced.
+        cited_ids = [
+            d.metadata.get("source_url")
+            for d in docs[:SOURCES_SHOWN]
+            if d.metadata.get("source_url")
+        ]
         await asyncio.to_thread(
             cache.add_entry,
             run_id,
