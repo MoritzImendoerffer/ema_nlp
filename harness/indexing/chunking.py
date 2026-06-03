@@ -15,12 +15,15 @@ levels, with:
 from __future__ import annotations
 
 import hashlib
+import logging
 from typing import Any
 
 from llama_index.core.node_parser import HierarchicalNodeParser
 from llama_index.core.schema import BaseNode, Document, NodeRelationship
 
 from harness.indexing.profiles import ChunkingConfig
+
+_log = logging.getLogger(__name__)
 
 # metadata keys kept out of the embedding / LLM text (they're provenance, not content)
 _EXCLUDED_META = ["doc_id", "source_url", "title", "is_leaf", "committee", "topic_path", "page"]
@@ -60,7 +63,19 @@ def chunk_document(
         excluded_embed_metadata_keys=list(_EXCLUDED_META),
         excluded_llm_metadata_keys=list(_EXCLUDED_META),
     )
-    nodes = parser.get_nodes_from_documents([doc])
+    try:
+        nodes = parser.get_nodes_from_documents([doc])
+    except Exception as exc:
+        # A single pathological document must not kill a long batch build. The
+        # known offender is nltk's punkt tokenizer raising RecursionError on a
+        # huge unbroken line; we keep the recursion limit at its default so that
+        # surfaces as a catchable RecursionError (not a C-stack segfault). Skip
+        # the doc — the caller treats an empty list as a zero-chunk document.
+        _log.warning(
+            "chunk_document: skipping %s (%d chars) — parser failed: %s: %s",
+            source_url, len(text), type(exc).__name__, exc,
+        )
+        return []
 
     # Assign deterministic ids (stable across rebuilds) and rewrite the
     # parent/child/prev/next references to match. HierarchicalNodeParser emits

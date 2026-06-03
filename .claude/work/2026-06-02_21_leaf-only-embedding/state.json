@@ -88,7 +88,7 @@
       "type": "integration",
       "status": "in_progress",
       "blocked_reason": "",
-      "notes": "LAUNCHED 2026-06-02 07:50 (pid 463383, detached nohup, survives session end). Cmd: HF_HUB_OFFLINE=1 .venv/bin/python -m harness.indexing.build --full --reset --embed-device cuda --flush-chunks 4000 --pause-every-docs 1000 --pause-seconds 60. reset=True wiped first. Leaf-only confirmed in log (e.g. 740 docs/8044 chunks/5558 leaf-embedded). GPU 251W@100%, 66C. Log: logs/build_full_20260602_075032.log (see logs/.latest_build_log). RESUME if it dies: same cmd WITHOUT --reset (skips docs with >=1 chunk). Verify + record counts when complete.",
+      "notes": "LAUNCHED 2026-06-02 07:50 (pid 463383, detached nohup, survives session end). Cmd: HF_HUB_OFFLINE=1 .venv/bin/python -m harness.indexing.build --full --reset --embed-device cuda --flush-chunks 4000 --pause-every-docs 1000 --pause-seconds 60. reset=True wiped first. Leaf-only confirmed in log (e.g. 740 docs/8044 chunks/5558 leaf-embedded). GPU 251W@100%, 66C. Log: logs/build_full_20260602_075032.log (see logs/.latest_build_log). RESUME if it dies: same cmd WITHOUT --reset (skips docs with >=1 chunk). Verify + record counts when complete. | 2026-06-03: first run CRASHED at 46,864/80,083 docs (~59%) after ~15h \u2014 a 12.5MB EPAR RMP-summary PDF blew nltk punkt's recursion limit (fatal RecursionError in HierarchicalNodeParser). Hardened chunk_document to skip per-doc parser failures (guard+test). Relaunched in resume mode (pid 1854473); verified live it skipped the bad doc and continued. ~33k docs remain.",
       "dependencies": [
         "LOE-002",
         "LOE-004"

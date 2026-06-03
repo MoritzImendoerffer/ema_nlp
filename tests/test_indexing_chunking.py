@@ -70,3 +70,16 @@ def test_min_chunk_chars_filters_debris():
         "short", source_url=_URL, config=ChunkingConfig(chunk_sizes=[512, 128], min_chunk_chars=80)
     )
     assert nodes == []                       # below threshold → dropped
+
+
+def test_pathological_doc_is_skipped_not_fatal(monkeypatch):
+    """A parser failure (e.g. nltk punkt RecursionError on a huge unbroken line)
+    must be caught per-document and return [] so a batch build survives it."""
+    import harness.indexing.chunking as ck
+
+    def _boom(self, *a, **kw):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(ck.HierarchicalNodeParser, "get_nodes_from_documents", _boom)
+    nodes = chunk_document("x" * 100000, source_url=_URL, config=_CFG)
+    assert nodes == []
