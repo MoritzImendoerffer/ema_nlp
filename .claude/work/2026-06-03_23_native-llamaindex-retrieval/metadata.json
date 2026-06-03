@@ -1,0 +1,14 @@
+{
+  "id": "2026-06-03_23_native-llamaindex-retrieval",
+  "created_at": "2026-06-03",
+  "status": "exploration_complete",
+  "requirement_type": "architecture-redirection",
+  "branch": "refactor/llamaindex-retrieval-pipeline",
+  "parent_work_unit": "2026-05-30_20_llamaindex-retrieval-refactor",
+  "supersedes": "2026-06-03_22_links-to-graph-retrieval (custom-Cypher links expansion — dropped per native-only directive)",
+  "directive": "User (2026-06-03): use LlamaIndex NATIVE retrieval strategies; do not build custom strategies; if customization is needed, do it using LlamaIndex tools (extend LlamaIndex classes).",
+  "summary": "Replace the custom HierarchicalPGRetriever (hand-rolled Cypher BaseRetriever) with native LlamaIndex retrieval. The blocker (confirmed in installed source): native VectorContextRetriever uses Neo4jPropertyGraphStore.vector_query, which searches the __Entity__ vector index — but our retrievable units are :Chunk nodes in a separate ema_chunk_embedding index, and it ignores a supplied vector_store when the store reports supports_vector_queries=True.",
+  "recommended": "Option 1 — native VectorContextRetriever + a thin Neo4jPropertyGraphStore subclass that points vector_query at the chunk index (customization via a LlamaIndex tool); reuses the built graph (no rebuild). Alternative Option 2 — rebuild to VectorStoreIndex + Neo4jVectorStore + AutoMergingRetriever (most-blessed, costly).",
+  "needs_decision": true,
+  "related": ["LIR-008", "2026-06-03_22_links-to-graph-retrieval"]
+}

@@ -1,0 +1,69 @@
+{
+  "status": "superseded",
+  "work_unit": "2026-06-03_22_links-to-graph-retrieval",
+  "branch": "refactor/llamaindex-retrieval-pipeline",
+  "parent_work_unit": "2026-05-30_20_llamaindex-retrieval-refactor",
+  "current_task": null,
+  "principles": [
+    "Realize the cornerstone: link traversal ADDS structurally-related context vector search missed (additive, not displacing top hits).",
+    "Bounded by query relevance + global top-M, NOT by out-degree (hubs link to 500+ docs).",
+    "Driven by profile.retrieval.graph; max_hops=0 reproduces today's behaviour exactly (ablation toggle).",
+    "Custom Cypher extension (per LIR-008 spike), one bounded expansion query; verify live on the real graph.",
+    "Expanded nodes are attributable (via_link / linked_from) and decayed so direct hits rank first."
+  ],
+  "tasks": [
+    {
+      "id": "LTG-001",
+      "title": "Bounded query-relevant 1-hop LINKS_TO expansion in HierarchicalPGRetriever",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [],
+      "priority": "high",
+      "estimated_hours": 3,
+      "acceptance_criteria": [
+        "HierarchicalPGRetriever reads graph config (max_hops, edge_types, expand_m, link_decay); build_hierarchical_retriever passes profile.retrieval.graph",
+        "When max_hops>0: one expansion Cypher follows LINKS_TO from seed docs, scores neighbour leaf chunks via vector.similarity.cosine, takes per-neighbour top-1 then GLOBAL top-M",
+        "Expanded NodeWithScore: deduped vs direct hits, score = link_decay*sim, metadata via_link=True + linked_from=<seed source_url> + source_url/doc_id",
+        "Additive output (k direct + up to M expanded); max_hops=0 == current behaviour exactly",
+        "GraphRetrievalConfig gains expand_m (default 5) + link_decay (default 0.5); neo4j_hier.yaml documents them; ruff clean"
+      ]
+    },
+    {
+      "id": "LTG-002",
+      "title": "Tests: unit (fake store) + live verify on the real graph",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": [
+        "LTG-001"
+      ],
+      "priority": "high",
+      "estimated_hours": 2,
+      "acceptance_criteria": [
+        "Unit test (fake store returning seed + neighbour chunks): asserts expansion fires, decay applied, dedup vs direct, global M-cap, and max_hops=0 disables it",
+        "Live verify on the built graph: a query whose seed doc has LINKS_TO neighbours returns >=1 via_link node with provenance, scored below direct hits; record latency vs the no-expansion path",
+        "Full indexing test suite + ruff green"
+      ]
+    },
+    {
+      "id": "LTG-003",
+      "title": "Query-cache hygiene (clear stale pre-refactor entries + disable toggle)",
+      "type": "cleanup",
+      "status": "pending",
+      "dependencies": [],
+      "priority": "medium",
+      "estimated_hours": 1,
+      "acceptance_criteria": [
+        "The 15 stale pre-refactor query-cache entries are cleared (they answer over the deleted corpus)",
+        "A way to bypass the cache short-circuit for clean retrieval testing (e.g. EMA_QUERY_CACHE_DISABLED=1 honoured in app.py)",
+        "Documented so a fresh chat exercises the new retriever instead of serving cached old answers"
+      ]
+    }
+  ],
+  "completed_tasks": [],
+  "next_available": [
+    "LTG-001",
+    "LTG-003"
+  ],
+  "notes": "Independent of work unit 20 (closed). LTG-001 is the substantive cornerstone fix; LTG-003 is independent and quick. One non-blocking design choice (neighbour-chunk = query-relevant top-1, M=5, decay=0.5) \u2014 defaults chosen, confirm/adjust at implementation.",
+  "superseded_by": "2026-06-03_23_native-llamaindex-retrieval (custom-Cypher links expansion dropped per native-only directive; the gap it found is now solved natively there)"
+}

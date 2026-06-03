@@ -1,0 +1,12 @@
+{
+  "id": "2026-06-03_22_links-to-graph-retrieval",
+  "created_at": "2026-06-03",
+  "status": "exploration_complete",
+  "requirement_type": "gap-fix + architecture",
+  "branch": "refactor/llamaindex-retrieval-pipeline",
+  "parent_work_unit": "2026-05-30_20_llamaindex-retrieval-refactor",
+  "origin": "User-found gap (2026-06-03): the chat retriever does vector search + small-to-big parent merge but never traverses LINKS_TO — the link graph (1.72M edges) is unused at query time, despite the profile configuring it and LIR-008's acceptance claiming '1-hop links-to expansion'.",
+  "summary": "Make retrieval graph-aware: implement the bounded, query-relevant 1-hop LINKS_TO expansion the profile already configures (and LIR-008 claimed but never delivered). Secondary: the semantic query-cache holds stale pre-refactor entries that interrupt/short-circuit clean testing.",
+  "answers_question": "Does the current (closed) work plan cover this? NO — LIR-008 listed it as acceptance but did not implement it; work unit 20 is complete with no pending task delivering it. A new task set is required (this work unit).",
+  "related": ["LIR-008", "link-graph-cornerstone"]
+}

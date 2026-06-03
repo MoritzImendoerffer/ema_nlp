@@ -1,0 +1,78 @@
+{
+  "status": "planning_complete",
+  "work_unit": "2026-06-03_23_native-llamaindex-retrieval",
+  "branch": "refactor/llamaindex-retrieval-pipeline",
+  "parent_work_unit": "2026-05-30_20_llamaindex-retrieval-refactor",
+  "supersedes": "2026-06-03_22_links-to-graph-retrieval",
+  "current_task": null,
+  "principles": [
+    "Native LlamaIndex retrievers (VectorContextRetriever via PropertyGraphIndex.as_retriever) — no custom BaseRetriever.",
+    "Only permitted customization: subclass a LlamaIndex class (Neo4jPropertyGraphStore.vector_query) so the native retriever sees our :Chunk embeddings.",
+    "Spike on the REAL graph before deleting the custom retriever or committing to rebuild.",
+    "Reuse the built graph + embeddings; treat Option 2 (rebuild) as the escalation if native expansion is unacceptable."
+  ],
+  "decision_pending": "Option 1 (native retriever + store subclass, no rebuild) [recommended] vs Option 2 (rebuild to VectorStoreIndex + Neo4jVectorStore + AutoMergingRetriever). Tasks below assume Option 1; NLR-001 spike gates it.",
+  "tasks": [
+    {
+      "id": "NLR-001",
+      "title": "SPIKE: native VectorContextRetriever over our chunks (store subclass) — judge quality",
+      "type": "spike",
+      "status": "pending",
+      "dependencies": [],
+      "priority": "high",
+      "estimated_hours": 3,
+      "acceptance_criteria": [
+        "Subclass Neo4jPropertyGraphStore.vector_query -> ema_chunk_embedding (:Chunk), returning LabelledNodes whose ids match graph node ids + scores",
+        "Stand up native VectorContextRetriever(graph_store=subclass, similarity_top_k, path_depth) via PropertyGraphIndex.as_retriever",
+        "Run >=3 real EMA queries on the built graph; record what comes back: relevance, provenance, whether small-to-big (PARENT_OF) + 1-hop links (LINKS_TO) context appears at a given path_depth, and latency",
+        "Written go/no-go in this work unit: proceed with Option 1, or escalate to Option 2"
+      ]
+    },
+    {
+      "id": "NLR-002",
+      "title": "Wire the native retriever into the registry; delete HierarchicalPGRetriever",
+      "type": "integration",
+      "status": "blocked",
+      "blocked_reason": "Gated on NLR-001 go decision.",
+      "dependencies": ["NLR-001"],
+      "priority": "high",
+      "estimated_hours": 3,
+      "acceptance_criteria": [
+        "build_hierarchical_retriever returns the native retriever (store subclass + VectorContextRetriever); profile maps to similarity_top_k/path_depth/limit",
+        "Custom HierarchicalPGRetriever removed; workflows unchanged (consume BaseRetriever.aretrieve())",
+        "Live: chat path returns relevant provenance-bearing results; ruff + indexing suite green"
+      ]
+    },
+    {
+      "id": "NLR-003",
+      "title": "Update tests + docs to the native retriever",
+      "type": "documentation",
+      "status": "blocked",
+      "blocked_reason": "Gated on NLR-002.",
+      "dependencies": ["NLR-002"],
+      "priority": "medium",
+      "estimated_hours": 2,
+      "acceptance_criteria": [
+        "tests/test_indexing_property_graph.py retriever tests target the native retriever (fake graph store)",
+        "docs/RETRIEVAL.md describes the native VectorContextRetriever + store subclass; no custom-Cypher-retriever claims",
+        "neo4j_hier.yaml retrieval block reflects the native knobs (similarity_top_k/path_depth/limit)"
+      ]
+    },
+    {
+      "id": "NLR-004",
+      "title": "Query-cache hygiene (carry-over from WU-22)",
+      "type": "cleanup",
+      "status": "pending",
+      "dependencies": [],
+      "priority": "low",
+      "estimated_hours": 1,
+      "acceptance_criteria": [
+        "Clear the 15 stale pre-refactor query-cache entries",
+        "EMA_QUERY_CACHE_DISABLED=1 honoured in app.py so a fresh chat exercises the retriever (not cached old answers)"
+      ]
+    }
+  ],
+  "completed_tasks": [],
+  "next_available": ["NLR-001", "NLR-004"],
+  "notes": "If the user picks Option 2, replace NLR-002/003 with a rebuild plan (install llama-index-vector-stores-neo4j; re-index chunks to Neo4jVectorStore + docstore; AutoMergingRetriever + RecursiveRetriever). NLR-001 spike + NLR-004 stay either way."
+}

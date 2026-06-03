@@ -1,0 +1,33 @@
+Metadata-Version: 2.4
+Name: ema-nlp
+Version: 0.1.0
+Summary: EMA Q&A RAG Benchmark — corpus, benchmark, and evaluation harness
+Requires-Python: >=3.11
+License-File: LICENSE
+Requires-Dist: pymupdf4llm>=1.27.2
+Requires-Dist: beautifulsoup4>=4.12
+Requires-Dist: lxml>=5.0
+Requires-Dist: pymongo>=4.17
+Requires-Dist: llama-index-core>=0.12
+Requires-Dist: llama-index-embeddings-huggingface>=0.4
+Requires-Dist: llama-index-vector-stores-faiss>=0.3
+Requires-Dist: llama-index-retrievers-bm25>=0.5
+Requires-Dist: llama-index-llms-anthropic>=0.6
+Requires-Dist: rank-bm25>=0.2.2
+Requires-Dist: faiss-cpu>=1.13
+Requires-Dist: sentence-transformers>=5.4
+Requires-Dist: arize-phoenix>=4.0
+Requires-Dist: openinference-instrumentation-llama-index>=2.0
+Requires-Dist: anthropic>=0.100
+Requires-Dist: PyYAML>=6.0
+Requires-Dist: matplotlib>=3.9
+Requires-Dist: python-dotenv>=1.0
+Requires-Dist: httpx>=0.27
+Provides-Extra: dev
+Requires-Dist: pytest>=9.0; extra == "dev"
+Requires-Dist: pytest-cov>=5.0; extra == "dev"
+Requires-Dist: ruff>=0.15; extra == "dev"
+Requires-Dist: mypy>=2.0; extra == "dev"
+Requires-Dist: types-PyYAML; extra == "dev"
+Requires-Dist: nbformat>=5.10; extra == "dev"
+Dynamic: license-file
