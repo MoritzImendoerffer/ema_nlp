@@ -87,6 +87,14 @@ markers = [
     "integration: requires live external services (MongoDB, network)",
 ]
 
+[tool.setuptools]
+# config.py is a top-level module imported as `from config import ...` across the
+# codebase (harness.indexing.property_graph, etc.). Declare it so the editable
+# install exposes it everywhere — otherwise it only resolves when the repo root
+# happens to be on sys.path (works under pytest / `python` from root, but NOT
+# under `chainlit run app.py`, which loads the app without repo root on the path).
+py-modules = ["config"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["corpus*", "benchmark*", "harness*"]
