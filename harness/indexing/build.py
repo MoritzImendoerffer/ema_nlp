@@ -50,7 +50,14 @@ def main() -> None:
         help="seconds to sleep at each doc-batch pause (see --pause-every-docs)",
     )
     ap.add_argument("--links-only", action="store_true", help="(re)build only LINKS_TO edges")
+    ap.add_argument(
+        "--reset-links", action="store_true",
+        help="delete existing LINKS_TO edges first, then re-extract (implies --links-only; "
+             "chunks/vectors untouched)",
+    )
     args = ap.parse_args()
+    if args.reset_links:
+        args.links_only = True
 
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -65,10 +72,10 @@ def main() -> None:
 
     logging.info(
         "build start: profile=%s scope.limit=%s device=%s embed_batch=%d flush=%d "
-        "pause_every_docs=%d pause_seconds=%.0f reset=%s links_only=%s",
+        "pause_every_docs=%d pause_seconds=%.0f reset=%s links_only=%s reset_links=%s",
         profile.name, profile.index.scope.limit, args.embed_device,
         args.embed_batch, args.flush_chunks, args.pause_every_docs, args.pause_seconds,
-        args.reset, args.links_only,
+        args.reset, args.links_only, args.reset_links,
     )
     build_index(
         profile,
@@ -79,6 +86,7 @@ def main() -> None:
         pause_every_docs=args.pause_every_docs,
         pause_seconds=args.pause_seconds,
         links_only=args.links_only,
+        reset_links=args.reset_links,
     )
     logging.info("build complete.")
 

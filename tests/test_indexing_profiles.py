@@ -16,6 +16,7 @@ from harness.indexing import (
 )
 from harness.indexing.profiles import (
     ChunkingConfig,
+    GraphRetrievalConfig,
     IndexConfig,
     IndexProfile,
     RetrievalConfig,
@@ -96,6 +97,28 @@ def test_chunking_rejects_nonpositive_sizes():
 def test_retrieval_rejects_bad_k():
     with pytest.raises(ValueError, match="k must be"):
         RetrievalConfig.from_dict({"k": 0})
+
+
+# ── graph link_context / document_type filter knobs (link-extraction upgrade) ─
+
+def test_graph_link_contexts_defaults():
+    g = GraphRetrievalConfig.from_dict({})
+    assert g.link_contexts == ["file_component", "card_or_listing", "inline"]
+    assert g.document_types == []
+    assert g.edge_types == ["links_to"]  # unchanged
+
+
+def test_graph_link_contexts_and_document_types_override():
+    g = GraphRetrievalConfig.from_dict(
+        {"link_contexts": ["file_component"], "document_types": ["scientific-guideline"]}
+    )
+    assert g.link_contexts == ["file_component"]
+    assert g.document_types == ["scientific-guideline"]
+
+
+def test_graph_rejects_unknown_link_context():
+    with pytest.raises(ValueError, match="unknown"):
+        GraphRetrievalConfig.from_dict({"link_contexts": ["bogus"]})
 
 
 # ── registry dispatch ───────────────────────────────────────────────────────

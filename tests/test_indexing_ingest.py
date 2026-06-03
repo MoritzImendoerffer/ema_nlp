@@ -22,8 +22,11 @@ _PDF_URL = "https://www.ema.europa.eu/en/documents/scientific-guideline/qa-nitro
 _HTML_URL = "https://www.ema.europa.eu/en/human-regulatory/overview/nitrosamines"
 _HTML_RAW = f"""
 <html><body>
-  <a href="{_PDF_URL}">the QA PDF</a>
-  <a href="https://www.fda.gov/x">external</a>
+  <header><nav><a href="/en/about-us/cookies">chrome (ignored)</a></nav></header>
+  <main class="main-content-wrapper">
+    <p>See <a href="{_PDF_URL}">the QA PDF</a> and an
+       <a href="https://www.fda.gov/x">external</a> reference.</p>
+  </main>
 </body></html>
 """
 

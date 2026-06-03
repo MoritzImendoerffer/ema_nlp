@@ -1,0 +1,32 @@
+{
+  "id": "2026-06-04_24_link-extraction-upgrade",
+  "created_at": "2026-06-04",
+  "status": "exploration_complete",
+  "requirement_type": "prerequisite + architecture (link-graph data quality)",
+  "branch": "refactor/llamaindex-retrieval-pipeline",
+  "parent_work_unit": "2026-05-30_20_llamaindex-retrieval-refactor",
+  "related_work_units": [
+    "2026-06-03_22_links-to-graph-retrieval",
+    "2026-06-03_23_native-llamaindex-retrieval"
+  ],
+  "spec_doc": "docs/RETRIEVAL_TRACKS.md",
+  "origin": "User directive (2026-06-04): the LINKS_TO edge set is dominated by site chrome because harness/indexing/links.py parses <a href> over the WHOLE page and classifies only by URL shape. A proven, DOM-scoped, component-aware extractor exists in ../ema_scraper (parsers/ema_parser.py, EmaPageParser). Port main-content scoping + component-aware extraction into links.py, add DOM context to the edge model, and rebuild ONLY the LINKS_TO edges (no chunk/vector touch). This SUPERSEDES the plain degree-cap hygiene audit and becomes the data-quality prerequisite that Track B's retriever and Track C's IR both depend on.",
+  "summary": "Replace whole-page URL-shape link extraction with a ported main.main-content-wrapper-scoped, BCL-component-aware extractor; extend ExtractedLink/LINKS_TO with DOM context (link_context, document_type) while preserving kind/anchor + URL normalization; rebuild LINKS_TO edges only and re-measure the degree distribution to verify the ~94% chrome is gone.",
+  "key_findings": {
+    "edges_total": 1721581,
+    "source_pages": 21957,
+    "target_docs": 61114,
+    "chrome_targets_gt_5pct_of_pages": 74,
+    "chrome_edges_absorbed": 1624744,
+    "chrome_edge_share": 0.944,
+    "content_targets_remaining": 61040,
+    "content_edges_remaining": 96837,
+    "pdf_target_edge_share": 0.034,
+    "web_items_with_html_raw": 22743,
+    "sample_pages_with_main_content_wrapper": "40/40",
+    "sample_pages_with_bcl_file": "21/40",
+    "anchor_fraction_inside_main": 0.367
+  },
+  "supersedes_in_spec": "Track B 'is_nav_hub degree-cap blocklist' becomes a secondary safety-net; main-content scoping removes the chrome at the source.",
+  "next": "/plan or /architect — this explore output is the basis for the planning/architecting step; tasks are outlined in state.json."
+}

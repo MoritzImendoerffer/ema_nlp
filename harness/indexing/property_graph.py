@@ -47,7 +47,7 @@ from harness.indexing.ingest import (
     iter_source_rows,
     mongo_html_lookup,
 )
-from harness.indexing.links import extract_links
+from harness.indexing.links import ExtractedLink, extract_links
 from harness.indexing.profiles import IndexProfile
 from harness.indexing.registry import register_index, register_retriever
 
@@ -152,9 +152,26 @@ def to_graph(
         for link in d.links:
             if link.tgt_doc_id in doc_ids:
                 relations.append(
-                    Relation(label="LINKS_TO", source_id=d.doc_id, target_id=link.tgt_doc_id)
+                    Relation(
+                        label="LINKS_TO",
+                        source_id=d.doc_id,
+                        target_id=link.tgt_doc_id,
+                        properties=_link_props(link),
+                    )
                 )
     return entities, chunks, relations
+
+
+def _link_props(link: ExtractedLink) -> dict[str, Any]:
+    """LINKS_TO edge properties (None dropped so they never reach Neo4j)."""
+    return _clean(
+        {
+            "kind": link.kind,
+            "link_context": link.link_context,
+            "document_type": link.document_type,
+            "anchor": link.anchor,
+        }
+    )
 
 
 def _entity_for(d: IngestedDoc) -> EntityNode:
@@ -304,14 +321,35 @@ def _embed_pass(
     )
 
 
-def _merge_links_batch(store: Neo4jPropertyGraphStore, pairs: list[dict[str, str]]) -> None:
+def _merge_links_batch(store: Neo4jPropertyGraphStore, pairs: list[dict[str, Any]]) -> None:
+    """MERGE doc->doc LINKS_TO edges and stamp their typed properties.
+
+    Each pair is ``{"s": src_id, "t": tgt_id, "props": {kind, link_context,
+    document_type, anchor}}`` (props already ``_clean``ed of ``None``).
+    """
     if pairs:
         store.structured_query(
             "UNWIND $pairs AS p "
             "MATCH (a:Document {id: p.s}), (b:Document {id: p.t}) "
-            "MERGE (a)-[:LINKS_TO]->(b)",
+            "MERGE (a)-[e:LINKS_TO]->(b) "
+            "SET e += p.props",
             param_map={"pairs": pairs},
         )
+
+
+def _delete_links(store: Neo4jPropertyGraphStore) -> None:
+    """Delete ALL ``LINKS_TO`` relationships, batched in autocommit transactions.
+
+    Relationship-typed ``MATCH`` → touches no nodes: ``:Chunk`` / ``:Document`` /
+    ``HAS_CHUNK`` / ``PARENT_OF`` / embeddings are untouched. ``CALL { … } IN
+    TRANSACTIONS`` requires an implicit/autocommit transaction, which
+    ``Neo4jPropertyGraphStore.structured_query`` provides (verified, graph-stores
+    -neo4j 0.7.0). Lets the link extractor be re-run without re-embedding.
+    """
+    store.structured_query(
+        "MATCH ()-[r:LINKS_TO]->() "
+        "CALL { WITH r DELETE r } IN TRANSACTIONS OF 50000 ROWS"
+    )
 
 
 def _links_pass(
@@ -329,9 +367,9 @@ def _links_pass(
     """
     scope = profile.index.scope
     ensure_document_id_index(store)  # MERGE matches :Document(id) — must be indexed or it scans
-    pending: list[dict[str, str]] = []
+    pending: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
-    n_html = n_pairs = 0
+    n_html = n_pairs = n_no_links = 0
     for row in iter_source_rows(scope, client=client):
         url = row.get("url")
         if not url or "html" not in (row.get("content_type") or "").lower():
@@ -350,17 +388,24 @@ def _links_pass(
         except Exception as exc:  # one bad page must not abort the whole links pass
             _log.warning("links pass: skipping %s — %s: %s", url, type(exc).__name__, exc)
             continue
+        if not links:  # no main-content-wrapper or no content links (chrome-only page)
+            n_no_links += 1
+            continue
         for link in links:
             key = (src, link.tgt_doc_id)
             if key in seen:
                 continue
             seen.add(key)
-            pending.append({"s": src, "t": link.tgt_doc_id})
+            pending.append({"s": src, "t": link.tgt_doc_id, "props": _link_props(link)})
             n_pairs += 1
             if len(pending) >= batch:
                 _merge_links_batch(store, pending)
                 pending = []
     _merge_links_batch(store, pending)
+    _log.info(
+        "links pass: %d html docs, %d pairs, %d docs with no main-content links",
+        n_html, n_pairs, n_no_links,
+    )
     return n_pairs
 
 
@@ -377,6 +422,7 @@ def build_property_graph_index(
     pause_every_docs: int = 0,
     pause_seconds: float = 60.0,
     links_only: bool = False,
+    reset_links: bool = False,
 ) -> PropertyGraphIndex:
     """Build the hierarchical PropertyGraphIndex in Neo4j from Mongo (batched, resumable).
 
@@ -385,6 +431,9 @@ def build_property_graph_index(
     (``resume=True``) skips documents already materialized. ``LINKS_TO`` edges are
     a final idempotent pass that MERGEs doc->doc edges whose target is in-corpus.
     Pass ``links_only=True`` to (re)build just the link edges over an existing graph.
+    Pass ``reset_links=True`` to delete the existing ``LINKS_TO`` edges first (chunks
+    and vectors are untouched) — use it with ``links_only=True`` to re-extract the link
+    graph after a links.py change without re-embedding.
     """
     embed = embed_model or _embed_model()
     store = neo4j_store_from_env()
@@ -404,6 +453,9 @@ def build_property_graph_index(
                 done=done, flush_chunks=flush_chunks,
                 pause_every_docs=pause_every_docs, pause_seconds=pause_seconds,
             )
+        if reset_links:
+            _log.info("reset_links: deleting existing LINKS_TO edges (chunks/vectors untouched)")
+            _delete_links(store)
         n_pairs = _links_pass(profile, store, client, lookup)
         _log.info("links pass: %d candidate pairs (kept where target in-corpus)", n_pairs)
     finally:

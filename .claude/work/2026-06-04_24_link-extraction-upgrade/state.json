@@ -1,0 +1,158 @@
+{
+  "id": "2026-06-04_24_link-extraction-upgrade",
+  "status": "complete",
+  "current_task": null,
+  "result": {
+    "tests": "331 passed / 2 skipped; links.py ruff + mypy clean (mypy-neutral overall)",
+    "rebuild_executed": "2026-06-04, --full --links-only --reset-links, ~8.5 min, CPU",
+    "links_to_before": 1721581,
+    "links_to_after": 99520,
+    "chrome_targets_before": 74,
+    "chrome_targets_after": 0,
+    "max_indegree_before": 21956,
+    "max_indegree_after": 567,
+    "pdf_card_share_before": 0.034,
+    "pdf_card_share_after": 0.583,
+    "link_context_distribution": {"file_component": 54347, "inline": 35673, "other": 7865, "card_or_listing": 1635},
+    "edges_with_document_type": 54347,
+    "chunks_hierarchy_unchanged": true,
+    "no_main_content_pages": 465
+  },
+  "branch": "refactor/llamaindex-retrieval-pipeline",
+  "spec_doc": "docs/RETRIEVAL_TRACKS.md",
+  "blocks": ["Track B hierarchical_links (work unit 2026-06-03_22)", "Track C property_graph_native IR (2026-06-03_23)"],
+  "user_constraints": ["no backwards compatibility required", "embedding runtime is not a constraint (P1 is edge-only anyway)"],
+  "locked_decisions": {
+    "DL1_migration": "hard replacement, no shims/flags/deprecation",
+    "DL2_main_less_page": "strict empty + diagnostic count, no whole-doc fallback",
+    "DL3_edge_model": "single LINKS_TO label + properties {kind,link_context,document_type,anchor}",
+    "DL4_profile": "ADD GraphRetrievalConfig.link_contexts + document_types; keep edge_types (consumer=Track B)",
+    "DL5_dedup": "richest context wins: file_component>card_or_listing>inline>other",
+    "DL6_rebuild": "native CALL{} IN TRANSACTIONS OF 50000 delete + re-MERGE (verified); apoc fallback",
+    "DL7_producers": "stamp props in BOTH to_graph and _links_pass"
+  },
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "title": "Port main-content-scoped, BCL-component-aware extractor into links.py",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [],
+      "files": ["harness/indexing/links.py"],
+      "acceptance_criteria": [
+        "ExtractedLink extended with link_context (default 'other') + document_type (default None); tgt_url/anchor/kind/tgt_doc_id kept",
+        "extract_links scopes to main.main-content-wrapper; main-less -> [] + WARNING log (DL2/A5)",
+        "ports the RECURSIVE _parse_children walk (div/section/article/aside/header/footer/span/unknown + accordion bodies) + id()-based processed-set (A1)",
+        "_should_skip ports SKIP_TAGS/SKIP_CLASSES(bcl-inpage-navigation,breadcrumb,dropdown-menu)/<nav>",
+        "bcl-file -> link_context=file_component + document_type, anchor=file-title-or-link-text (A2); card/listing/banner(with card-title) -> card_or_listing; accordion/inline blocks -> inline; standalone -> other",
+        "per-URL normalize pipeline (urljoin/_strip_fragment/http-only/self-ref/_classify) UNCHANGED; anchor is context-derived (A2); dedup richest-context-wins (DL5)",
+        "uses BeautifulSoup(html, 'html.parser') for scraper parity (A3); no import from ../ema_scraper"
+      ],
+      "estimated_hours": 4,
+      "priority": "high"
+    },
+    {
+      "id": "TASK-002",
+      "title": "Extractor tests + fix dependent fixtures (links + ingest)",
+      "type": "testing",
+      "status": "completed",
+      "dependencies": ["TASK-001"],
+      "files": ["tests/test_indexing_links.py", "tests/test_indexing_ingest.py"],
+      "acceptance_criteria": [
+        "test_indexing_links.py rewritten: anchors wrapped in <main class=main-content-wrapper>; chrome links OUTSIDE main/in breadcrumb/nav asserted absent; >=1 external link kept INSIDE main for the classification test (A8)",
+        "covers each link_context branch (file_component+document_type, card_or_listing, inline, other) + dedup priority + main-less -> []",
+        "covers recursion (A1): link deep in <div><div><p><a> and inside accordion-body are found; bcl-file anchor == file-title (A2)",
+        "test_indexing_ingest.py _HTML_RAW wrapped in <main> so test_html_doc_has_links_pdf_does_not still passes",
+        "pytest green offline, no live infra"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "TASK-003",
+      "title": "Stamp LINKS_TO edge properties end-to-end (to_graph + _links_pass)",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": ["TASK-001"],
+      "files": ["harness/indexing/property_graph.py", "tests/test_indexing_property_graph.py"],
+      "acceptance_criteria": [
+        "to_graph emits Relation(label=LINKS_TO, properties=_clean({kind,link_context,document_type,anchor}))",
+        "_links_pass builds _clean'd per-pair props (drop None); _merge_links_batch param shape -> list[dict[str,str|dict]]; MERGE (a)-[e:LINKS_TO]->(b) SET e += p.props (A4)",
+        "(src,tgt) seen-set dedup unchanged (per-page DL5 already picks one link/target)",
+        "test asserts LINKS_TO Relation.properties carries the keys (existing label/source/target assertions stay)"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "TASK-004",
+      "title": "Profile filter knobs: link_contexts + document_types",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [],
+      "files": ["harness/indexing/profiles.py", "tests/test_indexing_profiles.py"],
+      "acceptance_criteria": [
+        "GraphRetrievalConfig.link_contexts default [file_component,card_or_listing,inline]; document_types default [] (all)",
+        "from_dict validates link_contexts membership vs {file_component,card_or_listing,inline,other}, raises listing valid set on unknown (A6); edge_types kept (existing ==['links_to'] test green)",
+        "SUPERSEDES requirements FR6 / spec 'reinterpret edge_types' -> explicit fields; recorded in TASK-007; consumer = Track B hierarchical_links"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium"
+    },
+    {
+      "id": "TASK-005",
+      "title": "Rebuild-edges-only path + --reset-links CLI",
+      "type": "integration",
+      "status": "completed",
+      "dependencies": ["TASK-003"],
+      "files": ["harness/indexing/property_graph.py", "harness/indexing/build.py"],
+      "acceptance_criteria": [
+        "build_property_graph_index(reset_links=True) runs _delete_links = batched CALL{} IN TRANSACTIONS OF 50000 (autocommit verified A7; apoc fallback) before _links_pass; relationship-typed MATCH never touches :Chunk/HAS_CHUNK/PARENT_OF",
+        "reuses ensure_document_id_index",
+        "diagnostic (A5): links.py WARNs when main is None; _links_pass counts+logs n_no_links (zero-link pages)",
+        "build.py --reset-links (implies --links-only) threads reset_links into build_index(**kw) (A8)",
+        "_FakeStore test: delete Cypher precedes MERGE; no :Chunk/HAS_CHUNK query emitted"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "TASK-006",
+      "title": "Live rebuild + re-measure + verify cleanup",
+      "type": "integration",
+      "status": "completed",
+      "dependencies": ["TASK-005"],
+      "files": [".claude/work/2026-06-04_24_link-extraction-upgrade/exploration.md", "docs/RETRIEVAL_TRACKS.md"],
+      "acceptance_criteria": [
+        ":Chunk/HAS_CHUNK/PARENT_OF counts unchanged before/after (snapshot asserted)",
+        "LINKS_TO ~ 1e5 (down from 1,721,581); no target > ~5% of source pages; 74-target/94.4% concentration gone",
+        "edge properties present on a sampled edge",
+        "new numbers recorded into RETRIEVAL_TRACKS.md §0.8/§0.4 + work unit"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "TASK-007",
+      "title": "Docs + decisions propagation",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": ["TASK-006"],
+      "files": ["DECISIONS.md", "docs/RETRIEVAL.md", "docs/RETRIEVAL_TRACKS.md", ".claude/HISTORY.md"],
+      "acceptance_criteria": [
+        "DECISIONS.md entry: BCL component-aware main-scoped extraction + single-label typed LINKS_TO + edge-only rebuild",
+        "docs/RETRIEVAL.md code map updated for the new extractor + edge model",
+        "RETRIEVAL_TRACKS.md §0.8 records DL4 explicit link_contexts/document_types (supersedes 'reinterpret edge_types') so Track B inherits the right design (A6)",
+        "subset-script behavior-shift note (select_subset now main-scoped; kind preserved)",
+        "HISTORY.md row"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium"
+    }
+  ],
+  "completed_tasks": [],
+  "next_available": ["TASK-001", "TASK-004"],
+  "critical_path": ["TASK-001", "TASK-003", "TASK-005", "TASK-006", "TASK-007"],
+  "estimated_total_hours": 19,
+  "next": "/next to start TASK-001 (TASK-004 parallelizable). After TASK-006 the live edge set is clean+typed; Track B then builds hierarchical_links on it."
+}

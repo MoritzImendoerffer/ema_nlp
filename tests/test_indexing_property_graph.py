@@ -66,6 +66,70 @@ def test_links_to_dropped_when_target_absent():
     assert [r for r in rels if r.label == "LINKS_TO"] == []
 
 
+def test_links_to_carries_typed_properties():
+    doc_a = _doc(_URL_A, links=[
+        ExtractedLink(tgt_url=_URL_B, anchor="QA PDF", kind="file",
+                      link_context="file_component", document_type="scientific-guideline"),
+    ])
+    doc_b = _doc(_URL_B)
+    _ents, _chunks, rels = to_graph([doc_a, doc_b])
+    lt = [r for r in rels if r.label == "LINKS_TO"]
+    assert len(lt) == 1
+    props = lt[0].properties
+    assert props["kind"] == "file"
+    assert props["link_context"] == "file_component"
+    assert props["document_type"] == "scientific-guideline"
+    assert props["anchor"] == "QA PDF"
+
+
+def test_links_to_props_drop_none_document_type():
+    doc_a = _doc(_URL_A, links=[
+        ExtractedLink(tgt_url=_URL_B, anchor="b", kind="page", link_context="inline"),
+    ])
+    doc_b = _doc(_URL_B)
+    _ents, _chunks, rels = to_graph([doc_a, doc_b])
+    props = next(r for r in rels if r.label == "LINKS_TO").properties
+    assert "document_type" not in props  # None dropped by _clean
+    assert props["link_context"] == "inline"
+
+
+# ── edge-only rebuild helpers (live ordering/non-destruction verified in TASK-006) ──
+
+class _RecordingStore:
+    """Captures (query, param_map) for Cypher-shape assertions; no infra."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict | None]] = []
+
+    def structured_query(self, query, param_map=None):
+        self.calls.append((query, param_map))
+        return []
+
+
+def test_delete_links_touches_only_relationships():
+    from harness.indexing.property_graph import _delete_links
+
+    store = _RecordingStore()
+    _delete_links(store)
+    q = store.calls[0][0]
+    assert "LINKS_TO" in q and "IN TRANSACTIONS" in q and "DELETE" in q
+    # relationship-typed: never mentions chunk/hierarchy node labels
+    assert "Chunk" not in q and "HAS_CHUNK" not in q and "PARENT_OF" not in q
+
+
+def test_merge_links_batch_sets_typed_props():
+    from harness.indexing.property_graph import _merge_links_batch
+
+    store = _RecordingStore()
+    _merge_links_batch(
+        store, [{"s": "a", "t": "b", "props": {"kind": "file", "link_context": "file_component"}}]
+    )
+    query, param_map = store.calls[0]
+    assert "MERGE (a)-[e:LINKS_TO]->(b)" in query
+    assert "SET e += p.props" in query
+    assert param_map["pairs"][0]["props"]["link_context"] == "file_component"
+
+
 # ── LOE-002: the build embeds LEAF chunks only (parents stored, unembedded) ──────
 
 class _FakeEmbed:

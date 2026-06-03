@@ -104,8 +104,10 @@ flowchart LR
   `source_url`, `embedding`. Multi-level (chunk_sizes `[2048,512,128]`); parent/child
   retained (the old flat chunker discarded non-leaves).
 - **Edges:** `HAS_CHUNK` (doc→chunk), `PARENT_OF` (chunk→chunk), `LINKS_TO`
-  (doc→doc, only when the target is in the corpus). Edge set is extensible (typed
-  concepts later) without reshaping the pipeline.
+  (doc→doc, only when the target is in the corpus; carries `{kind, link_context,
+  document_type, anchor}` properties since the 2026-06-04 link-extraction upgrade —
+  99,520 main-content-scoped edges, see `docs/RETRIEVAL_TRACKS.md` §0.8). Edge set is
+  extensible (typed concepts later) without reshaping the pipeline.
 
 ---
 
@@ -150,7 +152,7 @@ EMA_INDEX_PROFILE=neo4j_hier           # optional; this is the default
 | `profiles.py` | profile schema + `load_index_profile()` (env/explicit/default) |
 | `registry.py` | `INDEX_REGISTRY` / `RETRIEVER_REGISTRY` + `build_index` / `build_retriever` dispatch + `@register_*` decorators |
 | `chunking.py` | `chunk_document()` — hierarchical TextNodes, parents kept, deterministic ids |
-| `links.py` | `extract_links()` — `links_to` edges from raw HTML (file/page/external) |
+| `links.py` | `extract_links()` — typed `links_to` edges from a page's `main-content-wrapper` (ported from `ema_scraper` `EmaPageParser`; BCL-component aware). Each carries `kind` (file/page/external) **and** `link_context` (file_component/card_or_listing/inline/other) + `document_type`. See `docs/RETRIEVAL_TRACKS.md` §0.8. |
 | `ingest.py` | `ingest(profile)` — Mongo `parsed_documents` → `IngestedDoc` IR (entity + chunks + links) |
 | `property_graph.py` | `build_property_graph_index()` + `HierarchicalPGRetriever` (registered `property_graph` / `hierarchical`) |
 

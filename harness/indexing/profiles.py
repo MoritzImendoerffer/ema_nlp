@@ -103,10 +103,23 @@ class IndexConfig:
         )
 
 
+# Valid DOM-context values for LINKS_TO edges (mirrors harness.indexing.links.LINK_CONTEXTS;
+# duplicated here as a literal to avoid a profiles->links->chunking->profiles import cycle).
+VALID_LINK_CONTEXTS = ("file_component", "card_or_listing", "inline", "other")
+
+
 @dataclass
 class GraphRetrievalConfig:
     max_hops: int = 1
     edge_types: list[str] = field(default_factory=lambda: ["links_to"])
+    # ── link-extraction upgrade: filter LINKS_TO expansion by DOM context ─────
+    # Consumed by Track B's ``hierarchical_links`` retriever (work unit 2026-06-03_22);
+    # see docs/RETRIEVAL_TRACKS.md §0.8. Default keeps the content-bearing contexts and
+    # drops ``other`` (standalone anchors). ``document_types`` empty = no doc-type filter.
+    link_contexts: list[str] = field(
+        default_factory=lambda: ["file_component", "card_or_listing", "inline"]
+    )
+    document_types: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> GraphRetrievalConfig:
@@ -114,7 +127,21 @@ class GraphRetrievalConfig:
         max_hops = int(d.get("max_hops", 1))
         if max_hops < 0:
             raise ValueError("graph.max_hops must be >= 0")
-        return cls(max_hops=max_hops, edge_types=_as_str_list(d.get("edge_types")) or ["links_to"])
+        link_contexts = _as_str_list(d.get("link_contexts")) or [
+            "file_component", "card_or_listing", "inline"
+        ]
+        unknown = [c for c in link_contexts if c not in VALID_LINK_CONTEXTS]
+        if unknown:
+            raise ValueError(
+                f"graph.link_contexts has unknown value(s) {unknown}; "
+                f"valid: {list(VALID_LINK_CONTEXTS)}"
+            )
+        return cls(
+            max_hops=max_hops,
+            edge_types=_as_str_list(d.get("edge_types")) or ["links_to"],
+            link_contexts=link_contexts,
+            document_types=_as_str_list(d.get("document_types")),
+        )
 
 
 @dataclass
