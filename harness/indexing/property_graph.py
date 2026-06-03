@@ -89,6 +89,21 @@ def ensure_chunk_vector_index(store: Neo4jPropertyGraphStore, dims: int) -> None
     )
 
 
+def ensure_document_id_index(store: Neo4jPropertyGraphStore) -> None:
+    """Range index on :Document(id), awaited online.
+
+    The LINKS_TO pass matches docs by id (``MATCH (a:Document {id: ...})``).
+    LlamaIndex only indexes the base ``__Node__``/``__Entity__`` labels, so without
+    this every match is a full :Document label scan — a 20k-pair MERGE batch then
+    does billions of comparisons and effectively hangs (and starves the Mongo
+    cursor → CursorNotFound). Block until the index is ONLINE so the MERGE uses it.
+    """
+    store.structured_query(
+        "CREATE INDEX ema_document_id IF NOT EXISTS FOR (d:Document) ON (d.id)"
+    )
+    store.structured_query("CALL db.awaitIndexes(600)")
+
+
 def to_graph(
     docs: list[IngestedDoc],
 ) -> tuple[list[EntityNode], list[ChunkNode], list[Relation]]:
@@ -313,6 +328,7 @@ def _links_pass(
     or standalone via ``links_only`` — and resolve links across the whole corpus.
     """
     scope = profile.index.scope
+    ensure_document_id_index(store)  # MERGE matches :Document(id) — must be indexed or it scans
     pending: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     n_html = n_pairs = 0
@@ -323,6 +339,8 @@ def _links_pass(
         if scope.limit and n_html >= scope.limit:
             break
         n_html += 1
+        if n_html % 5000 == 0:
+            _log.info("links pass: %d html docs scanned, %d pairs so far", n_html, n_pairs)
         try:
             html = lookup(url)
             if not html:
