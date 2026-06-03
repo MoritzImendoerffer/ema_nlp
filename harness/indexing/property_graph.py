@@ -323,11 +323,16 @@ def _links_pass(
         if scope.limit and n_html >= scope.limit:
             break
         n_html += 1
-        html = lookup(url)
-        if not html:
+        try:
+            html = lookup(url)
+            if not html:
+                continue
+            src = doc_id_for(url)
+            links = extract_links(html, url)
+        except Exception as exc:  # one bad page must not abort the whole links pass
+            _log.warning("links pass: skipping %s — %s: %s", url, type(exc).__name__, exc)
             continue
-        src = doc_id_for(url)
-        for link in extract_links(html, url):
+        for link in links:
             key = (src, link.tgt_doc_id)
             if key in seen:
                 continue

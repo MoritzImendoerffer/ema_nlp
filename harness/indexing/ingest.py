@@ -142,21 +142,29 @@ def iter_source_rows(
     col = client[MONGO_DB][PARSED_COLLECTION]
     seen: set[str] = set()
     yielded = 0
-    for row in col.find({"error": ""}).sort("url", 1):
-        url = row.get("url")
-        if not url or url in seen:
-            continue
-        ct = (row.get("content_type") or "").lower()
-        if "pdf" not in ct and "html" not in ct:
-            continue
-        if scope.topic_prefix and not _matches_topic(url_metadata(url).topic_path, scope.topic_prefix):
-            continue
-        seen.add(url)
-        yield row
-        yielded += 1
-        # Over-fetch slightly when a committee filter will prune later.
-        if scope.limit and not scope.committee and yielded >= scope.limit:
-            return
+    # no_cursor_timeout: this cursor is iterated across a multi-hour embed pass and
+    # a slower link-extraction pass; the server's default 10-min idle timeout can
+    # expire it mid-iteration (CursorNotFound, code 43). Close it explicitly in the
+    # finally so the server-side cursor is not leaked.
+    cursor = col.find({"error": ""}, no_cursor_timeout=True).sort("url", 1)
+    try:
+        for row in cursor:
+            url = row.get("url")
+            if not url or url in seen:
+                continue
+            ct = (row.get("content_type") or "").lower()
+            if "pdf" not in ct and "html" not in ct:
+                continue
+            if scope.topic_prefix and not _matches_topic(url_metadata(url).topic_path, scope.topic_prefix):
+                continue
+            seen.add(url)
+            yield row
+            yielded += 1
+            # Over-fetch slightly when a committee filter will prune later.
+            if scope.limit and not scope.committee and yielded >= scope.limit:
+                return
+    finally:
+        cursor.close()
 
 
 def ingest(
