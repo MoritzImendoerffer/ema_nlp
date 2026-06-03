@@ -1,5 +1,5 @@
 {
-  "status": "implementing",
+  "status": "completed",
   "work_unit": "2026-05-30_20_llamaindex-retrieval-refactor",
   "branch": "refactor/llamaindex-retrieval-pipeline",
   "checkpoint_commit": "5c3c8a8",
@@ -297,5 +297,6 @@
   ],
   "next_available": [
     "LIR-009"
-  ]
+  ],
+  "closeout": "2026-06-03: all LIR-001..014 complete. Neo4j PropertyGraphIndex built+verified (79,882 docs / 5.82M leaves / 1.72M LINKS_TO); workflows+UI re-seamed onto the retriever; old PG/FAISS stack deleted; docs/memory reconciled; CLAUDE.md banner flipped to REFACTOR LANDED. Only manual step left: live Chainlit UI eyeball for Phoenix spans + thumbs feedback (LIR-011)."
 }

@@ -1,12 +1,14 @@
 # CLAUDE.md
 
-> ⚠️ **REFACTOR IN PROGRESS** (branch `refactor/llamaindex-retrieval-pipeline`, work unit
+> ✅ **REFACTOR LANDED** (branch `refactor/llamaindex-retrieval-pipeline`, work unit
 > [`2026-05-30_20_llamaindex-retrieval-refactor`](.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json)).
-> Retrieval is being rebuilt LlamaIndex-first: a **hierarchical `PropertyGraphIndex` on Neo4j**
-> replaces Postgres + pgvector (dropped), FAISS (dropped), and the hand-rolled SQL retrieval.
-> The benchmark suite was removed from this branch (archived on `archive/pre-llamaindex-refactor`).
-> **Sections below describing pgvector / Postgres / FAISS / `EMA_RETRIEVER` / the MIGR link-graph
-> are STALE** until the LIR-013 doc pass reconciles them. Pre-refactor state: `main` @ `5c3c8a8`.
+> Retrieval is LlamaIndex-first: a **hierarchical `PropertyGraphIndex` on Neo4j**
+> (79,882 docs / 5.82M leaf embeddings / 1.72M `LINKS_TO` edges) replaced Postgres + pgvector,
+> FAISS, and the hand-rolled SQL retrieval — **all now deleted** (LIR-012). Workflows + the
+> Chainlit UI consume the retriever (LIR-009/010). The benchmark suite was removed from this
+> branch (archived on `archive/pre-llamaindex-refactor`). Pre-refactor state: `main` @ `5c3c8a8`.
+> *Remaining: the live-UI tracing/feedback eyeball (LIR-011) is a manual step. Any lingering
+> pgvector/FAISS/`EMA_RETRIEVER` mentions below are historical — see [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md).*
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -77,7 +79,7 @@ Currently in **Phase 1 (corpus extraction)**. Do not introduce work from later p
 ## V1 scope locks
 
 - EMA human-regulatory content only — no FDA content, no clinical trial documents. **(2026-06-02: EPARs are now IN scope for the narrative retrieval corpus** — the ~18k EPAR assessment reports in `parsed_documents` are indexed into Neo4j. The earlier "No EPARs" lock is lifted *for retrieval*; benchmark Q&A curation scope is unchanged.)
-- **Narrative corpus is in scope** (the full PDF + HTML body text, ingested into Postgres). `corpus.jsonl` is the curated Q&A pair extract — used by the benchmark and as a fallback FAISS index; retrieval at runtime is over the pg `chunks` table.
+- **Narrative corpus is in scope** (the full PDF + HTML body text, indexed into the Neo4j `PropertyGraphIndex` as `:Document`/`:Chunk` nodes). `corpus.jsonl` is the curated Q&A pair extract — used by the benchmark only; runtime retrieval is over the Neo4j chunk vector index + graph edges (see `docs/RETRIEVAL.md`).
 - No ontology/graph infrastructure (IDMP, SPOR, Neo4j) — deferred to v2+. IDMP RDF used only for lightweight node metadata tagging (TASK-016.5). `idmp_dabbling.py` is exploratory scratch.
 - No multilingual content.
 - Every added complexity layer must be justified by a specific benchmark failure, not anticipation.
