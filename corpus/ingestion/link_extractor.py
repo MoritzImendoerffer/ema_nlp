@@ -12,7 +12,7 @@ The ``tgt_url`` field carries:
       ``base_url`` for the HTML extractor; the markdown extractor only matches
       already-absolute http(s) URLs.
     * the raw reference code as the URL slot for reference_number links
-      (resolved to a doc_id later by scripts/resolve_links.py).
+      (a doc_id is derived from the resolved URL at ingest time).
     * the literal matched 'see Q&A N' / 'see question N' string for see_qa links
       (best-effort metadata; not currently resolved).
 

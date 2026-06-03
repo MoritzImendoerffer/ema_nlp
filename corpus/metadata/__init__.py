@@ -2,8 +2,8 @@
 
 The two submodules cleanly separate what's derivable from the URL alone
 (``url_metadata``) from what requires the parsed body text
-(``text_metadata``). Both are consumed by the parser-agnostic sync in
-``harness.embed_pg`` and by the link extractor.
+(``text_metadata``). Both are consumed by the ingest layer in
+``harness.indexing.ingest`` (metadata derivation) and the link extractor.
 """
 
 from corpus.metadata.text_metadata import (

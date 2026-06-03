@@ -4,7 +4,7 @@
   "branch": "refactor/llamaindex-retrieval-pipeline",
   "checkpoint_commit": "5c3c8a8",
   "archive_branch": "archive/pre-llamaindex-refactor",
-  "current_task": "LIR-011",
+  "current_task": null,
   "principles": [
     "YAGNI: ONE index kind (hierarchical Neo4j PropertyGraphIndex) + an extensible registry seam; no flat/FAISS index",
     "Hierarchical chunk nodes (parent/child) are the default per user direction; small-to-big retrieval",
@@ -210,7 +210,7 @@
       "id": "LIR-011",
       "title": "Verify tracing + feedback on the subset",
       "type": "testing",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "LIR-010"
       ],
@@ -221,13 +221,14 @@
         "WorkflowRunner config_attributes stamps index/retriever profile on the root span",
         "Up/down rating -> Phoenix annotation works; query cache + few-shot injection still function",
         "End-to-end chat turn traced with feedback recorded"
-      ]
+      ],
+      "notes": "Headless-verified what's verifiable without the Chainlit UI (chainlit not in .venv): config_attributes/profile span-stamping (tests/test_span_attributes Test 4 asserts ema.index.profile lands on the live-OTel wrapper span); query_cache + fewshot_inject import + function (test suite green); and an end-to-end retriever smoke on the COMPLETE 79,882-doc graph (3 EMA queries -> 10 relevant hits, scores 0.90-0.93, source_url provenance). The remaining live click-through (Phoenix spans visible in browser + \ud83d\udc4d/\ud83d\udc4e Chainlit annotation round-trip) needs the running UI + a browser and is the user's manual step \u2014 documented, not executable headlessly."
     },
     {
       "id": "LIR-012",
       "title": "Delete the dead retrieval/PG/FAISS stack",
       "type": "cleanup",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "LIR-010"
       ],
@@ -237,7 +238,8 @@
         "Deleted: harness/pg/*, retrieve_pg.py, embed_pg.py, embed.py, retrieve.py, embed_hierarchical.py, corpus/pg_schema.sql, scripts/init_db.py, scripts/resolve_links.py, deploy/postgres/, PG tests, EMA_RETRIEVER switch (note: DBSYNC scripts/sync_*.sh already removed in commit 6286099)",
         "No dangling imports on the runtime path; ruff + import check pass",
         "git grep confirms no references to deleted modules outside docs/history"
-      ]
+      ],
+      "notes": "Deleted the dead PG/FAISS stack (37 files/dirs): harness/{embed,embed_pg,embed_hierarchical,retrieve,retrieve_pg}.py, harness/pg/, harness/ablations/{a2,a3,a4}, corpus/pg_schema.sql, corpus/sources/synthetic_legacy_reader.py, scripts/{init_db,resolve_links,test_ingest_resume,migrate_mongo_to_parsed_documents}.py, deploy/postgres/, top-level ablations/B_process_rewards/, + 10 PG/embed test files. KEPT a1_query_expansion (used by ReAct) + its ablations/A_evidence_filter/acronym_dict.yaml data (initially over-deleted, restored). Fixed refs: config.py (dropped PG_DSN/EMA_RETRIEVER), crag.py docstring, corpus/metadata + link_extractor docstrings, trimmed test_ablations to a1-only, test_span_attributes (dropped ablation_config test, EMA_RETRIEVER->EMA_INDEX_PROFILE). Runtime path imports clean; 317 tests pass (2 skipped); ruff-clean on touched files. Remaining grep hits are explanatory 'X was removed' comments, not code deps."
     },
     {
       "id": "LIR-013",
@@ -288,6 +290,8 @@
     "LIR-008",
     "LIR-009",
     "LIR-010",
+    "LIR-011",
+    "LIR-012",
     "LIR-013",
     "LIR-014"
   ],

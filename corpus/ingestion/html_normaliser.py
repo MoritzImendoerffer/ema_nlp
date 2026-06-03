@@ -22,18 +22,18 @@ content_type). `normalise_html_doc` unwraps those defensively.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
 import trafilatura
 
 from corpus.ingestion.pdf_normaliser import (
-    EMA_REF_RE,
-    DocumentInput,
     _COMMITTEE_RE,
     _COMMITTEES,
     _REVISION_RE,
+    EMA_REF_RE,
+    DocumentInput,
 )
 
 _log = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ def _parse_iso_date(value: str | None) -> datetime | None:
             try:
                 dt = datetime.strptime(cand, fmt)
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
+                    dt = dt.replace(tzinfo=UTC)
                 return dt
             except ValueError:
                 continue

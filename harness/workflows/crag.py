@@ -30,11 +30,14 @@ Usage::
     from harness.workflows.crag import CRAGWorkflow
     from harness.workflows.utils import WorkflowRunner
     from harness.llms import get_llm
-    from harness.embed import build_index
+    from harness.indexing import load_index_profile
+    from harness.indexing.property_graph import open_index
+    from harness.indexing.registry import build_retriever
 
-    index  = build_index(corpus_path, index_dir)
+    profile   = load_index_profile()
+    retriever = build_retriever(profile, open_index(profile))
     llm    = get_llm("agent")
-    runner = WorkflowRunner(CRAGWorkflow(index=index, llm=llm, timeout=180))
+    runner = WorkflowRunner(CRAGWorkflow(retriever=retriever, llm=llm, timeout=180))
     result = runner.invoke({"question": "What is the AI for NDMA?"})
     print(result["answer_text"])
     print(result["rewrite_cycles_used"])

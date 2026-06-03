@@ -21,7 +21,6 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -39,8 +38,8 @@ class ModelConfig:
     model_id: str
     max_tokens: int
     temperature: float
-    api_base: Optional[str] = field(default=None)      # openai_compatible only
-    api_key_env: Optional[str] = field(default=None)   # openai_compatible only
+    api_base: str | None = field(default=None)      # openai_compatible only
+    api_key_env: str | None = field(default=None)   # openai_compatible only
 
 
 def load_model_for_role(role_name: str, config_path: Path = _MODELS_YAML) -> ModelConfig:

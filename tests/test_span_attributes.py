@@ -5,7 +5,7 @@ Four scenarios:
   1. Recording span — config_attributes() keys stamped before workflow runs.
   2. Non-recording span (Phoenix disabled) — no exception raised.
   3. Workflow without config_attributes() — warning logged, no crash.
-  4. retrieve_fn with ablation_config — ablation flags reflected in stamped attributes.
+  4. Live OTel SDK — attributes (incl. ema.index.profile) land on the wrapper span.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from harness.workflows.utils import WorkflowRunner
-
 
 # ---------------------------------------------------------------------------
 # Minimal fake workflow that resolves immediately
@@ -127,55 +126,7 @@ def test_missing_config_attributes_warns_once(caplog):
 
 
 # ---------------------------------------------------------------------------
-# Test 4: retrieve_fn with ablation_config — ablation flags on span
-# ---------------------------------------------------------------------------
-
-def test_ablation_config_reflected_in_span_attributes():
-    from harness.retrieve import AblationConfig
-
-    abl = AblationConfig(reranker="sme", query_expansion={"enabled": True})
-
-    class _FakeRetrieveFn:
-        ablation_config = abl
-        def __call__(self, q):
-            return []
-
-    class _WorkflowWithAblation:
-        def __init__(self):
-            self._prompt_strategy = "zero_shot"
-            self._config = type("C", (), {"strategy": "flat", "mode": "hybrid", "k": 10})()
-            self._retrieve_fn = _FakeRetrieveFn()
-
-        async def run(self, **kwargs):
-            return {"answer_text": "ok", "docs": []}
-
-        def config_attributes(self):
-            a = getattr(self._retrieve_fn, "ablation_config", None)
-            return {
-                "ema.orchestration.strategy": "simple_rag",
-                "ema.orchestration.prompt_strategy": self._prompt_strategy,
-                "ema.retrieval.strategy": self._config.strategy,
-                "ema.retrieval.mode": self._config.mode,
-                "ema.retrieval.k": self._config.k,
-                "ema.retrieval.reranker": a.reranker or "none" if a else "none",
-                "ema.retrieval.query_expansion": a.query_expansion_enabled if a else False,
-                "ema.retrieval.topic_filter": a.topic_filter_mode or "none" if a else "none",
-            }
-
-    mock_span = MagicMock()
-    mock_span.is_recording.return_value = True
-    runner = WorkflowRunner(_WorkflowWithAblation())
-
-    with patch("opentelemetry.trace.get_current_span", return_value=mock_span):
-        _run(runner.ainvoke({"question": "test"}))
-
-    attrs = {call.args[0]: call.args[1] for call in mock_span.set_attribute.call_args_list}
-    assert attrs["ema.retrieval.reranker"] == "sme"
-    assert attrs["ema.retrieval.query_expansion"] is True
-
-
-# ---------------------------------------------------------------------------
-# Test 5 (NARR-023 regression): live OTel SDK path — attributes must land on
+# Test 4 (NARR-023 regression): live OTel SDK path — attributes must land on
 # the runner's wrapper span, not a no-op span. Catches the bug where stamping
 # happened before any workflow span existed.
 # ---------------------------------------------------------------------------
@@ -196,7 +147,7 @@ def test_live_otel_sdk_records_attributes_on_wrapper_span(monkeypatch):
     monkeypatch.setattr(otel_trace, "_TRACER_PROVIDER", None, raising=False)
     monkeypatch.setattr(otel_trace, "_TRACER_PROVIDER_SET_ONCE", None, raising=False)
     monkeypatch.setattr(otel_trace, "get_tracer_provider", lambda: provider)
-    monkeypatch.setenv("EMA_RETRIEVER", "pgvector")
+    monkeypatch.setenv("EMA_INDEX_PROFILE", "neo4j_hier")
 
     runner = WorkflowRunner(_MinimalWorkflow())
     result = _run(runner.ainvoke({"question": "q", "run_id": "rid", "source": "eval"}))
@@ -207,7 +158,7 @@ def test_live_otel_sdk_records_attributes_on_wrapper_span(monkeypatch):
     wrapper = [s for s in spans if s.name == "_MinimalWorkflow.invoke"]
     assert wrapper, f"expected a wrapper span, got: {[s.name for s in spans]}"
     attrs = dict(wrapper[0].attributes)
-    assert attrs.get("ema.retrieval.backend") == "pgvector"
+    assert attrs.get("ema.index.profile") == "neo4j_hier"
     assert attrs.get("ema.run.id") == "rid"
     assert attrs.get("ema.run.source") == "eval"
     assert attrs.get("ema.orchestration.strategy") == "simple_rag"

@@ -16,7 +16,7 @@ Chunks below `min_chunk_chars` are dropped (filters TOC/page-number debris).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 from llama_index.core.node_parser import (

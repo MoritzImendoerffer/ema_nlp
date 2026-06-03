@@ -30,13 +30,8 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 MONGO_DB = "ema_scraper"
 MONGO_COL = "web_items"
 
-# Postgres + pgvector — used by harness.embed_pg / harness.retrieve_pg.
-# Real DSN (with secret) belongs in ~/.myenvs/ema_nlp.env; the default below
-# matches the Docker compose stack under deploy/postgres/ for first-run dev.
-PG_DSN = os.getenv("PG_DSN", "postgresql://ema_nlp:ema_nlp@localhost:5432/ema_nlp")
-
-# Retriever dispatch: "pgvector" (default — chunks table in Postgres; full EMA
-# narrative corpus) or "faiss" (legacy FAISS index over Q&A corpus.jsonl,
-# kept for back-compat experiments and benchmark-only runs).
-# Flipped to "pgvector" default by NARR-028 (2026-05-26).
-EMA_RETRIEVER = os.getenv("EMA_RETRIEVER", "pgvector")
+# Retrieval store: Neo4j PropertyGraphIndex. Connection (NEO4J_URI / NEO4J_USER /
+# NEO4J_PASSWORD) is read from the env by harness.indexing.property_graph; the
+# active index profile is selected by EMA_INDEX_PROFILE (default neo4j_hier ->
+# harness/configs/index/). Postgres/pgvector and the EMA_RETRIEVER faiss/pgvector
+# switch were removed in the LlamaIndex/Neo4j refactor — see docs/RETRIEVAL.md.
