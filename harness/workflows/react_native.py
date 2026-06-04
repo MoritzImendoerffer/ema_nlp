@@ -386,6 +386,7 @@ def build_react_native(
     retriever: Any,
     llm: Any,
     max_iterations: int = MAX_ITERATIONS,
+    **_: Any,  # tolerate forwarded kwargs (e.g. prompt_strategy) — ReAct ignores them
 ) -> WorkflowRunner:
     """Factory function matching the registry interface."""
     wf = ReActNativeWorkflow(

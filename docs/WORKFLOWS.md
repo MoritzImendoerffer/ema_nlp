@@ -143,10 +143,11 @@ That is the only wiring `get_workflow` / eval YAML need. Verify:
 **3. (Optional) compose existing workflows** instead of writing from scratch — `harness/workflows/composites.py`
 shows `crag_review` / `react_review` chaining a base workflow + a `review` pass. Mirror that pattern.
 
-**4. Surface it in the Chainlit UI** (`app.py`): add an entry to `_PROFILE_STRATEGY`
-(`"My Strategy": ("my_strategy", "zero_shot")`) and a one-liner to `_PROFILE_DESCRIPTIONS`. It then appears
-in the profile selector (and, once the settings-panel selector lands — work unit
-`2026-06-04_25_chainlit-strategy-selector` — in the live settings dropdown).
+**4. Nothing to do for the Chainlit UI** — the settings panel lists workflows **dynamically** from
+`list_workflows()`, so `my_strategy` appears in the live **Workflow** dropdown automatically (with a
+title-cased label; add a friendly one to `_WORKFLOW_LABELS` in `app.py` if you like). The only contract: a
+registered builder must be callable from `(retriever, llm[, prompt_strategy])` alone. (The pre-chat
+`cl.ChatProfile` list still uses `_PROFILE_STRATEGY` as a seed; adding an entry there is optional.)
 
 **5. (Optional) use it in eval configs:** `orchestration: { strategy: my_strategy, prompt_strategy: cot_self }`.
 

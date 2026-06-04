@@ -6,7 +6,7 @@ Ask any question about European Medicines Agency (EMA) human-regulatory guidance
 - Hierarchical retrieval over the EMA regulatory corpus — a Neo4j `PropertyGraphIndex` of parsed EMA documents (HTML pages + PDFs / EPARs), searched by BGE-large dense embeddings with small-to-big merge-up and 1-hop `LINKS_TO` graph expansion
 - Streaming answers grounded in retrieved passages
 - Source provenance — see referenced EMA documents in the sidebar
-- Choose a retrieval+reasoning workflow per session: single-step `simple_rag` or multi-step agents (CRAG, ReAct, summarize, review variants); multi-step workflows show their intermediate steps and let you rate the trajectory
+- Pick the **workflow, prompt strategy, and retrieval profile live from the settings panel** (options are listed dynamically from the registries, so newly-added strategies/profiles appear automatically): single-step `simple_rag` or multi-step agents (CRAG, ReAct, summarize, review variants); multi-step workflows show their intermediate steps and let you rate the trajectory
 - Full trace visibility via [Arize Phoenix](http://localhost:6006) (if running), with 👍/👎 feedback written back as Phoenix annotations
 
 **Configuration:**

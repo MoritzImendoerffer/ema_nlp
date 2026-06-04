@@ -49,7 +49,7 @@ from harness.indexing.ingest import (
 )
 from harness.indexing.links import ExtractedLink, extract_links
 from harness.indexing.profiles import IndexProfile
-from harness.indexing.registry import register_index, register_retriever
+from harness.indexing.registry import register_index, register_open, register_retriever
 
 _log = logging.getLogger(__name__)
 
@@ -471,6 +471,7 @@ def build_property_graph_index(
     )
 
 
+@register_open("property_graph")
 def open_index(profile: IndexProfile | None = None) -> PropertyGraphIndex:
     """Open the existing Neo4j PropertyGraphIndex without rebuilding (no re-embed)."""
     return PropertyGraphIndex.from_existing(

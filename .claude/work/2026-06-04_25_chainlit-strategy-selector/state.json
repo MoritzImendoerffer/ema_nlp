@@ -1,6 +1,6 @@
 {
   "id": "2026-06-04_25_chainlit-strategy-selector",
-  "status": "implementing",
+  "status": "complete",
   "current_task": null,
   "branch": "refactor/llamaindex-retrieval-pipeline",
   "planning_note": "TWO THREADS. THREAD A = whole-documentation refresh (DOC-001..011), driven by audit-findings.md (11-agent staleness audit). Most DOC tasks are independent (different files) and parallelizable; do high-priority first (DOC-001..005, 009). THREAD B = Chainlit strategy selector (TASK-002..005), app.py UI plumbing (confirm D1/D2/D3 first). TASK-001 (WORKFLOWS.md) already done. Recommended chainlit defaults: D1=settings is live source of truth + ChatProfile seeds; D2=two widgets; D3=defer index-profile selector.",
@@ -36,83 +36,6 @@
       ],
       "estimated_hours": 2,
       "priority": "high"
-    },
-    {
-      "id": "TASK-002",
-      "title": "Add workflow + prompt_strategy selectors to ChatSettings (_make_chat_settings)",
-      "type": "feature",
-      "status": "pending",
-      "dependencies": [
-        "TASK-001"
-      ],
-      "files": [
-        "app.py"
-      ],
-      "acceptance_criteria": [
-        "Select 'workflow' (7 strategies or 9 flat profiles per D2) + Select 'prompt_strategy' (zero_shot/few_shot/cot_self) added",
-        "_DEFAULT_SETTINGS seeds workflow/prompt_strategy from the resolved chat profile / EMA_WORKFLOW_STRATEGY",
-        "widget initial values reflect the active workflow at chat-start"
-      ],
-      "estimated_hours": 2,
-      "priority": "high"
-    },
-    {
-      "id": "TASK-003",
-      "title": "Thread the selection into the pipeline rebuild (on_settings_update + kwargs)",
-      "type": "feature",
-      "status": "pending",
-      "dependencies": [
-        "TASK-002"
-      ],
-      "files": [
-        "app.py"
-      ],
-      "acceptance_criteria": [
-        "_settings_to_pipeline_kwargs maps the widgets -> strategy + prompt_strategy",
-        "on_settings_update reads strategy/prompt_strategy from settings (not session), rebuilds pipeline, updates session strategy/prompt_strategy",
-        "react/react_review unaffected when a prompt_strategy is set (passed but ignored)",
-        "Phoenix span shows the new ema.orchestration.strategy/prompt_strategy after a change"
-      ],
-      "estimated_hours": 2,
-      "priority": "high"
-    },
-    {
-      "id": "TASK-004",
-      "title": "Reconcile ChatProfile vs settings ownership (D1) + on_chat_resume consistency",
-      "type": "feature",
-      "status": "pending",
-      "dependencies": [
-        "TASK-003"
-      ],
-      "files": [
-        "app.py"
-      ],
-      "acceptance_criteria": [
-        "ChatProfile seeds the initial settings value; settings is the live source of truth thereafter (D1)",
-        "on_chat_resume seeds the settings widgets from the thread-tag profile consistently",
-        "no double-control confusion (documented behavior)"
-      ],
-      "estimated_hours": 1,
-      "priority": "medium"
-    },
-    {
-      "id": "TASK-005",
-      "title": "Manual verification in the running app + README/app docstring note",
-      "type": "testing",
-      "status": "pending",
-      "dependencies": [
-        "TASK-004"
-      ],
-      "files": [
-        "app.py"
-      ],
-      "acceptance_criteria": [
-        "Live click-through: switch workflow in panel -> next answer uses it (CRAG grade/rewrite visible; Phoenix attr changes)",
-        "model/temp/k/cache still work; pytest workflow-registry tests green",
-        "app.py module docstring updated to note workflow is now settings-selectable"
-      ],
-      "estimated_hours": 1,
-      "priority": "medium"
     },
     {
       "id": "DOC-001",
@@ -311,9 +234,178 @@
       ],
       "estimated_hours": 1,
       "priority": "low"
+    },
+    {
+      "id": "CSEL-001",
+      "title": "Enabling harness changes: list_prompt_strategies() accessor + make all workflow builders tolerant of extra kwargs (**_), fixing the react/react_review prompt_strategy TypeError",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "app.py",
+        "harness/workflows/",
+        "harness/indexing/",
+        "tests/"
+      ],
+      "acceptance_criteria": [
+        "list_prompt_strategies() == list(_PROMPT_FILES)",
+        "build_react_native/build_react_review (and all build_*) accept **_: Any",
+        "get_workflow('react', retriever=fake, llm=fake, prompt_strategy='cot_self') does NOT raise",
+        "unit tests green"
+      ],
+      "estimated_hours": 1.5,
+      "priority": "high"
+    },
+    {
+      "id": "CSEL-002",
+      "title": "Registry-level open_index dispatch (P0, RETRIEVAL_TRACKS \u00a70.7): OPEN_BUILDERS + register_open + open_index(profile) on profile.index.kind; property_graph registers its opener; exported from harness.indexing",
+      "type": "foundation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "app.py",
+        "harness/workflows/",
+        "harness/indexing/",
+        "tests/"
+      ],
+      "acceptance_criteria": [
+        "registry.py gets OPEN_BUILDERS + register_open(kind) + open_index(profile) dispatcher (mirrors build_index); unknown kind -> NotImplementedError listing registered",
+        "property_graph.open_index is NOT renamed \u2014 only decorated @register_open('property_graph') (A2)",
+        "harness.indexing re-exports the registry-level open_index; `from harness.indexing.property_graph import open_index` STILL imports (regression guard, A2)",
+        "registry test mirrors test_indexing_profiles clean_registries fixture"
+      ],
+      "estimated_hours": 1,
+      "priority": "high"
+    },
+    {
+      "id": "CSEL-003",
+      "title": "Dynamic ChatSettings panel: _chat_options() + _make_chat_settings(current) build workflow/prompt_strategy/index_profile Selects from list_workflows()/list_prompt_strategies()/profile glob (DL1/DL2/DL3), with _WORKFLOW_LABELS + key fallback; keep model/temp/k/cache",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [
+        "CSEL-001"
+      ],
+      "files": [
+        "app.py",
+        "harness/workflows/",
+        "harness/indexing/",
+        "tests/"
+      ],
+      "acceptance_criteria": [
+        "_chat_options()['workflows'] == set(list_workflows()) (locks dynamic discovery)",
+        "a monkeypatched extra registry entry appears in options with a sensible label",
+        "_make_chat_settings(current) returns widgets with expected ids + seeded initials",
+        "new registry entry needs no app.py edit to appear"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "CSEL-004",
+      "title": "Thread workflow+prompt selection into the live rebuild (Layer 1, no index reload)",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [
+        "CSEL-001",
+        "CSEL-003"
+      ],
+      "files": [
+        "app.py",
+        "harness/workflows/",
+        "harness/indexing/",
+        "tests/"
+      ],
+      "acceptance_criteria": [
+        "_settings_to_pipeline_kwargs maps workflow->strategy + prompt_strategy (+ model/temp/k); only prompt_strategy reaches the builder via get_workflow (A3)",
+        "on_settings_update reads strategy/prompt from settings (not session), rebuilds pipeline, updates session strategy/prompt",
+        "changing workflow -> next answer uses it; Phoenix ema.orchestration.strategy/prompt_strategy flip (from fresh config_attributes())",
+        "react/react_review unaffected by the prompt setting (DL4); model/temp/k/cache still work"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "CSEL-005",
+      "title": "Seeding + ChatProfile reconciliation (DL5): seed the settings widgets from the resolved ChatProfile (strategy,prompt) + active EMA_INDEX_PROFILE in on_chat_start/on_chat_resume; settings = live source of truth thereafter",
+      "type": "feature",
+      "status": "completed",
+      "dependencies": [
+        "CSEL-003"
+      ],
+      "files": [
+        "app.py",
+        "harness/workflows/",
+        "harness/indexing/",
+        "tests/"
+      ],
+      "acceptance_criteria": [
+        "_make_chat_settings(current) seeds initial/initial_value for EVERY widget from current (workflow/prompt/profile AND model/temp/k/cache) so a re-render never snaps others to defaults (A6)",
+        "_PROFILE_STRATEGY retained as the ChatProfile seed + on_chat_resume thread-tag reverse-lookup (A5)",
+        "panel initial values match the chosen ChatProfile; on resume match the thread-tag profile; settings = live source of truth thereafter (DL5)"
+      ],
+      "estimated_hours": 1,
+      "priority": "medium"
+    },
+    {
+      "id": "CSEL-006",
+      "title": "Tests + live verification + docs: unit-test the pure helpers (_chat_options, _settings_to_pipeline_kwargs, registry open dispatch, builder tolerance); live click-through (switch workflow/profile mid-session); app.py docstring + chainlit.md/WORKFLOWS.md dynamic-panel note; pytest/ruff/mypy green",
+      "type": "testing",
+      "status": "completed",
+      "dependencies": [
+        "CSEL-004",
+        "CSEL-005",
+        "CSEL-007"
+      ],
+      "files": [
+        "app.py",
+        "harness/workflows/",
+        "harness/indexing/",
+        "tests/"
+      ],
+      "acceptance_criteria": [
+        "pure-helper unit tests green offline",
+        "live: workflow + index_profile switch mid-session works; model/temp/k/cache ok",
+        "docs note the panel auto-lists registered strategies",
+        "pytest + ruff + mypy clean",
+        "auto-appear contract documented: a registered builder must be callable from (retriever, llm[, prompt_strategy]) alone (A3)"
+      ],
+      "estimated_hours": 1.5,
+      "priority": "medium"
+    },
+    {
+      "id": "CSEL-007",
+      "type": "feature",
+      "status": "completed",
+      "title": "Layer 2 \u2014 dynamic index_profile axis: profile-aware loading + reload-on-change + tracing env sync + embed guard",
+      "dependencies": [
+        "CSEL-002",
+        "CSEL-003",
+        "CSEL-004"
+      ],
+      "files": [
+        "app.py",
+        "harness/indexing/"
+      ],
+      "acceptance_criteria": [
+        "index_profile Select (glob harness/configs/index/*.yaml) rendered; new profile yamls auto-appear",
+        "_load_index_sync(profile_name) opens via the registry open_index dispatch (CSEL-002); _build_session_workflow uses the chosen profile, not the module constant",
+        "on_settings_update reloads the index ONLY when index_profile changed (asyncio.to_thread + transient 'reloading' message)",
+        "embed model re-config guarded: runs once per session / skipped when model name unchanged (A4, GPU risk)",
+        "os.environ['EMA_INDEX_PROFILE'] set to the selected profile before rebuild so utils.py:84/174 tracing reads the live profile (A1)",
+        "Phoenix ema.index.profile reflects the switched profile"
+      ],
+      "estimated_hours": 2,
+      "priority": "medium"
     }
   ],
   "completed_tasks": [
+    "CSEL-001",
+    "CSEL-002",
+    "CSEL-003",
+    "CSEL-004",
+    "CSEL-005",
+    "CSEL-006",
+    "CSEL-007",
     "DOC-001",
     "DOC-002",
     "DOC-003",
@@ -327,19 +419,30 @@
     "DOC-011",
     "TASK-001"
   ],
-  "next_available": [
-    "TASK-002"
-  ],
+  "next_available": [],
   "critical_path_docs": [
     "DOC-005",
     "DOC-006"
   ],
   "critical_path_feature": [
+    "CSEL-001",
+    "CSEL-003",
+    "CSEL-004",
+    "CSEL-005",
+    "CSEL-006"
+  ],
+  "estimated_total_hours": 22,
+  "next": "Work unit COMPLETE \u2014 docs refresh (DOC-*) + Chainlit dynamic selector (CSEL-*) both shipped.",
+  "superseded_tasks": [
     "TASK-002",
     "TASK-003",
     "TASK-004",
-    "TASK-005"
+    "TASK-005 (outline; replaced by dynamic CSEL-001..006)"
   ],
-  "estimated_total_hours": 22,
-  "next": "Docs thread COMPLETE (DOC-001..011 shipped). Remaining: Chainlit selector feature (TASK-002..005) \u2014 /plan to confirm D1/D2/D3 then /next."
+  "layer2_path": [
+    "CSEL-002",
+    "CSEL-007"
+  ],
+  "review": "2-agent adversarial review folded in (plan-correctness needs-revision -> resolved; chainlit-runtime solid). See implementation-plan.md \u00a73b A1-A7.",
+  "estimated_total_hours_feature": 11
 }

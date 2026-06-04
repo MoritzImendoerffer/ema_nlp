@@ -411,6 +411,7 @@ def build_react_review(
     retriever: Any,
     llm: Any,
     review_threshold: float = 0.6,
+    **_: Any,  # tolerate forwarded kwargs (e.g. prompt_strategy) — ReAct ignores them
 ) -> WorkflowRunner:
     wf = ReactReviewWorkflow(
         retriever=retriever, llm=llm,

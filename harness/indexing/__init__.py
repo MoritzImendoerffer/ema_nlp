@@ -26,7 +26,9 @@ from harness.indexing.registry import (
     build_retriever,
     list_index_kinds,
     list_retriever_strategies,
+    open_index,
     register_index,
+    register_open,
     register_retriever,
 )
 
@@ -36,7 +38,9 @@ __all__ = [
     "resolve_profile_name",
     "build_index",
     "build_retriever",
+    "open_index",
     "register_index",
+    "register_open",
     "register_retriever",
     "list_index_kinds",
     "list_retriever_strategies",

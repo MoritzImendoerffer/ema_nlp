@@ -6,8 +6,11 @@ Arize Phoenix trace integration, and per-step 👍/👎 feedback.
 
 Features:
   - Left sidebar:   persistent chat history (SQLite); login with UI_PASSWORD env var
-  - Right sidebar:  model + parameter settings (model, temperature, k, cache toggle)
-  - ChatProfile:    workflow strategy selector (9 LlamaIndex strategies)
+  - Right sidebar:  live settings panel — workflow + prompt strategy + retrieval profile
+                    (all listed DYNAMICALLY from the registries, so a newly-registered
+                    strategy/profile appears automatically) plus model/temperature/k/cache.
+                    Changing the workflow or profile rebuilds the session pipeline in place.
+  - ChatProfile:    seeds the initial workflow; the settings panel is the live source of truth.
 
 Usage:
     chainlit run app.py
@@ -63,6 +66,24 @@ _PROFILE_DESCRIPTIONS: dict[str, str] = {
     "crag_review":   "CRAG loop → generate → reviewer pass",
     "react_review":  "ReAct → reviewer (score only)",
 }
+
+# Friendly labels for the settings-panel workflow Select. The option LIST is built
+# dynamically from the registry (list_workflows()), so a newly-registered strategy
+# appears automatically; this map only prettifies known keys — unknown/new keys fall
+# back to a title-cased key.
+_WORKFLOW_LABELS: dict[str, str] = {
+    "simple_rag": "Simple RAG",
+    "react": "ReAct",
+    "crag": "CRAG",
+    "summarize_rag": "Summarize RAG",
+    "crag_summarize": "CRAG + Summarize",
+    "crag_review": "CRAG + Review",
+    "react_review": "ReAct + Review",
+}
+
+
+def _workflow_label(key: str) -> str:
+    return _WORKFLOW_LABELS.get(key, key.replace("_", " ").title())
 
 # ── SQLite schema (created on first run via on_app_startup) ───────────────────
 
@@ -225,20 +246,43 @@ async def set_chat_profiles(user: cl.User | None) -> list[cl.ChatProfile]:
     ]
 
 
+# ── Dynamic options (registry-driven — new strategies appear automatically) ────
+
+def _chat_options() -> dict[str, list[str]]:
+    """The live option lists for the settings panel, read from the registries at
+    render time so a newly-registered workflow / prompt file / index profile is
+    picked up with no edit here."""
+    from harness.indexing.profiles import PROFILE_DIR
+    from harness.workflows.registry import list_workflows
+    from harness.workflows.utils import list_prompt_strategies
+
+    profiles = sorted(p.stem for p in PROFILE_DIR.glob("*.yaml")) if PROFILE_DIR.exists() else []
+    return {
+        "workflows": list_workflows(),
+        "prompt_strategies": list_prompt_strategies(),
+        "index_profiles": profiles or [EMA_INDEX_PROFILE],
+    }
+
+
 # ── Index loading ─────────────────────────────────────────────────────────────
 
-def _load_index_sync():
-    # Open the existing Neo4j PropertyGraphIndex selected by EMA_INDEX_PROFILE
-    # (no rebuild / re-embed). configure_embed_model() also sets
-    # Settings.embed_model so _embed_query_sync (semantic cache) works.
-    from harness.indexing import load_index_profile
-    from harness.indexing.property_graph import open_index
-    from harness.providers import configure_embed_model
+def _load_index_sync(profile_name: str) -> Any:
+    """Open (no rebuild) the index for ``profile_name`` via the registry dispatch,
+    so a non-property_graph profile loads its own store. ``open_index`` also sets
+    ``Settings.embed_model`` (used by the semantic-cache query embedding). Keeps
+    ``EMA_INDEX_PROFILE`` in the env so invoke-time tracing
+    (``utils.retriever_attributes`` / ``WorkflowRunner._stamp_span``) reports the
+    live profile after a switch."""
+    from harness.indexing import load_index_profile, open_index
 
-    configure_embed_model()
-    profile = load_index_profile(EMA_INDEX_PROFILE)
+    profile = load_index_profile(profile_name)
     log.info("Loading index profile %s", profile.name)
-    return open_index(profile)
+    index = open_index(profile)
+    # Only after the open succeeds: keep invoke-time tracing
+    # (utils.retriever_attributes / WorkflowRunner._stamp_span read EMA_INDEX_PROFILE
+    # via os.getenv) in sync. On a FAILED switch the env stays on the old profile.
+    os.environ["EMA_INDEX_PROFILE"] = profile_name
+    return index
 
 
 def _embed_query_sync(query: str) -> np.ndarray | None:
@@ -254,6 +298,7 @@ def _embed_query_sync(query: str) -> np.ndarray | None:
 def _build_session_workflow(
     index: Any,
     *,
+    index_profile: str = EMA_INDEX_PROFILE,
     strategy: str = WORKFLOW_STRATEGY,
     prompt_strategy: str | None = None,
     model_name: str = "claude_opus",
@@ -266,11 +311,14 @@ def _build_session_workflow(
     from harness.workflows.registry import get_workflow
 
     llm = get_llm_for_model(model_name, temperature_override=temperature)
-    profile = load_index_profile(EMA_INDEX_PROFILE)
+    profile = load_index_profile(index_profile)
     if retrieval_k:
         profile.retrieval.k = retrieval_k
     retriever = build_retriever(profile, index)
 
+    # Only ``prompt_strategy`` reaches the builder (via get_workflow); model/temp/k
+    # are applied above. Workflows that ignore prompt_strategy (react/react_review)
+    # tolerate it via **_ in their builders.
     return get_workflow(
         strategy, retriever=retriever, llm=llm, prompt_strategy=prompt_strategy,
     )
@@ -278,42 +326,77 @@ def _build_session_workflow(
 
 # ── Settings helpers ──────────────────────────────────────────────────────────
 
-def _make_chat_settings() -> cl.ChatSettings:
+def _make_chat_settings(current: dict) -> cl.ChatSettings:
+    """Build the settings panel. Option lists are dynamic (``_chat_options``); every
+    widget is seeded from ``current`` — a (re)render resets ALL widgets to their
+    ``initial``, so passing the full current state avoids snapping others to defaults."""
+    opts = _chat_options()
     return cl.ChatSettings([
         cl.input_widget.Select(
-            id="agent_model",
-            label="Agent model",
+            id="workflow", label="Workflow",
+            items={k: _workflow_label(k) for k in opts["workflows"]},
+            initial_value=current.get("workflow", WORKFLOW_STRATEGY),
+        ),
+        cl.input_widget.Select(
+            id="prompt_strategy", label="Prompt strategy (ignored by ReAct)",
+            items={p: p for p in opts["prompt_strategies"]},
+            initial_value=current.get("prompt_strategy") or "zero_shot",
+        ),
+        cl.input_widget.Select(
+            id="index_profile", label="Retrieval profile",
+            items={p: p for p in opts["index_profiles"]},
+            initial_value=current.get("index_profile", EMA_INDEX_PROFILE),
+        ),
+        cl.input_widget.Select(
+            id="agent_model", label="Agent model",
             values=["claude_haiku", "claude_opus", "olmo_32b", "local_qwen32"],
-            initial_value="claude_opus",
+            initial_value=str(current.get("agent_model", "claude_opus")),
         ),
         cl.input_widget.Slider(
             id="temperature", label="Temperature",
-            min=0.0, max=1.0, step=0.05, initial=0.0,
+            min=0.0, max=1.0, step=0.05, initial=float(current.get("temperature", 0.0)),
         ),
         cl.input_widget.Slider(
             id="retrieval_k", label="Retrieval k",
-            min=3, max=20, step=1, initial=float(RETRIEVAL_K),
+            min=3, max=20, step=1, initial=float(current.get("retrieval_k", RETRIEVAL_K)),
         ),
         cl.input_widget.Switch(
-            id="cache_enabled", label="Semantic cache", initial=True,
+            id="cache_enabled", label="Semantic cache",
+            initial=bool(current.get("cache_enabled", True)),
         ),
     ])
 
 
 def _settings_to_pipeline_kwargs(settings: dict) -> dict:
+    """Map raw widget values → _build_session_workflow kwargs (workflow/prompt/profile
+    selectors included, so the panel drives the pipeline)."""
     return {
-        "model_name":  str(settings.get("agent_model", "claude_opus")),
-        "temperature": float(settings.get("temperature", 0.0)),
-        "retrieval_k": int(settings.get("retrieval_k", RETRIEVAL_K)),
+        "strategy":        str(settings.get("workflow", WORKFLOW_STRATEGY)),
+        "prompt_strategy": settings.get("prompt_strategy") or "zero_shot",
+        "index_profile":   str(settings.get("index_profile", EMA_INDEX_PROFILE)),
+        "model_name":      str(settings.get("agent_model", "claude_opus")),
+        "temperature":     float(settings.get("temperature", 0.0)),
+        "retrieval_k":     int(settings.get("retrieval_k", RETRIEVAL_K)),
     }
 
 
-_DEFAULT_SETTINGS: dict = {
-    "agent_model": "claude_opus",
-    "temperature": 0.0,
-    "retrieval_k": float(RETRIEVAL_K),
-    "cache_enabled": True,
-}
+def _seed_settings(strategy: str, prompt_strategy: str | None, index_profile: str) -> dict:
+    """Initial settings dict for a new/resumed session — the ChatProfile seeds the
+    workflow/prompt; the panel is the live source of truth thereafter."""
+    return {
+        "workflow": strategy,
+        "prompt_strategy": prompt_strategy or "zero_shot",
+        "index_profile": index_profile,
+        "agent_model": "claude_opus",
+        "temperature": 0.0,
+        "retrieval_k": float(RETRIEVAL_K),
+        "cache_enabled": True,
+    }
+
+
+def _init_cache_sync():
+    from harness.query_cache import QueryCache
+    return QueryCache()
 
 
 # ── Chainlit lifecycle ────────────────────────────────────────────────────────
@@ -323,8 +406,14 @@ async def on_chat_start() -> None:
     await cl.Message(
         content="Loading EMA Q&A index… (first run builds embeddings and may take ≤ 30 s)"
     ).send()
+
+    profile_name = cl.user_session.get("chat_profile")
+    strategy, prompt_strategy = _PROFILE_STRATEGY.get(profile_name or "", (WORKFLOW_STRATEGY, None))
+    seed = _seed_settings(strategy, prompt_strategy, EMA_INDEX_PROFILE)
+    log.info("Strategy: %s prompt_strategy: %s (profile: %s)", strategy, prompt_strategy, profile_name)
+
     try:
-        index = await asyncio.to_thread(_load_index_sync)
+        index = await asyncio.to_thread(_load_index_sync, seed["index_profile"])
     except Exception as exc:
         await cl.Message(content=f"Index load failed: {exc}").send()
         raise
@@ -332,31 +421,22 @@ async def on_chat_start() -> None:
     session_id = str(uuid.uuid4())
     log.info("Session started: %s", session_id)
 
-    profile_name = cl.user_session.get("chat_profile")
-    strategy, prompt_strategy = _PROFILE_STRATEGY.get(profile_name or "", (WORKFLOW_STRATEGY, None))
-    log.info("Strategy: %s prompt_strategy: %s (profile: %s)", strategy, prompt_strategy, profile_name)
-
     pipeline = await asyncio.to_thread(
-        _build_session_workflow, index, strategy=strategy, prompt_strategy=prompt_strategy,
-        **_settings_to_pipeline_kwargs(_DEFAULT_SETTINGS),
+        _build_session_workflow, index, **_settings_to_pipeline_kwargs(seed),
     )
-
-    def _init_cache():
-        from harness.query_cache import QueryCache
-        return QueryCache()
-
-    cache = await asyncio.to_thread(_init_cache)
+    cache = await asyncio.to_thread(_init_cache_sync)
 
     cl.user_session.set("session_id", session_id)
     cl.user_session.set("index", index)
     cl.user_session.set("pipeline", pipeline)
     cl.user_session.set("cache", cache)
     cl.user_session.set("strategy", strategy)
-    cl.user_session.set("prompt_strategy", prompt_strategy)
-    cl.user_session.set("settings", _DEFAULT_SETTINGS.copy())
+    cl.user_session.set("prompt_strategy", seed["prompt_strategy"])
+    cl.user_session.set("index_profile", seed["index_profile"])
+    cl.user_session.set("settings", seed)
     cl.user_session.set("msg_counter", 0)
 
-    await _make_chat_settings().send()
+    await _make_chat_settings(seed).send()
     await cl.Message(
         content="Ready. Ask any question about EMA human-regulatory guidance."
     ).send()
@@ -368,24 +448,19 @@ async def on_chat_resume(thread: dict) -> None:
     tags = thread.get("tags") or []
     profile_name = next((t for t in tags if t in _PROFILE_STRATEGY), None)
     strategy, prompt_strategy = _PROFILE_STRATEGY.get(profile_name or "", (WORKFLOW_STRATEGY, None))
+    seed = _seed_settings(strategy, prompt_strategy, EMA_INDEX_PROFILE)
     log.info("Resuming thread %s — strategy=%s prompt_strategy=%s", thread.get("id"), strategy, prompt_strategy)
 
     try:
-        index = await asyncio.to_thread(_load_index_sync)
+        index = await asyncio.to_thread(_load_index_sync, seed["index_profile"])
     except Exception as exc:
         await cl.Message(content=f"Index load failed on resume: {exc}").send()
         raise
 
     pipeline = await asyncio.to_thread(
-        _build_session_workflow, index, strategy=strategy, prompt_strategy=prompt_strategy,
-        **_settings_to_pipeline_kwargs(_DEFAULT_SETTINGS),
+        _build_session_workflow, index, **_settings_to_pipeline_kwargs(seed),
     )
-
-    def _init_cache():
-        from harness.query_cache import QueryCache
-        return QueryCache()
-
-    cache = await asyncio.to_thread(_init_cache)
+    cache = await asyncio.to_thread(_init_cache_sync)
     step_count = sum(
         1 for s in (thread.get("steps") or []) if s.get("type") == "user_message"
     )
@@ -395,11 +470,12 @@ async def on_chat_resume(thread: dict) -> None:
     cl.user_session.set("pipeline", pipeline)
     cl.user_session.set("cache", cache)
     cl.user_session.set("strategy", strategy)
-    cl.user_session.set("prompt_strategy", prompt_strategy)
-    cl.user_session.set("settings", _DEFAULT_SETTINGS.copy())
+    cl.user_session.set("prompt_strategy", seed["prompt_strategy"])
+    cl.user_session.set("index_profile", seed["index_profile"])
+    cl.user_session.set("settings", seed)
     cl.user_session.set("msg_counter", step_count)
 
-    await _make_chat_settings().send()
+    await _make_chat_settings(seed).send()
 
 
 # ── Settings update ───────────────────────────────────────────────────────────
@@ -410,23 +486,35 @@ async def on_settings_update(settings: dict) -> None:
     if index is None:
         return
 
-    strategy = cl.user_session.get("strategy", WORKFLOW_STRATEGY)
-    prompt_strategy = cl.user_session.get("prompt_strategy")
-    pipeline = await asyncio.to_thread(
-        _build_session_workflow, index, strategy=strategy, prompt_strategy=prompt_strategy,
-        **_settings_to_pipeline_kwargs(settings),
-    )
+    kwargs = _settings_to_pipeline_kwargs(settings)
+    new_profile = kwargs["index_profile"]
+    old_profile = cl.user_session.get("index_profile", EMA_INDEX_PROFILE)
+
+    # Reload the index ONLY when the retrieval profile changed — avoids reloading
+    # Neo4j + re-instantiating the embed model on every settings save (GPU-friendly).
+    if new_profile != old_profile:
+        await cl.Message(
+            content=f"Switching retrieval profile → `{new_profile}` (reloading index…)"
+        ).send()
+        try:
+            index = await asyncio.to_thread(_load_index_sync, new_profile)
+        except Exception as exc:
+            await cl.Message(content=f"Profile switch failed: {exc}").send()
+            return
+        cl.user_session.set("index", index)
+        cl.user_session.set("index_profile", new_profile)
+
+    pipeline = await asyncio.to_thread(_build_session_workflow, index, **kwargs)
     cl.user_session.set("pipeline", pipeline)
+    cl.user_session.set("strategy", kwargs["strategy"])
+    cl.user_session.set("prompt_strategy", kwargs["prompt_strategy"])
     cl.user_session.set("settings", settings)
 
     cache_enabled = bool(settings.get("cache_enabled", True))
     if not cache_enabled:
         cl.user_session.set("cache", None)
     elif cl.user_session.get("cache") is None:
-        def _init_cache():
-            from harness.query_cache import QueryCache
-            return QueryCache()
-        cache = await asyncio.to_thread(_init_cache)
+        cache = await asyncio.to_thread(_init_cache_sync)
         cl.user_session.set("cache", cache)
 
 

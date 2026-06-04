@@ -26,11 +26,23 @@ from harness.indexing.profiles import IndexProfile
 INDEX_BUILDERS: dict[str, Callable[..., Any]] = {}
 # strategy -> builder(profile, index, **kwargs) -> BaseRetriever
 RETRIEVER_BUILDERS: dict[str, Callable[..., Any]] = {}
+# kind -> opener(profile, **kwargs) -> index object  (open existing, no rebuild)
+OPEN_BUILDERS: dict[str, Callable[..., Any]] = {}
 
 
 def register_index(kind: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
         INDEX_BUILDERS[kind] = fn
+        return fn
+
+    return deco
+
+
+def register_open(kind: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Register an opener that loads an EXISTING index for ``kind`` (no rebuild)."""
+
+    def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
+        OPEN_BUILDERS[kind] = fn
         return fn
 
     return deco
@@ -68,6 +80,19 @@ def build_retriever(profile: IndexProfile, index: Any, **kwargs: Any) -> Any:
             f"(The 'hierarchical' retriever lands in LIR-008.)"
         )
     return builder(profile, index, **kwargs)
+
+
+def open_index(profile: IndexProfile, **kwargs: Any) -> Any:
+    """Open (load, no rebuild) the existing index for ``profile`` by dispatching on
+    ``index.kind``. The chat UI uses this so switching ``EMA_INDEX_PROFILE`` to a
+    different index kind loads the right store without a hardcoded importer."""
+    kind = profile.index.kind
+    opener = OPEN_BUILDERS.get(kind)
+    if opener is None:
+        raise NotImplementedError(
+            f"No open builder registered for kind={kind!r}. Registered: {sorted(OPEN_BUILDERS)}."
+        )
+    return opener(profile, **kwargs)
 
 
 def list_index_kinds() -> list[str]:

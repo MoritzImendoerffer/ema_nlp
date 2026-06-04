@@ -34,6 +34,15 @@ _PROMPT_FILES: dict[str, str] = {
 }
 
 
+def list_prompt_strategies() -> list[str]:
+    """Registered prompt-strategy names (the keys of ``_PROMPT_FILES``).
+
+    The Chainlit settings panel reads this so a newly-added prompt variant (a new
+    file + ``_PROMPT_FILES`` entry) appears automatically.
+    """
+    return list(_PROMPT_FILES)
+
+
 # ---------------------------------------------------------------------------
 # Prompt loading
 # ---------------------------------------------------------------------------
