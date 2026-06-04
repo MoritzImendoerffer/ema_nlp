@@ -1,0 +1,345 @@
+{
+  "id": "2026-06-04_25_chainlit-strategy-selector",
+  "status": "implementing",
+  "current_task": null,
+  "branch": "refactor/llamaindex-retrieval-pipeline",
+  "planning_note": "TWO THREADS. THREAD A = whole-documentation refresh (DOC-001..011), driven by audit-findings.md (11-agent staleness audit). Most DOC tasks are independent (different files) and parallelizable; do high-priority first (DOC-001..005, 009). THREAD B = Chainlit strategy selector (TASK-002..005), app.py UI plumbing (confirm D1/D2/D3 first). TASK-001 (WORKFLOWS.md) already done. Recommended chainlit defaults: D1=settings is live source of truth + ChatProfile seeds; D2=two widgets; D3=defer index-profile selector.",
+  "doc_refresh": {
+    "audit": "audit-findings.md",
+    "leave_as_current": [
+      "docs/WORKFLOWS.md",
+      "docs/RETRIEVAL_TRACKS.md",
+      "corpus/corpus_stats.md",
+      "project_roadmap/GLOSSARY.md",
+      "project_roadmap/LEAKAGE.md"
+    ],
+    "recurring_stale_themes": [
+      "pgvector/FAISS/EMA_RETRIEVER/retrieve*.py as current (deleted, LIR-012)",
+      "re-seam/CPU-subset pending (done)",
+      "LINKS_TO 1.72M (now 99,520)",
+      "run_eval/eval suite + 9 workflows (archived; 7 workflows)"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "title": "Write docs/WORKFLOWS.md (custom-strategy how-to) \u2014 deliverable #3",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Two-axis model (orchestration workflow vs retrieval) explained",
+        "Lists exactly the 7 workflows + 3 prompt strategies + 1 retrieval strategy (matches --list)",
+        "Step-by-step recipe to add a workflow (Workflow/@step, builder, WORKFLOW_REGISTRY, config_attributes, prompt file, app.py wiring) and a retrieval strategy (register_index/retriever + profile yaml)",
+        "Cross-links RETRIEVAL.md \u00a77 + RETRIEVAL_TRACKS.md",
+        "Done in this explore pass"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "TASK-002",
+      "title": "Add workflow + prompt_strategy selectors to ChatSettings (_make_chat_settings)",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "TASK-001"
+      ],
+      "files": [
+        "app.py"
+      ],
+      "acceptance_criteria": [
+        "Select 'workflow' (7 strategies or 9 flat profiles per D2) + Select 'prompt_strategy' (zero_shot/few_shot/cot_self) added",
+        "_DEFAULT_SETTINGS seeds workflow/prompt_strategy from the resolved chat profile / EMA_WORKFLOW_STRATEGY",
+        "widget initial values reflect the active workflow at chat-start"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "TASK-003",
+      "title": "Thread the selection into the pipeline rebuild (on_settings_update + kwargs)",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "TASK-002"
+      ],
+      "files": [
+        "app.py"
+      ],
+      "acceptance_criteria": [
+        "_settings_to_pipeline_kwargs maps the widgets -> strategy + prompt_strategy",
+        "on_settings_update reads strategy/prompt_strategy from settings (not session), rebuilds pipeline, updates session strategy/prompt_strategy",
+        "react/react_review unaffected when a prompt_strategy is set (passed but ignored)",
+        "Phoenix span shows the new ema.orchestration.strategy/prompt_strategy after a change"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "TASK-004",
+      "title": "Reconcile ChatProfile vs settings ownership (D1) + on_chat_resume consistency",
+      "type": "feature",
+      "status": "pending",
+      "dependencies": [
+        "TASK-003"
+      ],
+      "files": [
+        "app.py"
+      ],
+      "acceptance_criteria": [
+        "ChatProfile seeds the initial settings value; settings is the live source of truth thereafter (D1)",
+        "on_chat_resume seeds the settings widgets from the thread-tag profile consistently",
+        "no double-control confusion (documented behavior)"
+      ],
+      "estimated_hours": 1,
+      "priority": "medium"
+    },
+    {
+      "id": "TASK-005",
+      "title": "Manual verification in the running app + README/app docstring note",
+      "type": "testing",
+      "status": "pending",
+      "dependencies": [
+        "TASK-004"
+      ],
+      "files": [
+        "app.py"
+      ],
+      "acceptance_criteria": [
+        "Live click-through: switch workflow in panel -> next answer uses it (CRAG grade/rewrite visible; Phoenix attr changes)",
+        "model/temp/k/cache still work; pytest workflow-registry tests green",
+        "app.py module docstring updated to note workflow is now settings-selectable"
+      ],
+      "estimated_hours": 1,
+      "priority": "medium"
+    },
+    {
+      "id": "DOC-001",
+      "title": "CLAUDE.md \u2014 banner LINKS_TO 1.72M->99,520; condense stale disclaimer; note LIR-009..012 + WU24 complete",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "CLAUDE.md"
+      ],
+      "acceptance_criteria": [
+        "line-6 banner uses 99,520 main-content-scoped LINKS_TO",
+        "line-11 disclaimer condensed/removed",
+        "work-unit completion (LIR-009/010/012, WU24) + LIR-011 reflected"
+      ],
+      "estimated_hours": 0.5,
+      "priority": "high"
+    },
+    {
+      "id": "DOC-002",
+      "title": "README.md \u2014 refactor banner -> complete; Current status (drop LIR-pending); parsed_documents footnote; benchmark count",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "README.md"
+      ],
+      "acceptance_criteria": [
+        "refactor banner says complete (full graph, old stack deleted)",
+        "Current-status LIR-009/010/012 marked done; 'CPU subset' removed",
+        "parsed_documents footnote reflects the full ~80k build",
+        "stack table left intact (it is current)"
+      ],
+      "estimated_hours": 0.5,
+      "priority": "high"
+    },
+    {
+      "id": "DOC-003",
+      "title": "docs/RETRIEVAL.md \u2014 refresh the stale status box (complete, full graph, LINKS_TO 99,520)",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "docs/RETRIEVAL.md"
+      ],
+      "acceptance_criteria": [
+        "status box dated 2026-06-04, marked complete",
+        "CPU-subset caveat removed",
+        "cites 79,882 docs / 5.82M leaves / 99,520 LINKS_TO"
+      ],
+      "estimated_hours": 0.5,
+      "priority": "medium"
+    },
+    {
+      "id": "DOC-004",
+      "title": "chainlit.md \u2014 rewrite: Neo4j PropertyGraphIndex hierarchical (not BM25/Q&A); EMA_INDEX_PROFILE; 7 workflows",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "chainlit.md"
+      ],
+      "acceptance_criteria": [
+        "no dense+BM25 / Q&A-corpus claim",
+        "describes hierarchical Neo4j retrieval over parsed_documents",
+        "lists/links the 7 workflows; mentions EMA_INDEX_PROFILE/neo4j_hier"
+      ],
+      "estimated_hours": 0.5,
+      "priority": "high"
+    },
+    {
+      "id": "DOC-005",
+      "title": "docs/ARCHITECTURE.md \u2014 remove 'pending' LIR-009/010/012 annotations (intro/diagram/\u00a74/106/168); add refactor-complete + LINKS_TO note",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "docs/ARCHITECTURE.md"
+      ],
+      "acceptance_criteria": [
+        "intro warning reflects LIR-001..012 complete; legacy modules noted deleted",
+        "diagram 'seam pending' annotations removed",
+        "\u00a74 says workflows consume the retriever directly",
+        "lines 106/168 pending notes fixed",
+        "LINKS_TO 99,520 noted"
+      ],
+      "estimated_hours": 1.5,
+      "priority": "high"
+    },
+    {
+      "id": "DOC-006",
+      "title": "docs/ONBOARDING.md \u2014 major rewrite: current data flow + file map + common tasks + 7 workflows; mark archived eval suite",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [
+        "DOC-005"
+      ],
+      "files": [
+        "docs/ONBOARDING.md"
+      ],
+      "acceptance_criteria": [
+        "data-flow diagram = Mongo parsed_documents -> indexing.build_index -> Neo4j -> HierarchicalPGRetriever -> get_workflow -> app.py/Phoenix",
+        "no run_eval/embed/retrieve.py/label_session/FAISS as current",
+        "7 workflows (+prompt variants), links WORKFLOWS.md",
+        "explicit Archived (archive/pre-llamaindex-refactor) callout for eval/judge/ablations + lift",
+        "current HITL = Phoenix annotations + rating.py; how-to-run = Chainlit UI / get_workflow"
+      ],
+      "estimated_hours": 3,
+      "priority": "high"
+    },
+    {
+      "id": "DOC-007",
+      "title": "docs/SETUP.md \u2014 rewrite stale sections (sync_mongo.sh gone; FAISS index path; PHOENIX_URL; app.py not providers.py; eval-results)",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "docs/SETUP.md"
+      ],
+      "acceptance_criteria": [
+        "\u00a75 sync_mongo.sh removed -> note/raw mongodump",
+        "Phoenix env corrected to PHOENIX_URL + app.py registration",
+        "FAISS index / results base_dir lines updated given eval archived",
+        "dead env vars (EMA_CORPUS_PATH/EMA_INDEX_PATH/NEXTCLOUD_DATASETS) verified vs config.py + removed if unused"
+      ],
+      "estimated_hours": 2,
+      "priority": "high"
+    },
+    {
+      "id": "DOC-008",
+      "title": "HARNESS_REFACTORS.md \u2014 collapse Change 2 to [SUPERSEDED] history; mark Changes 1/3 shipped; fix RETRIEVAL_PIPELINE->RETRIEVAL ref",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "HARNESS_REFACTORS.md"
+      ],
+      "acceptance_criteria": [
+        "Change 2 body collapsed to a 4-5 line superseded note (impl 616d338, removed LIR-012)",
+        "Changes 1/3 marked shipped + DECISIONS refs; effort/acceptance struck",
+        "doc cross-ref fixed"
+      ],
+      "estimated_hours": 1,
+      "priority": "medium"
+    },
+    {
+      "id": "DOC-009",
+      "title": "project_roadmap/ROADMAP.md \u2014 delete Phase 1.7 (pgvector); fix non-goals 'No Neo4j'; rewrite v2+ deferral (drop Neo4j/EPARs); note Phase 2/3 archived",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "project_roadmap/ROADMAP.md"
+      ],
+      "acceptance_criteria": [
+        "Phase 1.7 (\u00a71.7.1-1.7.5, pgvector/embed_pg/retrieve_pg/EMA_RETRIEVER) deleted -> 1-line archived note",
+        "non-goals no longer claim 'No Neo4j'; EPARs in-scope noted",
+        "v2+ deferral drops 'Graph RAG (Neo4j)'/EPARs",
+        "Phase 2/3 archived-pending-rebuild noted"
+      ],
+      "estimated_hours": 1.5,
+      "priority": "high"
+    },
+    {
+      "id": "DOC-010",
+      "title": "OPEN_QUESTIONS.md \u2014 resolve embedding-model Q (BGE shipped); note eval/judge/ablation Qs await the archived-suite rebuild",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "OPEN_QUESTIONS.md",
+        "DECISIONS.md"
+      ],
+      "acceptance_criteria": [
+        "embedding-model question marked resolved (BGE-large built into the full graph)",
+        "top note: feedback/benchmark/judge/ablation questions deferred to the eval-suite rebuild"
+      ],
+      "estimated_hours": 0.5,
+      "priority": "low"
+    },
+    {
+      "id": "DOC-011",
+      "title": "Low-priority sweep \u2014 ABLATIONS Phase-3-archived note; verify benchmark/corpus SCHEMA+STATS counts",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "project_roadmap/ABLATIONS.md",
+        "benchmark/SCHEMA.md",
+        "benchmark/STATS.md",
+        "corpus/SCHEMA.md"
+      ],
+      "acceptance_criteria": [
+        "ABLATIONS.md one-line note that the Phase-3 harness is archived/must be rebuilt",
+        "SCHEMA/STATS counts verified vs files; patched only on real drift; GLOSSARY/LEAKAGE/corpus_stats left as current"
+      ],
+      "estimated_hours": 1,
+      "priority": "low"
+    }
+  ],
+  "completed_tasks": [
+    "DOC-001",
+    "DOC-002",
+    "DOC-003",
+    "DOC-004",
+    "DOC-005",
+    "DOC-006",
+    "DOC-007",
+    "DOC-008",
+    "DOC-009",
+    "DOC-010",
+    "DOC-011",
+    "TASK-001"
+  ],
+  "next_available": [
+    "TASK-002"
+  ],
+  "critical_path_docs": [
+    "DOC-005",
+    "DOC-006"
+  ],
+  "critical_path_feature": [
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005"
+  ],
+  "estimated_total_hours": 22,
+  "next": "Docs thread COMPLETE (DOC-001..011 shipped). Remaining: Chainlit selector feature (TASK-002..005) \u2014 /plan to confirm D1/D2/D3 then /next."
+}

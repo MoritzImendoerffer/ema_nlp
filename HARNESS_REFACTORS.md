@@ -10,16 +10,23 @@ Each change is independently shippable. Order matters: **Change 1** is highest R
 
 No backward compatibility is required — old YAML config names and registry keys can be hard-renamed.
 
-> ⚠️ **Status (2026-05-30).** All three changes shipped. **Change 2** (`build_retrieve_fn`
-> composing retrieval ablations) is **superseded** by the LlamaIndex-first retrieval refactor:
-> workflows are being re-seamed to a LlamaIndex retriever from `harness.indexing` (LIR-009),
-> and the `build_retrieve_fn`/ablation machinery is part of the old stack being removed
-> (LIR-012). **Change 1** (Phoenix span stamping) and **Change 3** (`prompt_strategy` YAML)
-> remain in effect. See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md).
+> ✅ **Status (2026-06-04).** All three changes were implemented (commit `616d338`,
+> TRACE-001–012). **Change 1** (Phoenix span stamping via `config_attributes()`) and
+> **Change 3** (`prompt_strategy` as a YAML field; the registry is collapsed to 7 entries)
+> are **shipped and in effect** — see `harness/workflows/`. **Change 2** (`build_retrieve_fn`
+> composing retrieval ablations) was **superseded and removed** by the LlamaIndex-first
+> retrieval refactor (LIR-012, commit `7bcf5a5`): workflows now consume a LlamaIndex retriever
+> from `harness.indexing` directly, and the ablation machinery (`harness/retrieve.py`,
+> `run_eval.py`) is gone. The Change 2 section below is kept only as a history note.
+> See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md).
 
 ---
 
 ## Change 1 — Stamp configuration onto Phoenix span attributes
+
+> ✅ **Shipped** (commit `616d338`). In effect: `WorkflowRunner` stamps the OpenInference /
+> `ema.*` attributes returned by each workflow's `config_attributes()`. See `harness/workflows/utils.py`
+> and the per-workflow `config_attributes()` methods. The original spec is retained below for context.
 
 ### Problem
 
@@ -70,70 +77,40 @@ Use the `openinference.semconv` constants where they exist; use the `ema.*` name
 - Where a workflow composes another (e.g. `crag_review`, `react_review`), the outer workflow's `config_attributes()` should include the inner's keys with appropriate prefixes — or stamp from the outermost layer only and let inner child spans carry their own structural information.
 - If `config_attributes()` is missing on a workflow (e.g. during the migration), `WorkflowRunner` should degrade gracefully — log a warning once, stamp nothing, continue.
 
-### Acceptance
+### ~~Acceptance~~ (shipped)
 
-- After running any benchmark eval, opening the Phoenix UI and filtering on `ema.orchestration.strategy == "crag" AND ema.retrieval.reranker == "sme"` returns exactly the expected runs.
-- Existing thumbs-up/down feedback flow in `app.py` continues to work unchanged.
-- A `pytest` test exists that mocks Phoenix and asserts the expected attribute keys are set on the root span for at least one workflow.
-- `PHOENIX_DISABLED=1` does not cause any test to fail.
+- ~~After running any benchmark eval, opening the Phoenix UI and filtering on `ema.orchestration.strategy == "crag" AND ema.retrieval.reranker == "sme"` returns exactly the expected runs.~~
+- ~~Existing thumbs-up/down feedback flow in `app.py` continues to work unchanged.~~
+- ~~A `pytest` test exists that mocks Phoenix and asserts the expected attribute keys are set on the root span for at least one workflow.~~
+- ~~`PHOENIX_DISABLED=1` does not cause any test to fail.~~
 
-### Estimated effort
-
-One evening (~3 hours).
+### ~~Estimated effort~~ — done
 
 ---
 
 ## Change 2 — Push retrieval-layer ablations into a shared factory
 
-### Problem
-
-Today, `run_eval.py` builds a `retrieve_fn` closure (lines ~100–164) that wraps the base retriever with optional query expansion (A1), topic filtering (A2), and LLM reranking (A3/A4). But the workflows in `harness/workflows/*.py` call `retrieve_with_config(self._config, self._index, ...)` **directly**, bypassing this closure.
-
-Consequence: **A3 reranker cannot compose with CRAG, ReAct, or any other workflow.** The ablation stack is only applied during the standalone retrieval eval, not during orchestration. This is a real architectural limit on the configuration surface, masquerading as a code-organization issue.
-
-It also means `app.py` (Chainlit) builds retrieval one way and `run_eval.py` builds it another way, with no shared source of truth — exactly the kind of drift that makes ablations un-reproducible.
-
-### Approach
-
-Introduce a factory `build_retrieve_fn(ret_config, abl_config, index, hier_index=None)` in `harness/retrieve.py`. The factory returns a `Callable[[str], list[RetrievalResult]]` that internally applies, in order:
-
-1. Query expansion (A1) if enabled
-2. Base retrieval (dense / bm25 / hybrid, flat / recursive / hierarchical)
-3. Topic filter (A2) if enabled
-4. Reranker (A3/A4) if enabled
-
-Both `app.py` and `run_eval.py` call this factory. Workflows accept an optional `retrieve_fn` parameter in their constructor; when provided, they use it instead of building one from `RetrievalConfig` alone. The workflow registry builder passes `retrieve_fn` through `**kwargs`.
-
-### Files to touch
-
-- `harness/retrieve.py` — add `build_retrieve_fn` factory; define an `AblationConfig` dataclass to carry `query_expansion`, `topic_filter`, `reranker` settings parsed from the YAML `ablation:` section
-- `harness/run_eval.py` — replace the inline `retrieve_fn` construction with a call to `build_retrieve_fn`; pass the resulting callable into `get_workflow(...)`
-- `app.py` — call `build_retrieve_fn` once at session start and pass the result into workflow construction (the Chainlit `ChatSettings` for ablation toggles can come later; for now, drive from a default `AblationConfig` or read from the same YAML file)
-- `harness/workflows/registry.py` — accept `retrieve_fn` in `get_workflow()` and forward via `**kwargs`
-- Every workflow class — accept optional `retrieve_fn` in `__init__`; when provided, call it instead of `retrieve_with_config(self._config, self._index, question)`
-
-### Design constraints
-
-- `RetrievalConfig` stays focused on **retrieval semantics** (strategy, mode, k, recursive/hierarchical sub-configs). It does **not** absorb ablation flags.
-- `AblationConfig` is a separate dataclass that lives alongside `RetrievalConfig`. The YAML schema is unchanged — the `retrieval:` and `ablation:` sections continue to be parsed independently and combined only inside `build_retrieve_fn`.
-- The factory must be cheap to call but the *returned callable* must be efficient on repeated invocation (BM25 retriever caching already in `harness/retrieve.py` should still apply — verify the cache key still hits).
-- When `retrieve_fn` is not provided to a workflow, it falls back to the current behaviour (`retrieve_with_config(self._config, self._index, ...)`). This keeps existing tests green and lets the migration be incremental.
-- Make sure the `config_attributes()` from Change 1 reflects the ablation flags actually in use — when `retrieve_fn` is injected, the workflow should still be able to report `ema.retrieval.reranker` etc. Easiest path: have `build_retrieve_fn` attach the resolved `AblationConfig` as an attribute on the returned callable (e.g. `retrieve_fn.ablation_config = abl_cfg`), and have the workflow's `config_attributes()` read from it.
-
-### Acceptance
-
-- A new YAML config combining `orchestration.strategy: crag` with `ablation.reranker: sme` runs end-to-end and produces sensible answers.
-- The `retrieve_fn` used by `app.py` and `run_eval.py` is provably the same object (same factory, same defaults) for any given config.
-- Existing baseline_a0, ablation_a_a1 through a_a5 configs run unchanged and produce the same retrieval metrics as before the refactor (within numerical tolerance).
-- Phoenix spans correctly reflect the active ablation flags for orchestration runs (depends on Change 1).
-
-### Estimated effort
-
-One to two evenings (~4–6 hours). Most of the work is moving code, not writing new logic.
+> ⛔ **[SUPERSEDED]** — history note only.
+>
+> This change introduced a `build_retrieve_fn(ret_config, abl_config, ...)` factory in
+> `harness/retrieve.py` (plus an `AblationConfig` dataclass) so that query expansion / topic
+> filter / reranker ablations composed with every workflow, shared between `app.py` and
+> `run_eval.py`. It was implemented in commit `616d338` (2026-05-25) and then **removed** by the
+> LlamaIndex-first retrieval refactor (LIR-012, commit `7bcf5a5`, 2026-06-03): `harness/retrieve.py`,
+> `run_eval.py`, and the whole pgvector/FAISS-over-corpus ablation stack are deleted. Retrieval is now
+> a single LlamaIndex `HierarchicalPGRetriever` over the Neo4j `PropertyGraphIndex`, injected into
+> workflows via `get_workflow(retriever=...)`. The retrieval-track ablations are spec-only and will be
+> rebuilt on the Neo4j API. See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) and `docs/RETRIEVAL_TRACKS.md`.
 
 ---
 
 ## Change 3 — Collapse `simple_rag_*` and `crag_*` into base entries with `prompt_strategy` as a YAML field
+
+> ✅ **Shipped** (commit `616d338`). In effect: `WORKFLOW_REGISTRY` is collapsed to the 7 entries
+> below (`simple_rag`, `crag`, `react`, `summarize_rag`, `crag_summarize`, `crag_review`,
+> `react_review`); `prompt_strategy` (`zero_shot` / `few_shot` / `cot_self`) is a YAML field passed
+> through `get_workflow(..., prompt_strategy=...)`. See `harness/workflows/registry.py`. The original
+> spec is retained below for context.
 
 ### Problem
 
@@ -181,21 +158,14 @@ Pick:
 
 Rename the existing workflow-level `strategy` parameter to `prompt_strategy` everywhere.
 
-### Acceptance
+### ~~Acceptance~~ (shipped)
 
-- `python -m harness.workflows.registry --list` shows exactly the new (shorter) set of names.
-- Adding a new prompt variant `system_self_consistency.md` requires only:
-  1. Adding the file under `harness/prompts/`
-  2. Adding an entry to `_PROMPT_FILES` in `harness/workflows/utils.py`
-  3. Setting `orchestration.prompt_strategy: self_consistency` in YAML
-  
-  No changes to the registry, no new builders.
-- All existing YAML configs in `harness/configs/` are rewritten and still produce equivalent runs.
-- `config_attributes()` from Change 1 correctly reports `ema.orchestration.prompt_strategy` independently of `ema.orchestration.strategy`.
+- ~~`python -m harness.workflows.registry --list` shows exactly the new (shorter) set of names.~~
+- ~~Adding a new prompt variant `system_self_consistency.md` requires only: adding the file under `harness/prompts/`, an entry to `_PROMPT_FILES` in `harness/workflows/utils.py`, and `orchestration.prompt_strategy: self_consistency` in YAML — no changes to the registry, no new builders.~~
+- ~~All existing YAML configs in `harness/configs/` are rewritten and still produce equivalent runs.~~
+- ~~`config_attributes()` from Change 1 correctly reports `ema.orchestration.prompt_strategy` independently of `ema.orchestration.strategy`.~~
 
-### Estimated effort
-
-One evening (~3 hours), mostly mechanical edits across YAML configs and propagating the renamed parameter.
+### ~~Estimated effort~~ — done
 
 ---
 

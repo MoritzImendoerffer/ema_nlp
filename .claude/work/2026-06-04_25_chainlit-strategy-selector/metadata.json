@@ -1,0 +1,25 @@
+{
+  "id": "2026-06-04_25_chainlit-strategy-selector",
+  "created_at": "2026-06-04",
+  "status": "exploration_complete",
+  "requirement_type": "UI feature + WHOLE-documentation refresh",
+  "branch": "refactor/llamaindex-retrieval-pipeline",
+  "scope_extended": "2026-06-04: extended (per user) from 'Chainlit selector + WORKFLOWS.md' to a refresh of the WHOLE documentation. An 11-agent staleness audit (see audit-findings.md) found 9 docs stale vs the post-refactor + post-link-upgrade codebase. DOC-001..011 tasks added.",
+  "origin": "User (2026-06-04): (a) the Chainlit app works; want the workflow strategy selectable from the settings panel; report which strategies exist; write a custom-strategy how-to. (b) extend this work unit to update the WHOLE documentation.",
+  "summary": "Two threads. THREAD A (docs refresh): audit + update every stale doc so the docset matches the LlamaIndex-first Neo4j stack (pgvector/FAISS deleted, full graph, LINKS_TO 1.72M->99,520, eval suite archived, 7 workflows). THREAD B (Chainlit feature): add live workflow/prompt-strategy selection to the ChatSettings panel. docs/WORKFLOWS.md already delivered.",
+  "answers": {
+    "implemented_orchestration_workflows": ["simple_rag", "react", "crag", "summarize_rag", "crag_summarize", "crag_review", "react_review"],
+    "prompt_strategies": ["zero_shot", "few_shot", "cot_self"],
+    "prompt_strategy_applies_to": ["simple_rag", "summarize_rag", "crag", "crag_summarize", "crag_review"],
+    "prompt_strategy_NOT_applies_to": ["react", "react_review"],
+    "ui_profiles_today": 9,
+    "implemented_retrieval_strategies": ["hierarchical (over index kind property_graph, profile neo4j_hier)"],
+    "spec_only_retrieval_strategies": ["vector_flat", "hierarchical_links", "property_graph_native (see docs/RETRIEVAL_TRACKS.md)"],
+    "recursive_retriever_requested_by_user": "NOT implemented — the project uses the custom HierarchicalPGRetriever; the nearest planned analogues are hierarchical_links / pg_native (spec only)"
+  },
+  "deliverables": {
+    "doc_written_this_pass": "docs/WORKFLOWS.md (#3)",
+    "feature_planned": "Chainlit ChatSettings workflow selector (#1) — tasks in state.json"
+  },
+  "next": "/plan (confirm D1/D2/D3) or /next to implement the settings-panel selector. The WORKFLOWS.md doc (#3) is delivered in this explore pass."
+}

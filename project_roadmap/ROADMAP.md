@@ -11,7 +11,7 @@
 
 **Scope lock for v1.** EMA human-regulatory Q&A only. ~30–50 benchmark questions mined directly from EMA Q&A documents. Three targeted ablations. Flat baseline first; graph/ontology only introduced if a specific failure class demands it.
 
-**Non-goals for v1.** No ontology loading (IDMP/SPOR). No Neo4j. No EPARs. No biomedical-literature QA. No multilingual.
+**Non-goals for v1.** No ontology loading (IDMP/SPOR). No biomedical-literature QA. No multilingual. *(Earlier "No Neo4j" / "No EPARs" locks are lifted for retrieval: Neo4j is now the retrieval store — a hierarchical `PropertyGraphIndex` — and EPARs are in scope for the narrative index since 2026-06-02. Benchmark Q&A curation scope is unchanged.)*
 
 **Guiding principles.**
 1. Ship a usable thing before adding complexity.
@@ -112,55 +112,15 @@ See `docs/LEAKAGE.md` section 7.5 for the full rationale.
 
 ---
 
-## Phase 1.7 — Narrative corpus on Postgres + pgvector (added 2026-05-25, shipped 2026-05-26)
+## Phase 1.7 — Narrative corpus (archived)
 
-**Status:** complete (NARR-001..028, 28 tasks). Work unit: [`.claude/work/2026-05-25_16_pgvector-narrative-corpus/`](../.claude/work/2026-05-25_16_pgvector-narrative-corpus/). Operator's guide: [`docs/RETRIEVAL.md`](../docs/RETRIEVAL.md) *(this Phase 1.7 pgvector work is superseded by the Neo4j refactor — see the banner at the top).*
-
-**Why this phase exists** (not in the original v1 plan). The curated Q&A pairs in `corpus.jsonl` (Phase 1) are an extract, not the full content surface. T2 scoping ("does CHMP say X about Y") and T4 synthesis ("compare PRAC vs CHMP guidance on Z") both need the full narrative prose — chapter body text, headings, tables, hyperlinks — that the Q&A pair extraction discards. Rather than fight the FAISS-flat layout to accommodate a richer surface, the narrative corpus moved into Postgres + pgvector with a relational `links` table so dense / BM25 / link-traversal all share one store.
-
-### 1.7.1 Schema
-Three tables, defined in [`corpus/pg_schema.sql`](../corpus/pg_schema.sql):
-- `documents` — one row per source URL; carries `source_type` (pdf/html), `committee` (CHMP/PRAC/CMDh/COMP/…), `topic_path`, `reference_number`, `last_updated`.
-- `chunks` — text chunks with `embedding vector(1024)`, HNSW index on the embedding, generated `text_tsv` column with GIN index for BM25. FK to `documents`.
-- `links` — outbound links per source chunk: `link_type` ∈ {hyperlink, reference_number, see_qa}, `tgt_url`, optional `tgt_doc_id` resolved by a second pass. `see_qa` is excluded from default traversal (would leak benchmark answers).
-
-### 1.7.2 Ingest pipeline
-`python -m harness.embed_pg --source pdf|html [--limit N] [--force]`:
-1. Read MongoDB (`parsed_pdfs` for PDF, `web_items.html_raw` for HTML)
-2. Normalise (pymupdf4llm-derived markdown for PDFs; trafilatura with `favor_recall=True` for HTML; pages <200 chars treated as landing pages and skipped)
-3. Chunk via LlamaIndex `SentenceSplitter` (configurable size/overlap)
-4. Embed batches with `BAAI/bge-large-en-v1.5` on local CUDA via `harness.providers.configure_embed_model()`
-5. Bulk upsert chunks + extracted links (markdown `[text](url)`, HTML `<a href>`, EMA reference codes, see-Q&A patterns)
-6. `python scripts/resolve_links.py` runs idempotent UPDATE passes to populate `links.tgt_doc_id`
-
-Resume + dedup verified (NARR-008); `--force` re-embeds. Timing on the 3090 (NARR-011): ~207 docs/min PDF, ~311 docs/min HTML; GPU sits at ~1.9/24 GiB throughout.
-
-### 1.7.3 Retrieval surface
-`harness/retrieve_pg.py` exposes:
-- `retrieve_dense_pg(query, config)` — HNSW kNN via `<=>` (explicit `::vector` cast on query param; `register_vector` only auto-adapts numpy arrays). Score = `1 - cosine_distance`.
-- `retrieve_bm25_pg` — `ts_rank_cd(plainto_tsquery(...))` over the generated `text_tsv` column.
-- `retrieve_hybrid_pg` — dense + BM25 fused via RRF (K=60, matches FAISS path).
-- `retrieve_with_config_pg(config, query)` — dispatcher; applies auto-traversal when `config.traversal.mode == "auto"` (recursive CTE over `links`, adds one representative chunk per neighbour doc, seeds stay first).
-- `build_retrieve_fn_pg(config)` — drop-in callable matching `harness.retrieve.build_retrieve_fn`'s signature. Workflows see only the callable; backend is invisible.
-- `follow_links_tool` — `FunctionTool` for ReAct agent_tool traversal mode.
-
-Sub-corpus filters expressed via `RetrievalConfigPG.prefilter` (committee, date range, source_type, topic prefix); example config: [`harness/configs/example_chmp_only.yaml`](../harness/configs/example_chmp_only.yaml).
-
-### 1.7.4 Switch contract
-- `EMA_RETRIEVER=pgvector` — runtime default since NARR-028 (commit `e36d6fd`).
-- `EMA_RETRIEVER=faiss` — legacy opt-out over `corpus.jsonl`; retained for parity smoke tests.
-- Phoenix spans carry `ema.retrieval.backend = 'pgvector'|'faiss'` so cross-backend evals are filterable in the UI.
-
-### 1.7.5 Test coverage
-- Unit suite (NARR-025): chunker / PDF normaliser / HTML normaliser / link extractor — 91% on the four ingestion modules, 53 tests in 4 s.
-- Integration suite (NARR-026): `tests/test_retrieve_pg.py` against a dedicated `ema_nlp_test` database (`PG_DSN_TEST`), 9 tests covering seeded counts, dense self-recall, BM25 keyword hits, hybrid RRF, prefilter (committee + date), auto-traversal expansion, `max_hops=0` no-op, dispatcher routing. Embeddings seeded deterministically via numpy RNG so tests don't load the BGE model.
-- End-to-end smoke (NARR-023): 5-question slice of `simple_rag` on pgvector returns non-empty answers; 46/50 chunks came from URLs outside `corpus.jsonl`, confirming narrative coverage.
-
-**Deliverable.** Production-default narrative-corpus retrieval. No changes required to the Phase 2 benchmark or Phase 3 harness contract — they consume the same `(id, score, metadata)` tuple, with the backend dispatched by env var.
+The original Phase 1.7 built the narrative corpus on **Postgres + pgvector** (NARR-001..028). That backend — Postgres, pgvector, the relational `links` table, `harness/embed_pg.py`, `harness/retrieve_pg.py`, `corpus/pg_schema.sql`, and the `EMA_RETRIEVER` switch — was **deleted** in the LlamaIndex retrieval refactor (LIR-012). The same need (full narrative prose for T2 scoping and T4 synthesis, plus link traversal) is now served by the **Neo4j hierarchical `PropertyGraphIndex`** — `:Document`/`:Chunk` nodes with `HAS_CHUNK`/`PARENT_OF`/`LINKS_TO` edges over a native chunk vector index, built by `harness/indexing/`. See [`docs/RETRIEVAL.md`](../docs/RETRIEVAL.md).
 
 ---
 
 ## Phase 2 — Benchmark construction (≈ 1 week)
+
+> **Status (2026-06-04).** `benchmark/benchmark.jsonl` exists (45 items: 20 T1 / 10 T2 / 10 T3 / 5 T4). The benchmark-runner, LLM-judge, and eval-suite *code* was archived off the refactor branch (`archive/pre-llamaindex-refactor`); it must be rebuilt on the new Neo4j retrieval API before Phase 2.5 / Phase 3 scoring can run. The methodology below stands.
 
 **Purpose.** Build 30–50 evaluation questions from mined Q&A, stratified to discriminate between retrieval strategies.
 
@@ -213,6 +173,8 @@ See `docs/LEAKAGE.md` for the full treatment: why this matters, what's at risk, 
 ---
 
 ## Phase 3 — Baseline RAG and evaluation harness (≈ 1 week)
+
+> **Status (2026-06-04).** The eval harness (`run_eval.py`, LLM judges, metrics, lift reporting) was archived to `archive/pre-llamaindex-refactor` during the retrieval refactor and is **not on this branch** — it must be rebuilt against the Neo4j `PropertyGraphIndex` retrieval API. The retrieval side it will sit on is live: the 7 registered workflows (`harness/workflows/registry.py`) over the hierarchical retriever. See [`docs/RETRIEVAL.md`](../docs/RETRIEVAL.md) and [`docs/WORKFLOWS.md`](../docs/WORKFLOWS.md). Section 3.1's "flat retrieval / FAISS / Qdrant" description is the original v1 plan, superseded by the Neo4j store.
 
 **Purpose.** The control arm. Everything else is measured against this.
 
@@ -330,9 +292,9 @@ Outline:
 
 ## What's explicitly deferred to v2+
 
-- EPARs.
-- Ontology (IDMP/SPOR) — only if a benchmark failure demands entity linking.
-- Graph RAG (Neo4j) — only if Ablation B fails to close the T3 gap.
+*(EPARs and Neo4j graph RAG were on this list in the original v1 plan; both have since landed — EPARs are indexed into the narrative retrieval store (2026-06-02) and Neo4j is the retrieval store. They are no longer deferred.)*
+
+- Ontology / knowledge-graph entity linking (IDMP/SPOR, SPARQL over a typed ontology graph) — only if a benchmark failure demands entity linking. The current Neo4j store is a retrieval index (`:Document`/`:Chunk` + `LINKS_TO`), not an entity ontology.
 - Biomedical/clinical questions beyond regulatory.
 - Multilingual (OPUS EMEA as a hook).
 - SME ablations at the corpus-curation layer that require >1 expert (this is a personal project; simulate with "naive SME" vs "careful SME" versions authored by you).

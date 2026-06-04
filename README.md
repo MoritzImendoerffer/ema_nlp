@@ -4,11 +4,11 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 
 **Goal:** Build a shareable benchmark from EMA Q&A documents and measure where expert effort actually pays off in agentic RAG pipelines — corpus quality, retrieval filtering, agent planning, and prompting strategy.
 
-> ⚠️ **Retrieval refactor in progress** (branch `refactor/llamaindex-retrieval-pipeline`).
-> The retrieval layer is being rebuilt **LlamaIndex-first**: a hierarchical
-> `PropertyGraphIndex` on **Neo4j** replaces the former Postgres + pgvector and FAISS
-> paths. The offline pipeline (`harness/indexing/`) is built and verified on a CPU
-> subset; re-seaming the workflows + chat UI and deleting the old stack are pending.
+> ✅ **Retrieval refactor complete** (branch `refactor/llamaindex-retrieval-pipeline`).
+> The retrieval layer was rebuilt **LlamaIndex-first**: a hierarchical
+> `PropertyGraphIndex` on **Neo4j** replaced the former Postgres + pgvector and FAISS
+> paths, which are now deleted. The full graph is built (79,882 docs) and the
+> workflows + chat UI consume the retriever.
 > See **[docs/RETRIEVAL.md](docs/RETRIEVAL.md)** and the work unit
 > [`2026-05-30_20_llamaindex-retrieval-refactor`](.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json).
 > Pre-refactor state is preserved on `main` and `archive/pre-llamaindex-refactor`.
@@ -18,7 +18,7 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 | Artifact | Description |
 |----------|-------------|
 | `corpus/corpus.jsonl` | Normalized Q&A pairs extracted from EMA HTML accordions and PDFs (benchmark source; not the retrieval target) |
-| `benchmark/benchmark.jsonl` | ~50 evaluation questions stratified across four types (T1–T4) with gold answers |
+| `benchmark/benchmark.jsonl` | 45 evaluation questions stratified across four types (T1–T4) with gold answers |
 | `harness/indexing/` | LlamaIndex-first retrieval pipeline (Neo4j PropertyGraphIndex) |
 | `harness/workflows/` | RAG/agent strategies (simple RAG, CRAG, ReAct, composites) over the retriever |
 
@@ -38,9 +38,9 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 
 **Phase 2 — benchmark drafted.** `benchmark/benchmark.jsonl`: 45 items (20×T1, 10×T2, 10×T3, 5×T4).
 
-**Retrieval refactor (current work).** Rebuilding retrieval LlamaIndex-first on Neo4j:
-- ✅ `harness/indexing/` — config profiles + registry, hierarchical chunker, link extractor, Mongo→IR ingestion, Neo4j PropertyGraphIndex build + `HierarchicalPGRetriever` (small-to-big + `links_to`). 36 unit tests; verified live on a CPU subset.
-- ⏳ Pending: re-seam workflows + chat UI to the retriever (LIR-009/010), delete the old pgvector/FAISS stack (LIR-012), rebuild the benchmark/eval suite (removed from this branch; archived).
+**Retrieval refactor (complete).** Retrieval is LlamaIndex-first on Neo4j:
+- ✅ `harness/indexing/` — config profiles + registry, hierarchical chunker, link extractor, Mongo→IR ingestion, Neo4j PropertyGraphIndex build + `HierarchicalPGRetriever` (small-to-big + `links_to`). 36 unit tests; built live over the full corpus (79,882 docs).
+- ✅ Workflows + chat UI consume the retriever (LIR-009/010); the old pgvector/FAISS stack is deleted (LIR-012).
 - The **benchmark/eval suite** (`run_eval.py`, ablations) was removed from this branch and preserved on `archive/pre-llamaindex-refactor`; it will be rebuilt on the clean retrieval API.
 
 See `.claude/work/` for work unit logs.
@@ -65,10 +65,10 @@ See `.claude/work/` for work unit logs.
 |-------|-----------|----------|-------|
 | MongoDB `ema_scraper` | `web_items` | Raw scraped pages — HTML (`html_raw`) + PDF metadata; `url` is a 1-element list | 115k |
 | MongoDB `ema_scraper` | `parsed_pdfs` | Parsed PDF markdown keyed by URL (`_id`) | 65k |
-| MongoDB `ema_scraper` | `parsed_documents` | Canonical parser output (`url, parser, content_type, text`) — the ingestion source | subset seeded¹ |
-| Neo4j | `:Document` / `:Chunk` + edges | Retrieval graph + chunk vector index | built per profile |
+| MongoDB `ema_scraper` | `parsed_documents` | Canonical parser output (`url, parser, content_type, text`) — the ingestion source | ~80k¹ |
+| Neo4j | `:Document` / `:Chunk` + edges | Retrieval graph + chunk vector index | 79,882 docs |
 
-¹ `parsed_documents` was never backfilled at scale on this host; `scripts/backfill_parsed_documents_subset.py` seeds a verify subset. Full backfill is future work — see [docs/RETRIEVAL.md](docs/RETRIEVAL.md).
+¹ `parsed_documents` holds the full ~80k-doc canonical parser output; the Neo4j PropertyGraphIndex (79,882 `:Document` nodes) was built from it. See [docs/RETRIEVAL.md](docs/RETRIEVAL.md).
 
 Scraped content comes from the companion repo [ema_scraper](https://github.com/MoritzImendoerffer/ema_scraper). Services (Mongo + Neo4j) are provisioned via Docker Compose under `deploy/` and started by `scripts/start_services.sh`.
 

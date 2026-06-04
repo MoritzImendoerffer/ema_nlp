@@ -5,7 +5,8 @@ How to get `ema_nlp` running on a new machine (Linux/macOS).
 > **Retrieval stack (Neo4j PropertyGraphIndex):** see [`docs/RETRIEVAL.md`](RETRIEVAL.md)
 > for provisioning, env vars, the node/graph model, build + retrieve, and
 > troubleshooting. Data services (MongoDB + Neo4j) start via `scripts/start_services.sh`.
-> *(The former Postgres+pgvector / FAISS retrieval is being removed in the refactor.)*
+> *(The former Postgres+pgvector / FAISS-over-corpus retrieval was deleted in the
+> LlamaIndex/Neo4j refactor — LIR-012.)*
 
 ---
 
@@ -89,23 +90,20 @@ CHAINLIT_AUTH_SECRET=<64-char hex string>
 # NEO4J_PASSWORD=ema_nlp_dev_pw
 
 # Active index profile (default: neo4j_hier -> harness/configs/index/neo4j_hier.yaml)
+# Selects the retrieval store/strategy. neo4j_hier is the only built profile;
+# others in docs/RETRIEVAL_TRACKS.md are spec-only.
 # EMA_INDEX_PROFILE=neo4j_hier
 
-# Path to Nextcloud datasets folder (default: ~/Nextcloud/Datasets)
-# Used by the MongoDB sync scripts to find/write the archive file.
-# NEXTCLOUD_DATASETS=~/Nextcloud/Datasets
+# Phoenix tracing endpoint for the chat UI (default: http://localhost:6006)
+# app.py reads PHOENIX_URL and registers tracing via phoenix.otel at startup.
+# PHOENIX_URL=http://localhost:6006
 
-# --- Only needed for the SSH live-pull sync (scripts/sync_mongo.sh pull) ---
-# Tailscale hostname or IP of the machine with the up-to-date MongoDB.
-# MONGO_SYNC_HOST=your-pc-tailscale-hostname-or-ip
-# MONGO_SYNC_USER=moritz
-# MONGO_SYNC_SSH_PORT=22
-
-# ── Corpus and index paths (LEGACY) ────────────────────────────────────────────
-# EMA_CORPUS_PATH / EMA_INDEX_PATH belonged to the FAISS-over-corpus.jsonl chat-UI
-# path, which is being removed in the retrieval refactor. The new pipeline indexes
-# the narrative corpus into Neo4j and is selected by EMA_INDEX_PROFILE (above).
-# These remain only until the chat UI is re-seamed (LIR-010). See docs/RETRIEVAL.md.
+# ── Corpus and index paths (LEGACY — not used by retrieval) ─────────────────────
+# config.py still defines CORPUS_PATH (EMA_CORPUS_PATH) and INDEX_DIR
+# (EMA_INDEX_PATH), but the FAISS-over-corpus.jsonl chat-UI path they belonged to
+# was deleted in the LlamaIndex/Neo4j refactor (LIR-012). Retrieval now runs over
+# the Neo4j PropertyGraphIndex, selected by EMA_INDEX_PROFILE (above). corpus.jsonl
+# is benchmark-only. You do not need to set these. See docs/RETRIEVAL.md.
 ```
 
 ### LLM and embedding model settings
@@ -134,8 +132,9 @@ All are optional — the defaults match the project's current configuration.
 
 # ── Embedding model ───────────────────────────────────────────────────────────
 # Controls what index is built and how queries are embedded at retrieval time.
-# Changing this requires rebuilding the index (set force_rebuild: true in the
-# run config, or delete harness/index/).
+# Changing this requires rebuilding the Neo4j PropertyGraphIndex (re-run
+# harness.indexing.build_index). The default BGE-large is what the live graph
+# (5.82M leaf embeddings) was built with — see docs/RETRIEVAL.md.
 #
 # Provider: "huggingface" (default, runs locally, no API key needed)
 #           "openai"      (requires OPENAI_API_KEY; needs: pip install -e ".[ui]")
@@ -212,57 +211,39 @@ ruff check .    # no lint errors
 
 ## 5. MongoDB sync
 
-The scraped EMA data lives in a MongoDB database (`ema_scraper` /
-`web_items`). Two sync methods are available depending on whether both
-machines are online at the same time.
+The scraped EMA data lives in a MongoDB database (`ema_scraper`) with three
+collections: `web_items` (raw HTML), `parsed_pdfs` (PDF markdown), and
+`parsed_documents` (~80k canonical parser output — the indexing source). On this
+host MongoDB runs as the pinned `mongo:8.0.4` Docker container via
+`scripts/start_services.sh` (the native package crashes on kernel ≥ 7.0 —
+SERVER-121912; see `deploy/mongo/README.md`).
 
-### Method A — Nextcloud file sync (recommended, async)
-
-Works even when only one machine is on. Uses a dump file in your
-Nextcloud folder as the transfer medium; Nextcloud syncs it automatically.
+> The earlier `scripts/sync_mongo.sh` helper (Nextcloud-archive / SSH-pull modes)
+> has been removed. Move the database between machines with raw `mongodump` /
+> `mongorestore` when needed.
 
 **On the source machine (export):**
 
 ```bash
-bash scripts/sync_mongo.sh export
+mongodump --uri "mongodb://localhost:27017" --db ema_scraper \
+  --archive=ema_scraper.archive --gzip
 ```
-
-This writes `~/Nextcloud/Datasets/mongo_sync/ema_scraper.archive`.
-Wait until Nextcloud has fully synced the file before restoring
-(check the Nextcloud tray icon or `nextcloud-desktop` status).
 
 **On the destination machine (import):**
 
 ```bash
-bash scripts/sync_mongo.sh import
+# --drop replaces the existing local ema_scraper database
+mongorestore --uri "mongodb://localhost:27017" --gzip --drop \
+  --archive=ema_scraper.archive
 ```
 
-This reads the archive from the same Nextcloud path and restores it
-locally, dropping the existing local database first after confirmation.
-
-> **Direction is symmetric** — export on PC, import on laptop; or export
-> on laptop, import on PC. Whoever exported last wins.
-
-### Method B — SSH live-pull (both machines online, Tailscale)
-
-Streams `mongodump` output directly from the remote machine over SSH.
-No MongoDB port needs to be exposed — only SSH/22 is required.
-
-```bash
-bash scripts/sync_mongo.sh pull --host <tailscale-ip-or-hostname>
-```
-
-The `--host` flag (and `--user`, `--port`) can be set in
-`~/.myenvs/ema_nlp.env` as `MONGO_SYNC_HOST` / `MONGO_SYNC_USER` /
-`MONGO_SYNC_SSH_PORT` so you don't have to type them each time.
+Transfer the `ema_scraper.archive` file between machines however is convenient
+(`scp`, a shared Nextcloud folder, etc.).
 
 ### Sync safety rules
 
-- Both methods **drop the local database** before restoring — always
-  confirm the prompt before proceeding.
-- For Method A, check the archive timestamp before importing
-  (`ls -lh ~/Nextcloud/Datasets/mongo_sync/`) to make sure you are
-  restoring the version you expect.
+- `mongorestore --drop` **replaces the local database** — make sure you are
+  restoring the dump you expect (check the archive timestamp first).
 - Corpus JSONL files (`corpus/corpus.jsonl`) and benchmark files are
   versioned in Git and do not need MongoDB sync.
 
@@ -276,27 +257,24 @@ uses to label answer quality and individual tool-call quality.
 
 ### Phoenix hosting
 
-| Machine | Role | Access |
-|---------|------|--------|
-| Home PC | Always-on Phoenix server | `http://localhost:6006` locally |
-| Elitebook | Evaluation runner | `http://<tailscale-ip>:6006` (home PC via Tailscale) |
-
-Start Phoenix on the home PC once at boot:
+Phoenix runs locally on the same host as the chat UI (marvin-gpu is the single
+project host). Start it once at boot:
 
 ```bash
 python -c "import phoenix as px; px.launch_app()"
 # or as a background service — see phoenix docs
 ```
 
-Set the Phoenix endpoint in `~/.myenvs/ema_nlp.env` on the Elitebook:
+If you run Phoenix on a different host (or a non-default port), point the chat UI
+at it via `~/.myenvs/ema_nlp.env`:
 
 ```bash
-PHOENIX_COLLECTOR_ENDPOINT=http://<tailscale-ip>:6006
+PHOENIX_URL=http://localhost:6006
 ```
 
-`harness/providers.py` reads this var and passes it to
-`LlamaIndexInstrumentor` at startup. If unset, it defaults to
-`http://localhost:6006`.
+`app.py` reads `PHOENIX_URL` and registers tracing via `phoenix.otel` at startup
+(`auto_instrument=True`, posting spans to `<PHOENIX_URL>/v1/traces`). If unset, it
+defaults to `http://localhost:6006`. Set `PHOENIX_DISABLED=1` to turn tracing off.
 
 ### Phoenix annotation schemas
 
@@ -345,8 +323,14 @@ See `harness/hitl/export_annotations.py` for `--strategy` and
 
 ## 7. Eval results directory
 
-Eval results are **not stored in the repo**. They live in Nextcloud and are
-accessed via a symlink:
+> **The eval / LLM-judge / benchmark-runner suite (`run_eval.py`, the lift
+> metric, `harness/eval*`, `metrics*`) is not on this branch** — it was archived
+> to `archive/pre-llamaindex-refactor` pending a rebuild on the Neo4j retrieval
+> API. The results/symlink machinery below applies only to that archived suite;
+> nothing on `refactor/llamaindex-retrieval-pipeline` writes eval results yet.
+
+When the eval suite is rebuilt, results are **not stored in the repo** — they live
+in Nextcloud and are accessed via a symlink:
 
 ```
 ~/Nextcloud/Datasets/ema_nlp/results/   ← actual data
@@ -362,17 +346,12 @@ mkdir -p ~/Nextcloud/Datasets/ema_nlp/results
 ln -s ~/Nextcloud/Datasets/ema_nlp/results /path/to/ema_nlp/results
 ```
 
-All `harness/configs/*.yaml` files use `base_dir: ~/Nextcloud/Datasets/ema_nlp/results`
-so `run_eval.py` writes there directly via the tilde-expanded path (no symlink
-dependency at write time).
-
 ### Directory layout on Nextcloud
 
 ```
 ~/Nextcloud/Datasets/ema_nlp/
 ├── corpus/              ← corpus.jsonl + filter/dedup logs
-├── index/               ← FAISS + docstore (rebuilt on each machine)
-├── results/             ← one sub-directory per eval run
+├── results/             ← one sub-directory per eval run (archived suite)
 │   ├── baseline_a0plus/
 │   │   ├── config.yaml
 │   │   ├── retrieval.json
@@ -382,3 +361,8 @@ dependency at write time).
 │   └── ...
 └── annotations/         ← Phoenix HITL export JSONL files
 ```
+
+> The retrieval store itself is **not** a file on Nextcloud — it is the Neo4j
+> PropertyGraphIndex (Docker), built by `harness.indexing.build_index` from Mongo
+> `parsed_documents`. There is no longer a FAISS-over-corpus `index/` directory
+> (the FAISS query cache lives in the repo at `harness/query_cache.py`).

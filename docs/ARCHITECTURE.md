@@ -2,13 +2,12 @@
 
 How the project stores, processes, and retrieves data — from raw scrape to chat answer.
 
-> ⚠️ **Retrieval refactor in progress.** Retrieval is being rebuilt LlamaIndex-first on
-> **Neo4j** (hierarchical `PropertyGraphIndex`), replacing the former Postgres+pgvector
-> and FAISS paths. The offline pipeline (`harness/indexing/`) is built + verified on a
-> CPU subset; workflow + chat-UI re-seaming and old-stack deletion are pending. See
-> **[RETRIEVAL.md](RETRIEVAL.md)**. This doc reflects the target architecture; lingering
-> `harness/retrieve*.py`, `harness/embed*.py`, and `harness/pg/` modules are legacy
-> awaiting removal (LIR-012).
+> ✅ **Retrieval refactor landed.** Retrieval is LlamaIndex-first on **Neo4j**
+> (hierarchical `PropertyGraphIndex`), replacing the former Postgres+pgvector and FAISS
+> paths. The offline pipeline (`harness/indexing/`) is built and the full graph indexed;
+> the workflow + chat-UI re-seam (LIR-009/010) and old-stack deletion (LIR-012) are
+> **complete** — `harness/retrieve*.py`, `harness/embed*.py`, and `harness/pg/` are gone.
+> See **[RETRIEVAL.md](RETRIEVAL.md)**.
 
 ---
 
@@ -28,8 +27,8 @@ flowchart TD
     PD -->|harness.indexing.build_index| NEO[("Neo4j PropertyGraphIndex<br/>:Document :Chunk + edges + vectors")]
     WI -. links_to .-> NEO
 
-    NEO -->|build_retriever| WF["harness/workflows/* (re-seam pending)"]
-    WF --> APP["app.py — Chainlit chat UI (seam pending)"]
+    NEO -->|build_retriever| WF["harness/workflows/*"]
+    WF --> APP["app.py — Chainlit chat UI"]
     APP --> PHX[Arize Phoenix traces + 👍/👎 feedback]
     CJ -.benchmark.-> BM["benchmark/benchmark.jsonl<br/>(eval suite archived off-branch)"]
 ```
@@ -91,6 +90,11 @@ Full operator's guide, node/graph model, config profiles, and mermaid flows are 
 `HierarchicalPGRetriever` serves vector hit + small-to-big + `links_to` expansion.
 Selected by `EMA_INDEX_PROFILE` → `harness/configs/index/*.yaml`.
 
+The live full graph holds 79,882 `:Document` and 7,435,393 `:Chunk` nodes (5,817,230
+leaf chunks embedded), with `HAS_CHUNK`/`PARENT_OF` edges and **99,520 `LINKS_TO`** edges.
+*(The `LINKS_TO` count was ~1.72M before the 2026-06-04 link-extraction upgrade scoped
+extraction to the `main-content-wrapper`; any "1.72M" figure is stale.)*
+
 ---
 
 ## 4. LlamaIndex Workflow layer — `harness/workflows/`
@@ -103,15 +107,13 @@ event-driven `Workflow`. (LangChain/LangGraph are not in the stack.)
 | `simple_rag` | retrieve → generate (zero / few-shot / CoT via `prompt_strategy`) |
 | `crag` | retrieve → grade ⇄ rewrite → generate |
 | `summarize_rag` | retrieve → summarize → generate |
-| `react` | `ReActNativeWorkflow` — per-step Phoenix spans; tools currently index-coupled (redesign for the graph pending, LIR-009) |
+| `react` | `ReActNativeWorkflow` — per-step Phoenix spans; tools (`ema_search`, `filter_by_topic`) run on the injected retriever |
 | `crag_summarize` / `crag_review` / `react_review` | composites |
 
-`get_workflow(name, …)` (in `harness/workflows/registry.py`) is the single entry point;
-every runner exposes `.invoke()` / `.ainvoke()`. Model roles are in
+`get_workflow(name, retriever=…, llm=…)` (in `harness/workflows/registry.py`) is the
+single entry point; every builder takes the LlamaIndex retriever as a constructor argument
+(LIR-009, done) and every runner exposes `.invoke()` / `.ainvoke()`. Model roles are in
 `harness/configs/models.yaml` (`agent`/`grader`/`rewriter`/`reranker`/`judge`/`reviewer`).
-
-> **Refactor status:** workflows still consume the legacy tuple `retrieve_fn` /
-> `harness.retrieve`; re-seaming them to the LlamaIndex retriever is LIR-009.
 
 ---
 
@@ -126,8 +128,8 @@ stack (`query_cache.py`, `fewshot_inject.py`, `rating.py`) are **kept** through 
 > **Refactor status (LIR-010 done, 2026-06-02):** `app.py` now loads the Neo4j
 > `PropertyGraphIndex` via `EMA_INDEX_PROFILE` and builds a `HierarchicalPGRetriever`
 > (the old `EMA_RETRIEVER` faiss/pgvector switch is removed); source cards render
-> narrative-chunk snippets and citations key on node `source_url`. Live end-to-end
-> verification (tracing + feedback) is LIR-011, pending the full index build.
+> narrative-chunk snippets and citations key on node `source_url`. The full graph
+> (79,882 docs) is built and live Phoenix tracing + 👍/👎 feedback run in `app.py` (LIR-011).
 
 ---
 
@@ -165,7 +167,7 @@ data (Docker volume `ema_neo4j_data`); `~/.cache/huggingface/` (BGE model); `res
 | `scripts/ingest_parsed_pdfs.py` | Bulk-upsert parsed PDF `.pkl` → `parsed_pdfs` |
 | `scripts/backfill_parsed_documents_subset.py` | Seed a `parsed_documents` verify subset from legacy collections |
 | `corpus/build_corpus.py` | Rebuild `corpus.jsonl` from MongoDB |
-| `python -m harness.indexing …` *(build entry pending UI seam)* | Build the Neo4j PropertyGraphIndex (`build_index`) |
+| `harness.indexing.build_index(profile)` (Python; see §9) | Build the Neo4j PropertyGraphIndex |
 | `bash run_ui.sh` | Start Phoenix + Chainlit chat UI |
 
 ---

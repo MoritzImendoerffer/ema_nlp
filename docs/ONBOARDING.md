@@ -1,56 +1,25 @@
 # Onboarding — ema_nlp
 
-> ⚠️ **Post-refactor note (2026-05-30).** Much of this guide describes the **pre-refactor**
-> system — FAISS-over-`corpus.jsonl`, `RetrievalConfig`/`retrieve_with_config`, the
-> `run_eval.py` 3-axis eval grid, `label_session.py`, and `harness/index/`. Retrieval was
-> rebuilt on **Neo4j** (hierarchical PropertyGraphIndex — see [`docs/RETRIEVAL.md`](RETRIEVAL.md)),
-> and the **benchmark/eval suite was archived** off this branch (`archive/pre-llamaindex-refactor`),
-> to be rebuilt on the new API. File-map/command entries below that point at `harness/retrieve.py`,
-> `run_eval.py`, `label_session.py`, the ablations, or `harness/index/` refer to legacy/archived
-> code. This guide is refreshed once the eval suite is rebuilt.
+> ✅ **Post-refactor (2026-06-04).** Retrieval is LlamaIndex-first over a **Neo4j
+> hierarchical `PropertyGraphIndex`** (see [`docs/RETRIEVAL.md`](RETRIEVAL.md)). The old
+> Postgres + pgvector + FAISS-over-`corpus.jsonl` stack, the `EMA_RETRIEVER` switch, and
+> `harness/retrieve*.py` / `harness/embed*.py` were **deleted** (LIR-012). The **benchmark +
+> eval + LLM-judge + ablation + lift suite was archived** off this branch
+> (`archive/pre-llamaindex-refactor`) and will be rebuilt on the Neo4j API. Where this guide
+> mentions those, they are clearly flagged as **archived**.
 
-A one-stop "where am I, what does this do, how do I run things" guide. Read this when returning to the project after time away. It complements `docs/ARCHITECTURE.md` (data flow + stores) and `docs/RETRIEVAL.md` (the current Neo4j retrieval).
+A one-stop "where am I, what does this do, how do I run things" guide. Read this when returning to the project after time away. It complements [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) (data flow + stores), [`docs/RETRIEVAL.md`](RETRIEVAL.md) (the Neo4j retrieval pipeline), and [`docs/WORKFLOWS.md`](WORKFLOWS.md) (the workflow strategies).
 
 ---
 
 ## What this project is
 
-A RAG benchmark over EMA (European Medicines Agency) regulatory Q&A documents. Three goals: (1) learn RAG end-to-end, (2) produce a publishable benchmark with lift metrics, (3) build a portfolio piece showing pharma + ML.
+A RAG benchmark over EMA (European Medicines Agency) regulatory documents. Three goals: (1) learn RAG end-to-end, (2) produce a publishable benchmark with lift metrics, (3) build a portfolio piece showing pharma + ML.
 
-The experimental design is a 3D grid: **retrieval strategy × workflow × model tier**. Each cell is one YAML config in `harness/configs/`, run via `python -m harness.run_eval --config <file>`.
+Two separable layers:
 
----
-
-## The three orthogonal axes
-
-```mermaid
-flowchart LR
-    subgraph A["Axis A — Evidence filtering<br/>(what gets retrieved)"]
-      A0[A0 dense only]
-      A0p[A0+ hybrid RRF]
-      A1[A1 query expansion]
-      A2[A2 topic filter]
-      A3[A3 SME reranker]
-      A4[A4 generic reranker]
-      A5[A5 combined]
-    end
-
-    subgraph B["Axis B — Workflow<br/>(what happens with retrieved docs)"]
-      SR[simple_rag zero/few/cot]
-      CR[crag]
-      RC[react native]
-      CRV[crag_review]
-      RR[react_review]
-    end
-
-    subgraph C["Axis C — Model tier<br/>(contamination control)"]
-      MID[mid: Claude Haiku]
-      FRO[frontier: Claude Opus]
-      OLM[olmo: contamination-clean]
-    end
-```
-
-A is configured under the YAML `retrieval:` and `ablation:` blocks. B is configured under `orchestration:`. C is configured via `harness/configs/models.yaml` (role-based bindings).
+- **Retrieval** runs over the **narrative corpus** — the full PDF + HTML body text from `ema_scraper.parsed_documents` (~80k docs, EPARs included since 2026-06-02), indexed into a Neo4j `PropertyGraphIndex`. This is what the chat UI and workflows query.
+- **Benchmark** is `benchmark/benchmark.jsonl` (45 curated questions) scored with the lift metric. `corpus/corpus.jsonl` (26,251 mined Q&A pairs) is benchmark/material only — it is **not** the runtime retrieval target.
 
 ---
 
@@ -58,27 +27,28 @@ A is configured under the YAML `retrieval:` and `ablation:` blocks. B is configu
 
 ```mermaid
 flowchart TD
-    M[(MongoDB<br/>ema_scraper)] -->|corpus/build_corpus.py| C[corpus/corpus.jsonl<br/>26k Q&As, in Git]
-    C -->|python -m harness.embed| IDX[harness/index/<br/>FAISS + docstore<br/>local only]
+    M[(MongoDB<br/>ema_scraper.parsed_documents<br/>~80k parsed docs)] -->|python -m harness.indexing.build| N4J[(Neo4j<br/>PropertyGraphIndex<br/>:Document + :Chunk)]
 
-    Q[Query] --> RC{RetrievalConfig}
-    IDX --> RC
+    subgraph N4J_DETAIL["Neo4j graph (live full build)"]
+      D[79,882 :Document]
+      CH[7.4M :Chunk<br/>5.82M leaf-embedded<br/>BGE-large native vector index]
+      E[HAS_CHUNK / PARENT_OF<br/>99,520 LINKS_TO]
+    end
 
-    RC --> RET[retrieve_with_config<br/>flat | recursive | hierarchical]
-    RET --> ABL{Ablation A wrappers}
-    ABL --> DOCS[ranked docs]
+    Q[Query] --> RET[HierarchicalPGRetriever<br/>small-to-big + 1-hop LINKS_TO]
+    N4J --> RET
+    RET --> DOCS[ranked chunks]
 
-    DOCS --> WF{get_workflow name}
-    WF --> ANS[answer + cited_qa_ids]
+    DOCS --> WF[get_workflow strategy<br/>simple_rag / crag / react / …]
+    WF --> ANS[answer]
 
-    ANS --> J[harness.judge<br/>faithfulness + correctness]
-    ANS --> PHX[(Phoenix traces<br/>localhost:6006)]
-
-    J --> R[results/run_id/<br/>retrieval.json<br/>judge_scores.jsonl<br/>run_summary.md]
-    PHX --> HITL[HITL annotation<br/>rating CLI / Chainlit thumbs]
+    ANS --> APP[app.py — Chainlit UI]
+    APP --> PHX[(Phoenix traces<br/>localhost:6006)]
+    APP -->|👍 / 👎| FB[user_rating annotation<br/>on root span]
+    FB --> CACHE[FAISS query cache<br/>harness/query_cache.py]
 ```
 
-`corpus.jsonl` is in Git. The FAISS index is **not** — it's rebuilt locally (~25 min for BGE-large-en on 26k records, ~2 s to reload after first build).
+`corpus.jsonl` and `benchmark.jsonl` are in Git. The Neo4j graph is **not** — it is rebuilt from Mongo by `python -m harness.indexing.build` (full GPU build over 79,882 docs; embeddings are BAAI/bge-large-en-v1.5 on local CUDA, leaf chunks only). Link extraction (`harness/indexing/links.py`) is scoped to `<main class="main-content-wrapper">` and produces typed `LINKS_TO` edges carrying `{kind, link_context, document_type, anchor}`.
 
 ---
 
@@ -87,66 +57,69 @@ flowchart TD
 | You want to... | Read / edit |
 |---|---|
 | Understand corpus schema | `corpus/models.py` (`QARecord`) |
-| Change how docs are retrieved | `harness/retrieve.py` (`RetrievalConfig`, `retrieve_with_config`) |
-| Add a new ablation step | `harness/ablations/*` + plug into `run_eval.py` retrieval pipeline |
+| Change how docs are retrieved | `harness/indexing/property_graph.py` (`HierarchicalPGRetriever`, `open_index`) |
+| Pick which retrieval setup is active | `EMA_INDEX_PROFILE` env var → `harness/configs/index/<name>.yaml` (default `neo4j_hier`) |
+| Build / rebuild the Neo4j index | `python -m harness.indexing.build` (entry: `harness/indexing/build.py`) |
+| Add a new index kind or retriever strategy | register via `harness/indexing/registry.py` + a new profile YAML |
 | Add a new workflow strategy | `harness/workflows/<name>.py` + register in `harness/workflows/registry.py` |
-| Change which model does what role | `harness/configs/models.yaml` |
-| Run interactive labeling session | `harness/label_session.py` |
-| Run an experiment | `harness/configs/<config>.yaml` → `python -m harness.run_eval --config ...` |
-| Compare results across runs | `scripts/generate_comparison_report.py` → writes `workflow_comparison.md` |
+| Add a new prompt variant | drop a file under `harness/prompts/` + add to `_PROMPT_FILES` in `harness/workflows/utils.py` |
+| Change which model does what role | `harness/configs/models.yaml` (role-based bindings via `harness/llms.py`) |
 | Chat interactively | `bash run_ui.sh` → Chainlit on :8000, Phoenix on :6006 |
-| Sanity-check the agent on 5 questions | `python -m ablations.B_process_rewards.run_b1_sanity` |
-| Rate a run in CLI mode | Add `--rate` to the sanity-check command above |
-| Run a full interactive labeling session | `python -m harness.label_session --workflow react --config harness/configs/workflow_react.yaml --n 20 --sample stratified` |
-| Export rated traces to JSONL | `python -m harness.export_traces --min-rating 4 --output ...` |
-| Tag corpus with IDMP concepts | `python scripts/tag_concepts.py` (requires RDF in Nextcloud) |
+| Inspect / collect feedback | Phoenix annotations (`harness/rating.py`) + Chainlit 👍/👎; cache in `harness/query_cache.py` |
+| Tag docs with IDMP concepts | `python scripts/tag_concepts.py` (requires RDF in Nextcloud) |
+
+> **Archived (on `archive/pre-llamaindex-refactor`, not on this branch):** `harness/run_eval.py`,
+> `harness/embed.py`, `harness/retrieve.py`, `harness/label_session.py`, `harness/compute_lift.py`,
+> the LLM-judge + ablation suite, and the FAISS-over-`corpus.jsonl` doc index. FAISS survives **only**
+> as the semantic query cache (`harness/query_cache.py`).
 
 ---
 
 ## The benchmark — what's being measured
 
-`benchmark/benchmark.jsonl` (45 questions, in Git) is stratified into four difficulty tiers:
+`benchmark/benchmark.jsonl` (45 questions, in Git: 20 T1 / 10 T2 / 10 T3 / 5 T4) is stratified into four difficulty tiers:
 
-- **T1 Lookup** — single Q&A answers it directly
+- **T1 Lookup** — single document answers it directly
 - **T2 Scoping** — relevant doc is adjacent to distractors with similar vocabulary
-- **T3 Multi-hop** — answer requires two cross-referenced Q&As
+- **T3 Multi-hop** — answer requires two cross-referenced documents
 - **T4 Synthesis** — answer requires combining across multiple procedures (e.g. "compare Article 30 vs Article 31")
 
-T4 is the systematic failure case across all configurations today (correctness ≤2/5). That's expected — flat k=10 retrieval can't reliably surface evidence from both procedures simultaneously.
+The headline metric is **lift**: open-book correctness minus closed-book correctness. Closed-book = same questions answered with no retrieval context. A model that memorized the corpus gets zero lift.
 
-The headline metric is **lift**: open-book correctness minus closed-book correctness. Closed-book = same questions answered with no retrieval context. A model that memorized the corpus gets zero lift. Run via `python -m harness.compute_lift --closed <dir> --open <dir>`.
-
----
-
-## Three example configs — read these to understand the YAML
-
-| File | What it demonstrates |
-|---|---|
-| `harness/configs/baseline_a0plus.yaml` | Minimal hybrid retrieval, no ablations, no orchestration. Good baseline reference. |
-| `harness/configs/ablation_a_a3.yaml` | Retrieval baseline + SME reranker. Shows the `ablation:` block. |
-| `harness/configs/workflow_crag.yaml` | A0+ retrieval + CRAG workflow. Shows the `orchestration:` block. |
-
-`harness/configs/models.yaml` is separate — it defines the model catalog and role bindings. Change `roles.judge: claude_opus → claude_haiku` to swap the judge model across **all** runs without touching individual configs.
+> **Status:** the runner that scores the benchmark (closed/open-book grids, the LLM judge, and the
+> lift computation) was **archived** to `archive/pre-llamaindex-refactor` during the refactor and must
+> be rebuilt on the Neo4j retrieval API before Phase 3/4 metrics run again. The benchmark items
+> themselves are current and in Git. See [`project_roadmap/ABLATIONS.md`](../project_roadmap/ABLATIONS.md).
 
 ---
 
-## Workflow registry — the 9 strategies
+## Retrieval profiles — the YAML that selects retrieval
 
-From `harness/workflows/registry.py`:
+The active retrieval setup is chosen by the `EMA_INDEX_PROFILE` env var (default `neo4j_hier`), which names a file under `harness/configs/index/`. A profile describes how the index is built (`index.kind`, chunking, scope) and which retriever to attach (`retrieval.strategy`, `k`). Swapping retrieval setups is an env change, not a code edit.
+
+Currently **one** retrieval strategy is built: `hierarchical` over `index.kind = property_graph` (profile `neo4j_hier`). The `vector_flat` / `hierarchical_links` / `property_graph_native` tracks are spec-only — see [`docs/RETRIEVAL_TRACKS.md`](RETRIEVAL_TRACKS.md).
+
+`harness/configs/models.yaml` is separate — it defines the model catalog and role bindings. Change `roles.frontier` / `roles.mid` to swap models across **all** workflows without touching individual configs.
+
+---
+
+## Workflow registry — the 7 strategies
+
+From `harness/workflows/registry.py`. See [`docs/WORKFLOWS.md`](WORKFLOWS.md) for the full how-to.
 
 | Name | What it does |
 |---|---|
-| `simple_rag_zero` | retrieve → generate (zero-shot) |
-| `simple_rag_few` | retrieve → generate (SME few-shot examples) |
-| `simple_rag_cot` | retrieve → generate (chain-of-thought) |
-| `react` | `ReActNativeWorkflow` — hand-written think/act/observe loop; per-step Phoenix spans; agent role = Opus |
+| `simple_rag` | retrieve → generate (prompt variant from `prompt_strategy`: `zero_shot` / `few_shot` / `cot_self`) |
+| `react` | `ReActNativeWorkflow` — hand-written think/act/observe loop; per-step Phoenix spans |
 | `crag` | retrieve → grade ⇄ rewrite → generate |
 | `summarize_rag` | retrieve → summarize → generate |
 | `crag_summarize` | CRAG loop → summarize → generate |
 | `crag_review` | CRAG loop → generate → faithfulness review |
-| `react_review` | ReAct → single faithfulness review pass |
+| `react_review` | ReAct → single faithfulness review pass (score only) |
 
-Every entry returns an object with `invoke(inputs)` and `ainvoke(inputs)`. Inputs is always `{"question": str, "few_shot_context"?: str}`.
+The three prompt strategies (`zero_shot`, `few_shot`, `cot_self`) apply to every workflow **except** `react` / `react_review`. The Chainlit UI flattens these 7 workflows × prompt variants into **9 display profiles** (the `_PROFILE_STRATEGY` map in `app.py`), but there are 7 underlying workflows.
+
+`get_workflow(name, retriever=…, llm=…, prompt_strategy=…)` returns a runner with `invoke(inputs)` / `ainvoke(inputs)`. Inputs is always `{"question": str, "few_shot_context"?: str}`.
 
 ---
 
@@ -154,106 +127,90 @@ Every entry returns an object with `invoke(inputs)` and `ainvoke(inputs)`. Input
 
 ```mermaid
 flowchart TD
-    Q[Ask a question] --> WF[Workflow runs]
+    Q[Ask a question in Chainlit] --> WF[Workflow runs]
     WF --> PHX[(Phoenix captures<br/>root + per-step spans)]
     WF --> ANS[Answer shown]
 
-    ANS -->|Chainlit thumbs| FB1[user_rating annotation<br/>on root span]
-    ANS -->|CLI --rate| FB2[user_rating + step_quality<br/>annotations on spans]
+    ANS -->|Chainlit 👍 / 👎| FB[user_rating annotation<br/>on root span<br/>harness/rating.py]
 
-    FB2 --> CACHE[query_cache<br/>FAISS over past queries]
-
-    PHX --> EXP1[export_traces.py<br/>JSONL of rated runs]
-    PHX --> EXP2[hitl/export_annotations.py<br/>per-date Nextcloud JSONL]
-
-    CACHE -.->|future use| INJ[fewshot_inject.py<br/>prepend top-k examples<br/>to system prompt]
+    Q --> CACHE[query_cache<br/>FAISS over past queries<br/>harness/query_cache.py]
+    FB --> CACHE
+    CACHE -->|≥3 entries rating≥4| INJ[get_fewshot_context<br/>prepend top-k examples<br/>to system prompt]
     INJ -.-> WF
 ```
 
 **Current state:**
-- The Chainlit UI captures thumbs only (no per-step labels).
-- `b1_trajectories.jsonl` has 5 populated trajectories (3–5 steps each, `ema_search` tool calls confirmed).
-- `harness/label_session.py` runs interactive labeling over N stratified/uniform questions on any registered workflow — use this to build up the rated-examples pool.
-- `harness/fewshot_inject.py:get_fewshot_context()` is wired into both `app.py` (automatic injection when ≥ 3 rated entries exist) and `run_eval.py` (opt-in via `cache_inject: true` in the YAML config).
-- Loop closes when ≥ 3 examples with rating ≥ 4 exist in the query cache.
+- The Chainlit UI captures a 👍/👎 rating per answer, written as a `user_rating` annotation on the run's root span in Phoenix (`harness/rating.py`, via `_find_recent_root_span_id`).
+- Phoenix + OpenInference is the trace store and labeling surface; `app.py` registers tracing via `phoenix.otel` using the `PHOENIX_URL` env var (default `http://localhost:6006`).
+- `harness/query_cache.py` is a FAISS index over past query embeddings; `get_fewshot_context()` (in `harness/fewshot_inject.py`) is wired into `app.py` and injects top-k rated examples once ≥ 3 entries with rating ≥ 4 exist.
 
 ---
 
 ## Common tasks
 
-### Run a single config
+### Start the data services
 
 ```bash
-source ~/.myenvs/ema_nlp.env  # if not auto-loaded
-python -m harness.run_eval --config harness/configs/baseline_a0plus.yaml
+scripts/start_services.sh   # MongoDB (mongo:8.0.4) + Neo4j (neo4j:5.26 community), Docker, health-checked
 ```
 
-Outputs land in `~/Nextcloud/Datasets/ema_nlp/results/baseline_a0plus/`.
-
-### Compare across runs
-
-```bash
-python scripts/generate_comparison_report.py
-```
-
-Reads every subdirectory of `~/Nextcloud/Datasets/ema_nlp/results/` and writes `workflow_comparison.md` with retrieval tables, judge tables, and a narrative findings section.
+No Postgres — it was removed by the refactor.
 
 ### Chat with the system
 
 ```bash
-bash run_ui.sh                       # Phoenix + Chainlit
+bash run_ui.sh                       # Phoenix (:6006) + Chainlit (:8000)
 # or
-PHOENIX_DISABLED=1 bash run_ui.sh    # Chainlit only
+PHOENIX_DISABLED=1 bash run_ui.sh    # Chainlit only, no tracing
 ```
 
-Chainlit on http://localhost:8000, Phoenix on http://localhost:6006. The Chainlit session uses **one fixed workflow** per session — controlled by env vars and defaults in `app.py`. To swap workflows you currently have to restart.
+Chainlit on http://localhost:8000, Phoenix on http://localhost:6006. The workflow strategy is selected per-session via the **chat-profile dropdown** (the 9 display profiles); changing it does not require a restart.
 
-### Compute lift
+### Build / rebuild the Neo4j index
 
 ```bash
-# 1. Run closed-book config (no retrieval context)
-python -m harness.run_eval --config harness/configs/<closed_config>.yaml
+# whole corpus, GPU, fresh build (~80k docs; long-running)
+python -m harness.indexing.build --full --reset --embed-device cuda
 
-# 2. Run open-book equivalent
-python -m harness.run_eval --config harness/configs/<open_config>.yaml
+# resume an interrupted full build (no --reset — already-built docs are skipped)
+python -m harness.indexing.build --full --embed-device cuda
 
-# 3. Compute lift
-python -m harness.compute_lift \
-  --closed ~/Nextcloud/Datasets/ema_nlp/results/<closed> \
-  --open   ~/Nextcloud/Datasets/ema_nlp/results/<open>
+# a 500-doc slice for quick iteration
+python -m harness.indexing.build --limit 500
+
+# rebuild only the LINKS_TO edges over an existing graph
+python -m harness.indexing.build --full --reset-links
 ```
 
-### Rebuild the index after corpus changes
+The active profile (`EMA_INDEX_PROFILE`, default `neo4j_hier`) decides chunking/scope/retriever. Use `--pause-every-docs` / `--pause-seconds` to throttle the GPU on long builds (the 3090 can wedge its GSP firmware under sustained load — see machine memory).
+
+### Tag docs with IDMP concepts
 
 ```bash
-rm harness/index/docstore.json    # force-rebuild trigger
-python -m harness.embed
+python scripts/tag_concepts.py        # requires IDMP RDF in Nextcloud
 ```
 
-### MongoDB sync
-
-```bash
-bash scripts/sync_mongo.sh export   # on source machine
-bash scripts/sync_mongo.sh import   # on destination after Nextcloud syncs
-# or direct over Tailscale:
-bash scripts/sync_mongo.sh pull --host <tailscale-host>
-```
+> **Archived (off-branch):** running eval configs (`harness.run_eval`), the cross-run comparison report,
+> interactive labeling (`harness.label_session`), computing lift (`harness.compute_lift`), and
+> `harness.embed` no longer exist on this branch. They live on `archive/pre-llamaindex-refactor` and
+> will return once the eval suite is rebuilt on the Neo4j API.
 
 ---
 
 ## What you should hold in your head
 
-1. **Three axes, one entry point.** Every experiment is a YAML; `run_eval.py` is the single executor.
-2. **Retrieval is unified.** `RetrievalConfig` + `retrieve_with_config()` is the one path. Strategy (flat/recursive/hierarchical) and mode (dense/bm25/hybrid) are orthogonal. Ablations wrap on top in `run_eval.py`.
-3. **Workflows are a registry.** `get_workflow(name, ...)` returns something with `invoke()`. Always. No exceptions.
-4. **Models are role-bound.** Code never hardcodes a model. It asks `get_llm("agent")`, `get_llm("judge")`, etc. `models.yaml` decides what those mean.
-5. **Phoenix is the trace store and labeling surface.** Every LlamaIndex call instruments automatically. Annotations are the human signal.
-6. **Corpus is in Git, index and results are not.** Index rebuilds from corpus; results live in Nextcloud at `~/Nextcloud/Datasets/ema_nlp/results/`.
+1. **One retrieval store.** Neo4j `PropertyGraphIndex` (`:Document` + `:Chunk`, `HAS_CHUNK`/`PARENT_OF`/`LINKS_TO` edges, native chunk vector index). `HierarchicalPGRetriever` walks small-to-big and expands 1 hop over `LINKS_TO`. There is no pgvector, no FAISS doc index, no `EMA_RETRIEVER` switch.
+2. **Retrieval is a profile, not code.** `EMA_INDEX_PROFILE` → `harness/configs/index/<name>.yaml` selects the index kind + retriever. Today only `neo4j_hier` (hierarchical over property_graph) is built.
+3. **Workflows are a registry.** `get_workflow(name, retriever=…, llm=…)` returns something with `invoke()`. Always. 7 workflows; prompt variants are a separate axis.
+4. **Models are role-bound.** Code never hardcodes a model — it asks `get_llm("frontier")` / `get_llm("mid")` etc. `models.yaml` decides what those mean.
+5. **Phoenix is the trace store and labeling surface.** Every LlamaIndex call is instrumented automatically (`PHOENIX_URL`); 👍/👎 annotations are the human signal.
+6. **Corpus + benchmark are in Git; the graph is not.** The Neo4j graph rebuilds from Mongo `parsed_documents`. The eval/judge/lift suite is archived off-branch.
 
 ---
 
 ## Where things hurt right now
 
-- No interactive workflow-switching UI — Chainlit runs one fixed workflow per session; switching requires a restart. A Streamlit orchestration dashboard is the planned next step (see `CLAUDE_GUIDANCE.md` P2).
-- Few-shot injection requires ≥ 3 rated examples to fire; the pool is currently small. Run `harness/label_session.py` sessions to build it up.
-- Ablation B (process-reward supervision) full run still pending — infrastructure done, needs labeling data.
+- The eval + LLM-judge + benchmark-runner + ablation + lift suite is **archived** (`archive/pre-llamaindex-refactor`); it must be rebuilt on the Neo4j retrieval API before Phase 3/4 metrics run again.
+- Only one retrieval strategy is built (`neo4j_hier`); `vector_flat` / `hierarchical_links` / `property_graph_native` are spec-only (`docs/RETRIEVAL_TRACKS.md`).
+- Few-shot injection needs ≥ 3 rated examples (rating ≥ 4) before it fires; the rated pool is still small.
+- The 3090 can wedge its GSP firmware under sustained CUDA load — throttle long index builds with the power cap + `--pause-every-docs` (see machine memory) before any reboot.

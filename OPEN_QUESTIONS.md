@@ -2,6 +2,8 @@
 
 Decisions not yet made. Each entry has enough context to make the decision without re-reading the full exploration. Once a question is resolved, move it to `DECISIONS.md` and remove it here.
 
+> **Note (2026-06-04):** The feedback/caching, benchmark-construction, and agent-design questions below — rating UI granularity, benchmark `cache: false` convention, LLM judge model, T3 count, and Ablation B go/no-go — depend on the eval + LLM-judge + benchmark-runner + ablations suite, which was **archived to branch `archive/pre-llamaindex-refactor`** during the LlamaIndex retrieval refactor. They are deferred until that suite is rebuilt on the Neo4j retrieval API. Likewise, the TASK numbers referenced in these entries (TASK-016 index build, TASK-019 judge, TASK-027/028/029) predate the refactor.
+
 ---
 
 ## Feedback and caching
@@ -33,10 +35,8 @@ Decisions not yet made. Each entry has enough context to make the decision witho
 
 ## Retrieval and indexing
 
-### Embedding model: confirm BGE-large-en or evaluate alternatives before Phase 3
-**Context:** BGE-large-en is the current plan. It has not been benchmarked against alternatives on EMA regulatory text. Switching after the corpus index is built would require a full re-embed.  
-**Options:** `BAAI/bge-large-en`, `intfloat/e5-large-v2`, `mixedbread-ai/mxbai-embed-large-v1`, or a model from the MTEB leaderboard filtered to English retrieval.  
-**When to decide:** Before TASK-016 (index build). A 1-hour spot-check on 20 known Q&A pairs with 3 models is sufficient.
+### ~~Embedding model: confirm BGE-large-en or evaluate alternatives before Phase 3~~ — RESOLVED (2026-06-04)
+**Resolution:** `BAAI/bge-large-en-v1.5` shipped. The full Neo4j `PropertyGraphIndex` was built with it (local CUDA, leaf-only — 5,817,230 leaf embeddings), so alternatives are no longer in scope without a full re-embed. See `docs/RETRIEVAL.md`; move to `DECISIONS.md` on the next sweep.
 
 ### IDMP concept list for node metadata (TASK-016.5)
 **Context:** TASK-016.5 parses the IDMP RDF and extracts ~50–100 key regulatory concepts to tag Q&A nodes. The concept list needs a human review pass before it is used for filtering.  

@@ -6,13 +6,13 @@ Operator's guide to the LlamaIndex-first retrieval stack introduced in the
 Postgres + pgvector path (and the even older FAISS-over-`corpus.jsonl` path),
 both of which are removed.
 
-> **Refactor status (2026-05-30).** The offline pipeline is built and verified:
-> `harness/indexing/` builds a hierarchical `PropertyGraphIndex` in Neo4j and the
-> `HierarchicalPGRetriever` returns results, verified end-to-end on a CPU subset.
-> **Not yet wired:** the workflows (`harness/workflows/`) and the chat UI (`app.py`)
-> still consume the legacy `harness.retrieve`/`retrieve_pg` path — re-seaming them
-> (LIR-009/010) and deleting the old pgvector/FAISS stack (LIR-012) are pending. Track
-> in [the work unit](../.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json).
+> **Refactor status (2026-06-04). Complete.** `harness/indexing/` builds a
+> hierarchical `PropertyGraphIndex` in Neo4j and the `HierarchicalPGRetriever`
+> returns results over the **full graph** (79,882 `:Document`, 5.82M leaf-embedded
+> chunks, 99,520 `LINKS_TO` edges). The workflows (`harness/workflows/`) and the
+> chat UI (`app.py`) consume the LlamaIndex retriever (LIR-009/010), and the old
+> pgvector/FAISS stack has been deleted (LIR-012). Track in
+> [the work unit](../.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json).
 
 ---
 
@@ -61,8 +61,8 @@ flowchart TD
 
     UP --> NEO[("Neo4j PropertyGraph<br/>:Document :Chunk + edges + vector index")]
     NEO --> RET["build_retriever(profile, index)<br/>HierarchicalPGRetriever"]
-    RET --> WF["harness/workflows/* (LIR-009, pending)"]
-    WF --> APP["app.py chat UI (LIR-010, pending)"]
+    RET --> WF["harness/workflows/* (LIR-009)"]
+    WF --> APP["app.py chat UI (LIR-010)"]
     APP --> PHX[Arize Phoenix traces + 👍/👎]
 ```
 
@@ -74,11 +74,11 @@ The **three Mongo collections**:
 | `parsed_pdfs` | pymupdf4llm PDF markdown (`_id` = url, `markdown`, `error`) | `scripts/ingest_parsed_pdfs.py` |
 | `parsed_documents` | canonical parser output (`url, parser, parser_version, content_type, text, text_format, error`) | parsers / `scripts/backfill_parsed_documents_subset.py` |
 
-> **Data note (this host).** `parsed_documents` and the old `link_graph` collection
-> were **never backfilled** here — the MIGR-013/018..025 backfills that older docs
-> claim ran (80k/22k docs) did not. `scripts/backfill_parsed_documents_subset.py`
-> seeds a small coherent verify subset (HTML pages + the PDFs they link to). The
-> full corpus backfill is future work, best run on the GPU host.
+> **Data note.** `parsed_documents` holds the full ~80k-doc parser output and the Neo4j
+> index (79,882 `:Document`) was built from it. The old `link_graph` collection was never
+> built — links are extracted at ingest from `web_items.html_raw` by `harness.indexing.links`.
+> `scripts/backfill_parsed_documents_subset.py` seeds a small coherent verify subset
+> (HTML pages + the PDFs they link to) for quick CPU iteration.
 
 ---
 

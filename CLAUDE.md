@@ -3,12 +3,12 @@
 > ✅ **REFACTOR LANDED** (branch `refactor/llamaindex-retrieval-pipeline`, work unit
 > [`2026-05-30_20_llamaindex-retrieval-refactor`](.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json)).
 > Retrieval is LlamaIndex-first: a **hierarchical `PropertyGraphIndex` on Neo4j**
-> (79,882 docs / 5.82M leaf embeddings / 1.72M `LINKS_TO` edges) replaced Postgres + pgvector,
-> FAISS, and the hand-rolled SQL retrieval — **all now deleted** (LIR-012). Workflows + the
-> Chainlit UI consume the retriever (LIR-009/010). The benchmark suite was removed from this
-> branch (archived on `archive/pre-llamaindex-refactor`). Pre-refactor state: `main` @ `5c3c8a8`.
-> *Remaining: the live-UI tracing/feedback eyeball (LIR-011) is a manual step. Any lingering
-> pgvector/FAISS/`EMA_RETRIEVER` mentions below are historical — see [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md).*
+> (79,882 docs / 5.82M leaf embeddings / 99,520 main-content-scoped `LINKS_TO` edges, work unit 24)
+> replaced Postgres + pgvector, FAISS, and the hand-rolled SQL retrieval — **all now deleted**
+> (LIR-012, 2026-06-03). Workflows + the Chainlit UI consume the retriever (LIR-009/010, 2026-06-02),
+> with live Phoenix tracing/feedback wired in `app.py` (LIR-011). The benchmark suite was removed from
+> this branch (archived on `archive/pre-llamaindex-refactor`). Pre-refactor state: `main` @ `5c3c8a8`.
+> *See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) for the full retrieval picture.*
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -25,9 +25,9 @@ See `project_roadmap/ROADMAP.md` for the full phase-by-phase plan. See `project_
 
 Read `DECISIONS.md` before planning any implementation. Short summary of the ones most likely to affect new code:
 
-- **Retrieval framework:** LlamaIndex — hierarchical **`PropertyGraphIndex` on Neo4j** (refactor in progress on branch `refactor/llamaindex-retrieval-pipeline`; replaces the former pgvector + FAISS paths). See `docs/RETRIEVAL.md`.
+- **Retrieval framework:** LlamaIndex — hierarchical **`PropertyGraphIndex` on Neo4j** (the former pgvector + FAISS paths were deleted in LIR-012). See `docs/RETRIEVAL.md`.
 - **Site structure is the retrieval signal.** Page→PDF/page hyperlinks become `LINKS_TO` edges and section hierarchy becomes `PARENT_OF` edges in Neo4j; the retriever walks them (small-to-big + `links_to`) when semantic search underfetches. *(Historical note: the MIGR-018..025 `link_graph`/recursive-CTE machinery was documented as shipped but **never actually built** — see `docs/RETRIEVAL.md`. Links are now extracted at ingest from `web_items.html_raw` by `harness.indexing.links`.)*
-- **Tracing:** Arize Phoenix + OpenInference — model-agnostic, self-hosted, wired in `run_eval.py`
+- **Tracing:** Arize Phoenix + OpenInference — model-agnostic, self-hosted, registered in `app.py`
 - **Feedback store:** Phoenix annotations API — no separate database
 - **Semantic cache:** thin FAISS index over past query embeddings (`harness/index/query_cache.faiss`) — GPTCache is abandoned, do not use it
 - **Learning from feedback:** runtime few-shot injection from rated trajectories — no model training, no DSPy yet
@@ -44,17 +44,17 @@ Completed: TASK-001 through TASK-007 (Phase 0 scoping, Phase 1 extractors, corpu
 Next phase: **Phase 2 — benchmark construction** (curate 30–50 evaluation questions, T1–T4 types).  
 Full task list and status: `.claude/work/2026-05-10_02_implementation-plan/state.json`
 
-**Current work — retrieval refactor** (branch `refactor/llamaindex-retrieval-pipeline`): retrieval is being rebuilt LlamaIndex-first on Neo4j (`harness/indexing/`, hierarchical `PropertyGraphIndex`). Offline pipeline built + verified on a CPU subset (LIR-001..008); workflow/chat-UI re-seam + old-stack deletion pending (LIR-009..014). The benchmark/eval suite was removed from this branch (archived on `archive/pre-llamaindex-refactor`). See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) and `.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/`.
+**Retrieval refactor — complete** (branch `refactor/llamaindex-retrieval-pipeline`): retrieval is LlamaIndex-first on Neo4j (`harness/indexing/`, hierarchical `PropertyGraphIndex`), built over the full corpus (79,882 docs / 5.82M leaf embeddings / 99,520 `LINKS_TO` edges). Workflows + chat UI consume the retriever (LIR-009/010); the old pgvector/FAISS stack is deleted (LIR-012); link extraction is main-content-scoped + typed (work unit 24, 2026-06-04). The benchmark/eval suite was removed from this branch (archived on `archive/pre-llamaindex-refactor`). See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) and `.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/`.
 
 ## Data sources
 
-> **Starting the data services:** `scripts/start_services.sh` brings up MongoDB (`deploy/mongo/`) and Neo4j (`deploy/neo4j/`) as Docker containers and health-checks them. *(Postgres/pgvector is being removed by the retrieval refactor — see `docs/RETRIEVAL.md`.)* On this host (kernel ≥ 6.19) MongoDB **must** run via the pinned `mongo:8.0.4` container — the native package crashes (SERVER-121912). See `deploy/mongo/README.md` and `deploy/neo4j/README.md`.
+> **Starting the data services:** `scripts/start_services.sh` brings up MongoDB (`deploy/mongo/`) and Neo4j (`deploy/neo4j/`) as Docker containers and health-checks them. *(Postgres/pgvector was removed in LIR-012 — `start_services.sh` no longer starts it.)* On this host (kernel ≥ 6.19) MongoDB **must** run via the pinned `mongo:8.0.4` container — the native package crashes (SERVER-121912). See `deploy/mongo/README.md` and `deploy/neo4j/README.md`.
 
 - **MongoDB** `ema_scraper.web_items` — raw scraped EMA pages; HTML stored as `html_raw` (1-element list), PDFs as metadata only
 - **MongoDB** `ema_scraper.parsed_pdfs` — pymupdf4llm markdown keyed by URL; built by `scripts/ingest_parsed_pdfs.py --legacy`; 65k docs; query `{error: ""}` for clean parses
-- **MongoDB** `ema_scraper.parsed_documents` (MIGR-001) — canonical parser-output sink. One row per `(url, parser, parser_version)`. Populated by `corpus/parsers/*.py` CLIs. **Ingestion source for `harness.indexing.ingest`.** *(Not backfilled at scale on this host — `scripts/backfill_parsed_documents_subset.py` seeds a verify subset; see `docs/RETRIEVAL.md`.)*
+- **MongoDB** `ema_scraper.parsed_documents` (MIGR-001) — canonical parser-output sink. One row per `(url, parser, parser_version)`. Populated by `corpus/parsers/*.py` CLIs. **Ingestion source for `harness.indexing.ingest`.** *(The full ~80k-doc output is indexed into Neo4j; `scripts/backfill_parsed_documents_subset.py` seeds a small verify subset for CPU iteration.)*
 - **`ema_scraper.link_graph` — never built.** Older docs (MIGR-018..025) describe this collection; it was never populated here. Links are extracted at ingest time from `web_items.html_raw` by `harness.indexing.links.extract_links` and become `LINKS_TO` edges in Neo4j.
-- **Neo4j** (Docker, `deploy/neo4j/`) — the retrieval store: a LlamaIndex `PropertyGraphIndex` of `:Document` + `:Chunk` nodes with `HAS_CHUNK`/`PARENT_OF`/`LINKS_TO` edges and a native vector index over chunk embeddings. Built by `harness.indexing.build_index` from Mongo `parsed_documents`. This is the retrieval target; `corpus.jsonl` is benchmark-only. See `docs/RETRIEVAL.md`. *(Replaces the former Postgres+pgvector store, being removed in the refactor.)*
+- **Neo4j** (Docker, `deploy/neo4j/`) — the retrieval store: a LlamaIndex `PropertyGraphIndex` of `:Document` + `:Chunk` nodes with `HAS_CHUNK`/`PARENT_OF`/`LINKS_TO` edges and a native vector index over chunk embeddings. Built by `harness.indexing.build_index` from Mongo `parsed_documents`. This is the retrieval target; `corpus.jsonl` is benchmark-only. See `docs/RETRIEVAL.md`. *(Replaced the former Postgres+pgvector store, deleted in LIR-012.)*
 - **Nextcloud**: `~/Nextcloud/Datasets/` — Scrapy cache (`ema_scraper/cache/`) + IDMP ontology RDF files
 - Paths are configured in `config.py`, which loads `~/.myenvs/ema_nlp.env` via python-dotenv
 - MongoDB source adaptors: `corpus/sources/mongo_source.py` yields `QARecord` for the Q&A pipeline; `corpus/sources/parsed_documents.py` exposes the writer and index bootstrap for the parsers layer; `corpus/sources/synthetic_legacy_reader.py` (MIGR-008) bridges `parsed_pdfs` + `web_items` rows to the sync as a transition fixture until MIGR-013 backfills.

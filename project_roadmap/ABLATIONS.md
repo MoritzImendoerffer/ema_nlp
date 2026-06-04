@@ -11,6 +11,8 @@ Each ablation tests a specific claim about where subject-matter-expert effort pa
 
 What changes is exactly one thing per ablation — that's what "ablation" means.
 
+> **Note:** the Phase 3 eval harness (run_eval.py, LLM judges, metrics, lift) was archived to branch `archive/pre-llamaindex-refactor` during the LlamaIndex/Neo4j retrieval refactor; it must be rebuilt on the Neo4j retriever API before these Phase 4 ablations can run.
+
 ---
 
 ## Ablation A — SME-curated evidence filtering and query reformulation
