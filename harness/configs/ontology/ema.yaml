@@ -1,0 +1,45 @@
+# Typed ontology schema for the semantic graph layer (Layer 2).
+# Consumed later by a LlamaIndex SchemaLLMPathExtractor via the enrich_ontology
+# entrypoint (extraction deferred). See docs/TARGET_ARCHITECTURE.md §4.5.
+# Kept deliberately small — over-broad schemas wreck LLM extraction precision/cost.
+entities:
+  - Substance
+  - Product
+  - Procedure
+  - Guideline
+  - Committee
+  - Requirement
+  - Limit
+relations:
+  - APPLIES_TO
+  - SUBJECT_TO
+  - REQUIRES
+  - EXEMPT_FROM
+  - MANDATED_BY
+  - JUSTIFIED_BY
+  - DERIVED_FROM
+  - CAUSES
+  - CONTRIBUTES_TO
+  - MITIGATED_BY
+  - ASSESSED_BY
+  - HAS_LIMIT
+  - SETS_LIMIT
+  - SUPERSEDES
+  - AMENDS
+  - CLARIFIES
+  - REFERENCES
+  - RELATED_TO
+  - RESPONSIBLE_FOR
+  - ISSUED_BY
+# Allowed (subject, relation, object) triples — constrains extraction.
+validation_schema:
+  - [Guideline, APPLIES_TO, Substance]
+  - [Substance, HAS_LIMIT, Limit]
+  - [Guideline, SETS_LIMIT, Limit]
+  - [Requirement, MANDATED_BY, Guideline]
+  - [Limit, JUSTIFIED_BY, Guideline]
+  - [Substance, SUBJECT_TO, Procedure]
+  - [Procedure, REQUIRES, Requirement]
+  - [Guideline, SUPERSEDES, Guideline]
+  - [Committee, RESPONSIBLE_FOR, Procedure]
+  - [Guideline, ISSUED_BY, Committee]
