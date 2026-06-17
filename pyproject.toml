@@ -33,6 +33,7 @@ dependencies = [
     # Observability — model-agnostic tracing
     "arize-phoenix>=4.0",
     "openinference-instrumentation-llama-index>=2.0",
+    "mlflow>=3.0",                                # MLflow tracking + eval/judges (target architecture)
     # LLM
     "anthropic>=0.100",
     # Utilities

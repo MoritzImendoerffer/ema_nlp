@@ -52,7 +52,10 @@ def stamp_current_span(attrs: dict[str, Scalar]) -> bool:
     try:
         from opentelemetry import trace as otel_trace
 
-        span = otel_trace.get_current_span()
+        get_current_span = getattr(otel_trace, "get_current_span", None)
+        if get_current_span is None:
+            return False
+        span = get_current_span()
         if span is None or not span.is_recording():
             return False
         for key, value in attrs.items():
