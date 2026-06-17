@@ -1,8 +1,10 @@
 """``ema_search`` tool — retrieve EMA corpus passages for the agent.
 
-Retriever-agnostic: it wraps any LlamaIndex ``BaseRetriever`` (the live
-``HierarchicalPGRetriever`` over Neo4j at runtime, or a fake in tests), so the
-tool itself needs no infrastructure to unit-test.
+Retriever-agnostic: wraps any LlamaIndex ``BaseRetriever`` (the live
+``CustomPGRetriever`` over Neo4j at runtime, or a fake in tests). When a query
+``transform`` and/or ``postprocessors`` are supplied, the tool runs the full
+config-driven retrieval pipeline (query expansion -> multi-query merge -> rerank)
+via ``harness.retrieval.run_retrieval``; otherwise it does a plain retrieve.
 """
 
 import logging
@@ -35,14 +37,32 @@ def format_nodes(nodes: list) -> str:
 
 
 @register_tool("ema_search")
-def build_ema_search_tool(*, retriever: Any = None, **_: Any) -> FunctionTool:
-    """Build the ``ema_search`` FunctionTool over a LlamaIndex retriever."""
+def build_ema_search_tool(
+    *,
+    retriever: Any = None,
+    transform: Any = None,
+    postprocessors: list | None = None,
+    **_: Any,
+) -> FunctionTool:
+    """Build the ``ema_search`` FunctionTool over a LlamaIndex retriever.
+
+    If ``transform``/``postprocessors`` are given, the config-driven pipeline runs;
+    otherwise a plain ``retriever.retrieve`` is used.
+    """
     if retriever is None:
         raise ValueError("ema_search tool requires a `retriever` (a LlamaIndex BaseRetriever)")
 
     def ema_search(query: str) -> str:
         """Search the EMA regulatory corpus; returns relevant passages with sources."""
-        return format_nodes(retriever.retrieve(query))
+        if transform is not None or postprocessors:
+            from harness.retrieval.pipeline import run_retrieval
+
+            nodes = run_retrieval(
+                retriever, query=query, transform=transform, postprocessors=postprocessors or []
+            )
+        else:
+            nodes = retriever.retrieve(query)
+        return format_nodes(nodes)
 
     return FunctionTool.from_defaults(
         fn=ema_search,
