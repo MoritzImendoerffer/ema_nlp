@@ -1,0 +1,14 @@
+# Config-driven retrieval pipeline (native-first). See docs/TARGET_ARCHITECTURE.md §4.4.
+# Stages are selected by name; real rerankers/transforms register behind lazy imports.
+# Kept under configs/retrieval/ (not configs/index/) so it does not disturb the live
+# index-profile loader.
+retrieval:
+  query_transform: acronym        # none | acronym | llm_rewrite | (agent, future)
+  sub_retrievers:                 # composed via index.as_retriever(sub_retrievers=[...]) at runtime
+    - chunk_vector                # the justified custom CustomPGRetriever (LIR-007)
+    - cypher_template             # native, ontology mode
+  graph_mode: links               # none | links | ontology | entity_seeded (explicit; no silent default)
+  k: 20
+  rerank:                         # ordered node_postprocessors
+    - cross_encoder               # cross_encoder | llm_sme
+  rerank_top_n: 8
