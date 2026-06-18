@@ -16,15 +16,19 @@ from harness.obs.runs import (
     record_run,
     setup_mlflow,
 )
+from harness.obs.tracing import enable_llama_index_autolog, setup_tracing, traced
 
 __all__ = [
     "RunHandle",
     "answer_metrics",
     "echo_resolved_config",
+    "enable_llama_index_autolog",
     "mlflow_available",
     "record_answer_run",
     "record_run",
     "resolved_config_attributes",
     "setup_mlflow",
+    "setup_tracing",
     "stamp_current_span",
+    "traced",
 ]

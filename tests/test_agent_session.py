@@ -1,0 +1,65 @@
+"""Unit tests for harness.agents.session (assemble_agent + AgentSession).
+
+assemble_agent is verified with a fake retriever + MockLLM and an empty rerank
+list (so no cross-encoder model download). build_session is runtime-only (Neo4j).
+"""
+
+import asyncio
+
+from llama_index.core.llms import MockLLM
+from llama_index.core.retrievers import BaseRetriever
+from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
+
+from harness.agents.session import AgentSession, assemble_agent
+from harness.retrieval import RetrievalPipelineConfig
+from harness.schemas import RegulatoryAnswer
+
+
+class _FakeRetriever(BaseRetriever):
+    def __init__(self):
+        super().__init__()
+
+    def _retrieve(self, query_bundle: QueryBundle):
+        return [NodeWithScore(node=TextNode(text="x", id_="x", metadata={"source_url": "u"}), score=1.0)]
+
+
+class _FakeAgentOutput:
+    def __init__(self, structured_response):
+        self.structured_response = structured_response
+        self.response = None
+
+
+class _FakeAgent:
+    def __init__(self, output):
+        self._output = output
+
+    async def run(self, user_msg=None, **_):
+        return self._output
+
+
+def test_assemble_agent_with_pipeline_config():
+    cfg = RetrievalPipelineConfig(profile="native", query_transform="acronym", rerank=[])
+    agent = assemble_agent(
+        base_retriever=_FakeRetriever(),
+        llm=MockLLM(),
+        pipeline_config=cfg,
+        acronyms={"AI": "Acceptable Intake"},
+    )
+    assert {t.metadata.name for t in agent.tools} == {"ema_search", "resolve_substance"}
+    assert agent.output_cls is RegulatoryAnswer
+
+
+def test_assemble_agent_plain_without_pipeline():
+    agent = assemble_agent(base_retriever=_FakeRetriever(), llm=MockLLM())
+    assert {t.metadata.name for t in agent.tools} == {"ema_search", "resolve_substance"}
+
+
+def test_session_arun_returns_answer():
+    session = AgentSession(agent=_FakeAgent(_FakeAgentOutput(RegulatoryAnswer(answer="ok"))))
+    out = asyncio.run(session.arun("q"))
+    assert out.answer == "ok"
+
+
+def test_session_run_sync_wrapper():
+    session = AgentSession(agent=_FakeAgent(_FakeAgentOutput(RegulatoryAnswer(answer="sync"))))
+    assert session.run("q").answer == "sync"

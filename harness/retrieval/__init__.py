@@ -5,6 +5,11 @@ LlamaIndex retriever. See ``docs/TARGET_ARCHITECTURE.md`` §4.4.
 """
 
 from harness.retrieval.config import RetrievalPipelineConfig, load_pipeline_config
+from harness.retrieval.native_pg import (
+    build_cypher_template_retriever,
+    build_native_composed_retriever,
+    build_vector_context_retriever,
+)
 from harness.retrieval.pipeline import run_retrieval
 from harness.retrieval.postprocessors import (
     apply_postprocessors,
@@ -22,7 +27,10 @@ from harness.retrieval.transforms import (
 __all__ = [
     "RetrievalPipelineConfig",
     "apply_postprocessors",
+    "build_cypher_template_retriever",
+    "build_native_composed_retriever",
     "build_postprocessors",
+    "build_vector_context_retriever",
     "get_postprocessor",
     "get_transform",
     "list_postprocessors",
