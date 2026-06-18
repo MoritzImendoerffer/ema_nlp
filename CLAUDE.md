@@ -10,6 +10,15 @@
 > this branch (archived on `archive/pre-llamaindex-refactor`). Pre-refactor state: `main` @ `5c3c8a8`.
 > *See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) for the full retrieval picture.*
 
+> 🧪 **Agentic layer in progress** (branch `claude/agentic-rag-foundation`, **additive** — the
+> workflow/Phoenix stack above is untouched and is still what `app.py` runs). A LlamaIndex
+> `FunctionAgent` + tool-registry orchestration with Pydantic structured output, a
+> config-driven retrieval pipeline (query-expansion + rerank), MLflow run-recording/judges,
+> and typed ontology enrichment live under
+> `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/`. Foundation is unit-tested
+> offline; live wiring into `app.py` + runtime verification are pending.
+> *See [`docs/TARGET_ARCHITECTURE.md`](docs/TARGET_ARCHITECTURE.md).*
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What this project is
@@ -30,7 +39,7 @@ Read `DECISIONS.md` before planning any implementation. Short summary of the one
 - **Tracing:** Arize Phoenix + OpenInference — model-agnostic, self-hosted, registered in `app.py`
 - **Feedback store:** Phoenix annotations API — no separate database
 - **Semantic cache:** thin FAISS index over past query embeddings (`harness/index/query_cache.faiss`) — GPTCache is abandoned, do not use it
-- **Learning from feedback:** runtime few-shot injection from rated trajectories — no model training, no DSPy yet
+- **Learning from feedback:** runtime few-shot injection from rated trajectories — no model training in the live path. *(A DSPy bootstrap loop — teacher → judge-filter → `BootstrapFewShot` — is now **scaffolded** in `harness/eval/bootstrap.py` on the agentic branch; deferred until ≥ 50 rated examples + a rebuilt eval harness exist.)*
 - **Credentials:** `~/.myenvs/ema_nlp.env` via python-dotenv — never in the repo
 
 Open decisions not yet made are in `OPEN_QUESTIONS.md`.
@@ -80,7 +89,7 @@ Currently in **Phase 1 (corpus extraction)**. Do not introduce work from later p
 
 - EMA human-regulatory content only — no FDA content, no clinical trial documents. **(2026-06-02: EPARs are now IN scope for the narrative retrieval corpus** — the ~18k EPAR assessment reports in `parsed_documents` are indexed into Neo4j. The earlier "No EPARs" lock is lifted *for retrieval*; benchmark Q&A curation scope is unchanged.)
 - **Narrative corpus is in scope** (the full PDF + HTML body text, indexed into the Neo4j `PropertyGraphIndex` as `:Document`/`:Chunk` nodes). `corpus.jsonl` is the curated Q&A pair extract — used by the benchmark only; runtime retrieval is over the Neo4j chunk vector index + graph edges (see `docs/RETRIEVAL.md`).
-- No ontology/graph infrastructure (IDMP, SPOR, Neo4j) — deferred to v2+. IDMP RDF used only for lightweight node metadata tagging (TASK-016.5). `idmp_dabbling.py` is exploratory scratch.
+- **Neo4j is the live retrieval store** (see the refactor banner) — the earlier "no graph infrastructure in v1" lock is superseded. A *typed ontology* seam now exists too: `harness/ontology/` (`schema.py` + `enrich.py`, `configs/ontology/ema.yaml`) maps a small entity/relation schema to a LlamaIndex `SchemaLLMPathExtractor`; running Layer-2 extraction is deferred (see [`docs/TARGET_ARCHITECTURE.md`](docs/TARGET_ARCHITECTURE.md) §4.5). Legacy IDMP RDF lightweight tagging lives in `harness/ontology/concepts.yaml`; `idmp_dabbling.py` is exploratory scratch. SPOR remains out of scope.
 - No multilingual content.
 - Every added complexity layer must be justified by a specific benchmark failure, not anticipation.
 

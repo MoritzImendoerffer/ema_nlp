@@ -1,9 +1,12 @@
 # MongoDB source DB (ema_nlp)
 
 MongoDB `ema_scraper` is the **source** side of the pipeline: the parsers write
-to `parsed_documents` / `link_graph`, and `python -m harness.embed_pg` reads
-those collections to populate Postgres. Postgres (`deploy/postgres/`) is the
-retrieval target; this is where the data comes from.
+to `parsed_documents`, and `harness.indexing.build_index` reads that collection
+(plus `web_items.html_raw` for the `LINKS_TO` edges) to populate the **Neo4j**
+PropertyGraphIndex. Neo4j (`deploy/neo4j/`) is the retrieval target; MongoDB is
+where the data comes from. *(The former Postgres + pgvector target and
+`harness.embed_pg` were deleted in the LlamaIndex-first refactor; the `link_graph`
+collection was never built — links are extracted at ingest.)*
 
 ## Why this runs in Docker (kernel ≥ 6.19 workaround)
 
@@ -29,7 +32,7 @@ CUDA). The Docker route avoids the reboot entirely.
 
 ## Bring up
 
-Use the unified launcher (starts Postgres + Mongo together):
+Use the unified launcher (starts MongoDB + Neo4j together):
 
 ```bash
 scripts/start_services.sh
@@ -49,7 +52,7 @@ Verify it is serving the real data, not an empty DB:
 ```bash
 docker exec ema_mongo mongosh ema_scraper --quiet --eval \
   'printjson(db.getCollectionNames().reduce((a,c)=>(a[c]=db[c].estimatedDocumentCount(),a),{}))'
-# expect roughly: parsed_documents ~80k, link_graph ~22.7k, parsed_pdfs ~65k, web_items ~115k
+# expect roughly: parsed_documents ~80k, parsed_pdfs ~65k, web_items ~115k  (link_graph was never built)
 ```
 
 ## Environment

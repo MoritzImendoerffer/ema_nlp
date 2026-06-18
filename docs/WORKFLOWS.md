@@ -11,9 +11,33 @@ blob mixes them under one `ema.*` namespace, but they are configured in differen
 A workflow **consumes** a retriever (`get_workflow(name, retriever=…, llm=…)`). You can mix any workflow
 with any retrieval profile.
 
+```mermaid
+flowchart LR
+    Q[question] --> ORCH
+    subgraph ORCH["Orchestration axis — WORKFLOW_REGISTRY"]
+      W1[simple_rag]
+      W2[crag]
+      W3[react]
+      W4[summarize_rag]
+      W5[crag_review / react_review / crag_summarize]
+    end
+    ORCH -->|"get_workflow(retriever=…)"| RET
+    subgraph RET["Retrieval axis — INDEX_REGISTRY / EMA_INDEX_PROFILE"]
+      R1["hierarchical · neo4j_hier ✅ built"]
+      R2["vector_flat / hierarchical_links / pg_native · spec only"]
+    end
+    RET --> NEO[("Neo4j PropertyGraphIndex")]
+```
+
 > Note: "RecursiveRetriever" is **not** a strategy in this project. LlamaIndex ships one, but retrieval here
 > uses the custom `HierarchicalPGRetriever`. The planned graph-walking retrievers are `hierarchical_links`
 > and `property_graph_native` (spec only — see [`RETRIEVAL_TRACKS.md`](RETRIEVAL_TRACKS.md)).
+
+> **Agentic layer (in progress, branch `claude/agentic-rag-foundation`):** an alternative
+> `FunctionAgent` + tool-registry orchestration (`harness/agents/`, `harness/tools/`) with a
+> config-driven retrieval pipeline (`harness/retrieval/`, query-expansion + rerank) is being
+> built **additively** — it does not replace these workflows yet (the Chainlit app still uses
+> them). Design + status: [`TARGET_ARCHITECTURE.md`](TARGET_ARCHITECTURE.md).
 
 ---
 

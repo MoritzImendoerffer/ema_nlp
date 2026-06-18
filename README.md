@@ -43,6 +43,8 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 - ✅ Workflows + chat UI consume the retriever (LIR-009/010); the old pgvector/FAISS stack is deleted (LIR-012).
 - The **benchmark/eval suite** (`run_eval.py`, ablations) was removed from this branch and preserved on `archive/pre-llamaindex-refactor`; it will be rebuilt on the clean retrieval API.
 
+**Agentic layer (in progress — branch `claude/agentic-rag-foundation`).** An additive LlamaIndex `FunctionAgent` orchestration with Pydantic structured output, a config-driven retrieval pipeline (query-expansion + rerank), MLflow run-recording/judges, and typed ontology enrichment lives under `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/`. Foundation is unit-tested offline; live wiring + runtime verification are pending. See **[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md)**.
+
 See `.claude/work/` for work unit logs.
 
 ## Stack
@@ -71,6 +73,19 @@ See `.claude/work/` for work unit logs.
 ¹ `parsed_documents` holds the full ~80k-doc canonical parser output; the Neo4j PropertyGraphIndex (79,882 `:Document` nodes) was built from it. See [docs/RETRIEVAL.md](docs/RETRIEVAL.md).
 
 Scraped content comes from the companion repo [ema_scraper](https://github.com/MoritzImendoerffer/ema_scraper). Services (Mongo + Neo4j) are provisioned via Docker Compose under `deploy/` and started by `scripts/start_services.sh`.
+
+## Data flow
+
+```mermaid
+flowchart LR
+    EMA[EMA website] -->|ema_scraper| MG[("MongoDB ema_scraper<br/>web_items · parsed_pdfs · parsed_documents")]
+    MG -->|harness.indexing.build_index| NEO[("Neo4j PropertyGraphIndex<br/>:Document · :Chunk + LINKS_TO + chunk vectors")]
+    NEO -->|HierarchicalPGRetriever| WF[harness/workflows — LlamaIndex Workflows]
+    WF --> UI[app.py — Chainlit + Phoenix tracing/👍👎]
+    MG -.benchmark source.-> CJ[corpus/corpus.jsonl → benchmark/benchmark.jsonl]
+```
+
+See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the detailed flow and **[docs/RETRIEVAL.md](docs/RETRIEVAL.md)** for the retrieval internals.
 
 ## License
 

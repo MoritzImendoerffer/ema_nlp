@@ -138,8 +138,8 @@ We are currently in **Phase X** (update this line as we progress). Phase definit
 - Install deps: `pip install -e ".[dev]"`
 - Run tests: `pytest`
 - Lint: `ruff check .`
-- Format: `black .`
-- Run baseline eval: `python -m harness.run_eval --config harness/configs/baseline.yaml`
+- Format: `ruff format .`
+- List strategies / launch UI: `python -m harness.workflows.registry --list` · `bash run_ui.sh`  *(the eval runner `run_eval.py` is archived off-branch — to be rebuilt on the Neo4j API)*
 
 ## Conventions
 - All data files are JSONL, one record per line

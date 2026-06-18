@@ -1,8 +1,13 @@
 # Target Architecture — Agentic RAG on the EMA Corpus
 
-> **Status: forward-looking design note (2026-06-17). Not yet implemented.**
-> This is the agreed target for evolving `ema_nlp` from a *RAG-strategy-comparison harness*
-> into a *flexible, self-improving agentic RAG framework* over the EMA corpus.
+> **Status: foundation implemented on branch `claude/agentic-rag-foundation` (2026-06-18); runtime wiring + live verification pending.**
+> The agentic layer described here is **built and unit-tested offline** —
+> `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/` (PR #46). The live Chainlit
+> app still runs the workflow stack + Phoenix; the infra-gated paths (MLflow autolog/judges,
+> Neo4j-native retrieval composition, ontology extraction, DSPy) are written but **not yet
+> executed** (need Neo4j/GPU/API keys/MLflow server). This is the agreed target for evolving
+> `ema_nlp` from a *RAG-strategy-comparison harness* into a *flexible, self-improving agentic
+> RAG framework* over the EMA corpus.
 >
 > **It deliberately overrides two standing V1 locks, by owner decision:**
 > - ontology/graph infrastructure is no longer "deferred to v2" — semantic ontology

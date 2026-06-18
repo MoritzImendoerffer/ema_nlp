@@ -65,10 +65,11 @@ Canonical parser output, one row per `(url, parser, parser_version)`:
 `url, parser, parser_version, content_type, text, text_format, error`. Read by
 `harness.indexing.ingest`.
 
-> **Data note (this host):** `parsed_documents` was never backfilled at scale (and the
-> `link_graph` collection was never built — older docs overstate this). Seed a verify
-> subset with `scripts/backfill_parsed_documents_subset.py`. Full backfill is future
-> work, best on the GPU host.
+> **Data note:** `parsed_documents` holds the full **~80,083-doc** parser output (backfilled
+> into the `mongo:8.0.4` container), and the Neo4j PropertyGraphIndex (79,882 `:Document`)
+> was built from it. The `link_graph` collection was **never built** — `LINKS_TO` edges are
+> extracted at ingest from `web_items.html_raw`. For quick CPU iteration without the full
+> set, seed a verify subset with `scripts/backfill_parsed_documents_subset.py`.
 
 ---
 
@@ -114,6 +115,26 @@ event-driven `Workflow`. (LangChain/LangGraph are not in the stack.)
 single entry point; every builder takes the LlamaIndex retriever as a constructor argument
 (LIR-009, done) and every runner exposes `.invoke()` / `.ainvoke()`. Model roles are in
 `harness/configs/models.yaml` (`agent`/`grader`/`rewriter`/`reranker`/`judge`/`reviewer`).
+
+---
+
+### 4a. Agentic layer (in progress — branch `claude/agentic-rag-foundation`)
+
+An additive LlamaIndex `FunctionAgent` orchestration is being built alongside the workflow
+stack (the workflows above are untouched and remain what `app.py` runs):
+
+| Package | Role |
+|---------|------|
+| `harness/schemas/` | Pydantic structured output (`RegulatoryAnswer` + `Claim`/`Citation`) |
+| `harness/tools/` | `FunctionTool` registry (`ema_search`, `resolve_substance`) |
+| `harness/agents/` | `build_agent` / `build_session` → `FunctionAgent` (config in `harness/configs/agent/`) |
+| `harness/retrieval/` | config-driven pipeline (query transform + rerank) wrapping the retriever |
+| `harness/obs/` | resolved-config trace stamping + MLflow run recording/tracing |
+| `harness/ontology/` | typed entity/relation schema + `SchemaLLMPathExtractor` enrichment |
+| `harness/eval/` | `mlflow.genai` judges + DSPy bootstrap (the reward/optimizer loop) |
+
+Foundation is unit-tested offline; runtime wiring + verification are pending. Full design:
+**[TARGET_ARCHITECTURE.md](TARGET_ARCHITECTURE.md)**.
 
 ---
 

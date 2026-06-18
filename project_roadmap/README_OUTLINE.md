@@ -20,13 +20,15 @@ License · Python version · Last update · arXiv preprint · DOI (Zenodo)
 - **Ablations** — three pre-registered experiments testing SME interventions at retrieval, agent-planning, and prompting layers.
 
 ## Quickstart
-*(fill in once Phase 3 lands — commands only, no narrative)*
 
 ```bash
-pip install -e .
-python -m harness.run_eval --config configs/baseline.yaml
-# → results/baseline.json
+pip install -e ".[dev]"
+scripts/start_services.sh                     # MongoDB + Neo4j
+python -m harness.workflows.registry --list   # available RAG / agent strategies
+bash run_ui.sh                                # Chainlit chat UI (Phoenix tracing)
 ```
+*(The MIRAGE-style eval runner `run_eval.py` is archived on `archive/pre-llamaindex-refactor`
+and will be rebuilt on the Neo4j retriever API.)*
 
 ## Why this benchmark exists
 
