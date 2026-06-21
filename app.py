@@ -55,6 +55,7 @@ _PROFILE_STRATEGY: dict[str, tuple[str, str | None]] = {
     "CRAG + Summarize":       ("crag_summarize", None),
     "CRAG + Review":          ("crag_review",    None),
     "ReAct + Review":         ("react_review",   None),
+    "Agentic RAG (FunctionAgent)": ("agent",     None),
 }
 
 _PROFILE_DESCRIPTIONS: dict[str, str] = {
@@ -65,6 +66,7 @@ _PROFILE_DESCRIPTIONS: dict[str, str] = {
     "crag_summarize":"CRAG loop → summarize → generate",
     "crag_review":   "CRAG loop → generate → reviewer pass",
     "react_review":  "ReAct → reviewer (score only)",
+    "agent":         "FunctionAgent + tools → structured RegulatoryAnswer (Phoenix-traced)",
 }
 
 # Friendly labels for the settings-panel workflow Select. The option LIST is built
@@ -79,6 +81,7 @@ _WORKFLOW_LABELS: dict[str, str] = {
     "crag_summarize": "CRAG + Summarize",
     "crag_review": "CRAG + Review",
     "react_review": "ReAct + Review",
+    "agent": "Agentic RAG",
 }
 
 

@@ -93,6 +93,13 @@ def _build_react_review(retriever: Any, llm: Any, **kw: Any) -> Any:
     return build_react_review(retriever=retriever, llm=llm, **kw)
 
 
+def _build_agent(retriever: Any, llm: Any, **kw: Any) -> Any:
+    # Agentic FunctionAgent exposed as a workflow strategy (additive). The adapter maps
+    # its structured RegulatoryAnswer to the {"answer_text", "docs"} runner contract.
+    from harness.agents.workflow_adapter import build_agent_workflow
+    return build_agent_workflow(retriever, llm, **kw)
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -105,6 +112,7 @@ WORKFLOW_REGISTRY: dict[str, WorkflowBuilder] = {
     "crag_summarize": _build_crag_summarize,
     "crag_review":   _build_crag_review,
     "react_review":  _build_react_review,
+    "agent":         _build_agent,        # agentic FunctionAgent (structured RegulatoryAnswer)
 }
 
 
