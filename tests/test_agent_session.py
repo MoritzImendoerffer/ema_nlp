@@ -63,3 +63,20 @@ def test_session_arun_returns_answer():
 def test_session_run_sync_wrapper():
     session = AgentSession(agent=_FakeAgent(_FakeAgentOutput(RegulatoryAnswer(answer="sync"))))
     assert session.run("q").answer == "sync"
+
+
+def test_session_arun_record_configures_backend(tmp_path, monkeypatch):
+    # record=True must configure an MLflow backend itself and not crash even when
+    # setup_tracing was never called (enable_tracing=False). In mlflow>=3 the default
+    # file store raises unless MLFLOW_ALLOW_FILE_STORE is set — setup_mlflow handles it.
+    from harness.obs import mlflow_available
+
+    monkeypatch.chdir(tmp_path)  # file:./mlruns resolves under tmp_path
+    session = AgentSession(
+        agent=_FakeAgent(_FakeAgentOutput(RegulatoryAnswer(answer="rec"))),
+        experiment="ema_test",
+    )
+    out = asyncio.run(session.arun("q", record=True, run_name="unit"))
+    assert out.answer == "rec"
+    if mlflow_available():
+        assert (tmp_path / "mlruns").exists()

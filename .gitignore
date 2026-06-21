@@ -223,3 +223,7 @@ results
 
 # Build/embedding run logs
 logs/
+
+# MLflow local tracking store (agentic-layer run-recording / tracing) — never commit
+mlruns/
+mlflow.db

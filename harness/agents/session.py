@@ -83,8 +83,15 @@ class AgentSession:
     ) -> RegulatoryAnswer:
         answer = await arun_agent(self.agent, query, pipeline_config=self.pipeline_config)
         if record:
-            from harness.obs import record_answer_run
+            from harness.obs import record_answer_run, setup_mlflow
 
+            # Ensure a usable MLflow backend exists before recording. Without this,
+            # record=True with enable_tracing=False (no prior setup_tracing) falls back
+            # to MLflow's default store, which in mlflow>=3 raises on the file store
+            # (maintenance mode) unless MLFLOW_ALLOW_FILE_STORE is set. setup_mlflow sets
+            # that flag and pins the run to file:./mlruns under the session experiment.
+            # Idempotent if setup_tracing already ran.
+            setup_mlflow(self.experiment or "ema_nlp")
             params = self.pipeline_config.resolved_attributes() if self.pipeline_config else None
             record_answer_run(run_name or "agent_run", answer, params=params, query=query)
         return answer
