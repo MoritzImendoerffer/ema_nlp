@@ -25,3 +25,15 @@ def test_enrich_ontology_dry_run_is_pure():
     plan = enrich_ontology("nitrosamines", dry_run=True)
     assert plan["scope"] == "nitrosamines"
     assert plan["schema"] == "ema"
+
+
+def test_build_schema_extractor_constructs():
+    # llama-index needs Literal types for possible_entities/relations; build_schema_extractor
+    # must adapt the readable lists from schema_extractor_kwargs or construction raises
+    # PydanticSchemaGenerationError. Offline (MockLLM, no network).
+    from llama_index.core.llms import MockLLM
+
+    from harness.ontology.enrich import build_schema_extractor
+
+    ext = build_schema_extractor(load_ontology_schema("ema"), MockLLM())
+    assert type(ext).__name__ == "SchemaLLMPathExtractor"

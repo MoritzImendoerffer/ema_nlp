@@ -58,14 +58,38 @@ def build_schema_extractor(
     max_triplets_per_chunk: int = 8,
     num_workers: int = 4,
 ) -> Any:
-    """Construct a ``SchemaLLMPathExtractor`` from the schema (lazy import)."""
+    """Construct a ``SchemaLLMPathExtractor`` from the schema (lazy import).
+
+    llama-index (>=0.12) types ``possible_entities`` / ``possible_relations`` as
+    ``Literal`` *types* (not lists of strings) and ``kg_validation_schema`` as a list
+    of ``(subject, relation, object)`` tuples. The readable lists from
+    ``schema_extractor_kwargs`` (kept list-shaped for the dry-run plan) are adapted to
+    those types here — passing the raw lists raises ``PydanticSchemaGenerationError``.
+
+    Entity *type* names are upper-cased to match llama-index's label normalisation
+    (extracted entity labels come back upper-case, e.g. ``SUBSTANCE``). Without this,
+    ``strict=True`` validates the upper-cased extractions against the Title-Case schema,
+    finds no match, and silently drops every triple (verified on the GPU host). Relation
+    names are already ``UPPER_SNAKE``. Note: Neo4j entity labels are therefore upper-case
+    (``:SUBSTANCE``); the Title-Case schema in ``configs/ontology/ema.yaml`` stays the
+    human-readable source of truth.
+    """
+    from typing import Literal
+
     from llama_index.core.indices.property_graph import SchemaLLMPathExtractor
 
+    kw = schema_extractor_kwargs(schema)
+    entities = tuple(e.upper() for e in kw["possible_entities"])
+    relations = tuple(kw["possible_relations"])
+    validation = [(s.upper(), r, o.upper()) for s, r, o in kw["kg_validation_schema"]]
     return SchemaLLMPathExtractor(
         llm=llm,
+        possible_entities=Literal[entities],  # type: ignore[arg-type]
+        possible_relations=Literal[relations],  # type: ignore[arg-type]
+        kg_validation_schema=validation,
+        strict=bool(kw["strict"]),
         max_triplets_per_chunk=max_triplets_per_chunk,
         num_workers=num_workers,
-        **schema_extractor_kwargs(schema),
     )
 
 
@@ -76,6 +100,8 @@ def _scoped_chunk_nodes(scope: str, *, profile_name: str | None, limit: int | No
     A keyword scope keeps only docs whose text/title matches (incremental enrich);
     ``all`` keeps everything (subject to ``limit``).
     """
+    from dataclasses import replace
+
     from pymongo import MongoClient
 
     from config import MONGO_URI
@@ -84,11 +110,16 @@ def _scoped_chunk_nodes(scope: str, *, profile_name: str | None, limit: int | No
 
     profile = load_index_profile(profile_name)
     keywords = [k.lower() for k in _SCOPE_KEYWORDS.get(scope, [])]
+    # A keyword scope must scan past the profile's ingest cap (`scope.limit` is a
+    # fast-iteration limit for index *building* — its first N docs rarely contain the
+    # keyword, so targeted enrichment would match nothing). Drop the source limit when
+    # keyword-filtering; the caller's `limit` (distinct matching docs) bounds the result.
+    source_scope = replace(profile.index.scope, limit=None) if keywords else profile.index.scope
     client = MongoClient(MONGO_URI)
     nodes: list = []
     try:
         lookup = mongo_html_lookup(client)
-        for row in iter_source_rows(profile.index.scope, client=client):
+        for row in iter_source_rows(source_scope, client=client):
             if not row.get("url"):
                 continue
             doc = build_ingested_doc(row, chunking=profile.index.chunking, html_lookup=lookup)
