@@ -38,6 +38,11 @@ flowchart LR
 > config-driven retrieval pipeline (`harness/retrieval/`, query-expansion + rerank) is being
 > built **additively** — it does not replace these workflows yet (the Chainlit app still uses
 > them). Design + status: [`TARGET_ARCHITECTURE.md`](TARGET_ARCHITECTURE.md).
+>
+> **Tracing backend:** the live workflows + `app.py` use **Arize Phoenix** (OpenInference) —
+> that is what the "trace span per step" above is captured by today. **MLflow** is the agentic
+> layer's target backend (run-recording/judges, additive) and is **not yet** wired into the
+> live app; the switch is a design target, not a completed migration.
 
 ---
 
@@ -59,7 +64,7 @@ python -c "import harness.indexing as h; print(h.list_index_kinds(), h.list_retr
 | `summarize_rag` | retrieve → summarize → generate | ✅ |
 | `crag_summarize` | CRAG loop → summarize → generate | ✅ |
 | `crag_review` | CRAG loop → generate → reviewer | ✅ |
-| `react` | native ReAct (think/act/observe/finish, one Phoenix span per step) | ❌ (fixed `react_native`) |
+| `react` | native ReAct (think/act/observe/finish, one trace span per step) | ❌ (fixed `react_native`) |
 | `react_review` | ReAct → reviewer (score only) | ❌ |
 
 ### Prompt strategies (3)
@@ -148,7 +153,7 @@ def build_my_strategy(*, retriever: Any, llm: Any, prompt_strategy: str = "zero_
                                              prompt_strategy=prompt_strategy, timeout=120))
 ```
 
-> For multi-step agents (per-step Phoenix spans for HITL labeling), model each action as its own `@step`
+> For multi-step agents (per-step trace spans for HITL labeling), model each action as its own `@step`
 > with custom events — see `harness/workflows/react_native.py` and `harness/workflows/events.py`.
 
 **2. Register it** in `harness/workflows/registry.py`:
@@ -232,7 +237,7 @@ harness/workflows/
   simple_rag.py    canonical retrieve→generate workflow (copy this)
   crag.py          grade ⇄ rewrite loop
   summarize_rag.py retrieve → summarize → generate
-  react_native.py  per-@step ReAct (Phoenix spans) + events.py
+  react_native.py  per-@step ReAct (one trace span per action) + events.py
   composites.py    crag_summarize / crag_review / react_review (chaining pattern)
   review.py        reviewer pass used by *_review composites
   utils.py         WorkflowRunner, load_system_prompt, _PROMPT_FILES, format/extract helpers
