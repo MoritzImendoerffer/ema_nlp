@@ -4,9 +4,17 @@ from harness.obs import enable_llama_index_autolog, setup_tracing
 from harness.obs.tracing import traced
 
 
-def test_enable_llama_index_autolog_absent_returns_false():
-    # mlflow.llama_index (the mlflow[llama-index] extra) isn't installed in CI.
-    assert enable_llama_index_autolog() is False
+def test_enable_llama_index_autolog_reflects_availability():
+    # Returns True iff the mlflow.llama_index integration is importable (it ships in
+    # mlflow core and only needs llama-index present), False otherwise. This holds in
+    # both CI (extra absent -> False) and on a host with llama-index installed (-> True).
+    try:
+        import mlflow.llama_index  # noqa: F401
+
+        available = True
+    except Exception:
+        available = False
+    assert enable_llama_index_autolog() is available
 
 
 def test_setup_tracing_returns_true(tmp_path):
