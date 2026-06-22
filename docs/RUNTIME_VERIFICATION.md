@@ -4,9 +4,24 @@
 > context.** Read this top-to-bottom before doing anything. It tells you what was built,
 > where to catch up, the guardrails, and the exact task order to verify it on real infra.
 
+> ✅ **Completed 2026-06-22 — all of T1–T6 green** (commits `22be5e7`→`1789101` on this branch;
+> details per task in `.claude/HISTORY.md`). Summary:
+> - **T1** — 77 offline tests pass (fixed one CI-only assumption in `test_obs_tracing`).
+> - **T2** — agent end-to-end works (correct `RegulatoryAnswer`, both tools fire); fixed
+>   `AgentSession.arun(record=True)` to configure the MLflow backend (mlflow 3 file-store crash/misroute).
+> - **T3** — MLflow autolog traces **complete** (`state=OK`); mlflow#13352 did **not** occur.
+> - **T4** — ontology enrichment writes typed entities into Neo4j; fixed 3 defects (Literal-type
+>   construction, `strict=True` case mismatch dropping all triples, scope-limit capping keyword scopes).
+> - **T5** — `mlflow.genai` judges + `evaluate` run; fixed prompt-variable mapping (shared `.md` files)
+>   + gateway routing (`…/v1/messages`).
+> - **T6** — agent wired into `app.py` as the selectable **"Agentic RAG"** mode (additive; registry-driven).
+>
+> The task steps below remain as a **re-run reference**. For day-to-day *usage* (not verification),
+> see the how-to: **[`AGENTIC_GUIDE.md`](AGENTIC_GUIDE.md)**.
+
 ## 1. Catch up (read these first, in order)
 
-1. **`CLAUDE.md`** — project guardrails + the "Agentic layer in progress" banner.
+1. **`CLAUDE.md`** — project guardrails + the "Agentic layer — runtime-verified" banner.
 2. **`docs/TARGET_ARCHITECTURE.md`** — the full design, the status banner, **§7 build order**,
    and **§8 spikes / things to verify at runtime**.
 3. **`.claude/HISTORY.md`** — the **last ~10 rows** are exactly what was built, in order:
@@ -19,10 +34,13 @@
 
 - Branch: **`claude/agentic-rag-foundation`** (this is where all the work is; `main` has none of it).
 - An **additive** agentic layer lives under `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/`.
-  Foundation is **unit-tested offline (77 tests)** but **NOT runtime-verified** and **NOT wired
-  into `app.py`**. The live app is still the LlamaIndex **workflow** stack + **Arize Phoenix**.
-- **Your job this session:** run the runtime-gated paths on real infra (Neo4j + LLM + MLflow),
-  fix what breaks, on the branch — without disturbing the live workflow/Phoenix path.
+  Foundation is **unit-tested offline (77 tests)** and, as of 2026-06-22, **runtime-verified +
+  wired into `app.py`** as the selectable "Agentic RAG" strategy (see the ✅ block above). The
+  live app still runs the LlamaIndex **workflow** stack + **Arize Phoenix** (the agent is one more
+  selectable strategy; Phoenix still traces every turn).
+- **Original job (now done):** run the runtime-gated paths on real infra (Neo4j + LLM + MLflow),
+  fix what breaks, on the branch — without disturbing the live workflow/Phoenix path. Re-run the
+  steps below to re-verify after changes.
 
 ## 3. Guardrails (do not violate)
 

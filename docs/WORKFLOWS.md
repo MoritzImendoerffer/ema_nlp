@@ -33,16 +33,19 @@ flowchart LR
 > uses the custom `HierarchicalPGRetriever`. The planned graph-walking retrievers are `hierarchical_links`
 > and `property_graph_native` (spec only — see [`RETRIEVAL_TRACKS.md`](RETRIEVAL_TRACKS.md)).
 
-> **Agentic layer (in progress, branch `claude/agentic-rag-foundation`):** an alternative
+> **Agentic layer (runtime-verified, branch `claude/agentic-rag-foundation`):** a
 > `FunctionAgent` + tool-registry orchestration (`harness/agents/`, `harness/tools/`) with a
-> config-driven retrieval pipeline (`harness/retrieval/`, query-expansion + rerank) is being
-> built **additively** — it does not replace these workflows yet (the Chainlit app still uses
-> them). Design + status: [`TARGET_ARCHITECTURE.md`](TARGET_ARCHITECTURE.md).
+> config-driven retrieval pipeline (`harness/retrieval/`, query-expansion + rerank) is wired
+> **additively** as the **`agent`** strategy in `WORKFLOW_REGISTRY` (via
+> `harness/agents/workflow_adapter.py`), so it appears as the **"Agentic RAG"** option in the
+> Chainlit panel alongside the workflows below — it does not replace them. How-to:
+> [`AGENTIC_GUIDE.md`](AGENTIC_GUIDE.md); design: [`TARGET_ARCHITECTURE.md`](TARGET_ARCHITECTURE.md).
 >
-> **Tracing backend:** the live workflows + `app.py` use **Arize Phoenix** (OpenInference) —
-> that is what the "trace span per step" above is captured by today. **MLflow** is the agentic
-> layer's target backend (run-recording/judges, additive) and is **not yet** wired into the
-> live app; the switch is a design target, not a completed migration.
+> **Tracing backend:** the live workflows + `app.py` (including the in-app `agent` strategy) use
+> **Arize Phoenix** (OpenInference) — that is what the "trace span per step" above is captured by.
+> **MLflow** is used by the agentic layer's **demo/eval entrypoints** (run-recording, autolog,
+> `mlflow.genai` judges); a full Phoenix→MLflow migration of the live app is a design target, not
+> a completed migration — the two coexist today.
 
 ---
 

@@ -118,10 +118,10 @@ single entry point; every builder takes the LlamaIndex retriever as a constructo
 
 ---
 
-### 4a. Agentic layer (in progress — branch `claude/agentic-rag-foundation`)
+### 4a. Agentic layer (runtime-verified — branch `claude/agentic-rag-foundation`)
 
-An additive LlamaIndex `FunctionAgent` orchestration is being built alongside the workflow
-stack (the workflows above are untouched and remain what `app.py` runs):
+An additive LlamaIndex `FunctionAgent` orchestration runs alongside the workflow
+stack (the workflows above are untouched; the agent is registered as one more strategy):
 
 | Package | Role |
 |---------|------|
@@ -132,8 +132,10 @@ stack (the workflows above are untouched and remain what `app.py` runs):
 | `harness/obs/` | resolved-config trace stamping + MLflow run recording/tracing |
 | `harness/ontology/` | typed entity/relation schema + `SchemaLLMPathExtractor` enrichment |
 | `harness/eval/` | `mlflow.genai` judges + DSPy bootstrap (the reward/optimizer loop) |
+| `harness/agents/workflow_adapter.py` | adapts the `FunctionAgent` to the workflow `invoke`/`ainvoke` contract → registered as the `agent` strategy, selectable in `app.py` |
 
-Foundation is unit-tested offline; runtime wiring + verification are pending. Full design:
+Runtime-verified end-to-end on the GPU host (2026-06-22, T1–T6) and selectable in the Chainlit
+UI as the **"Agentic RAG"** mode. How-to: **[AGENTIC_GUIDE.md](AGENTIC_GUIDE.md)**; full design:
 **[TARGET_ARCHITECTURE.md](TARGET_ARCHITECTURE.md)**.
 
 ---

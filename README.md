@@ -43,7 +43,7 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 - ✅ Workflows + chat UI consume the retriever (LIR-009/010); the old pgvector/FAISS stack is deleted (LIR-012).
 - The **benchmark/eval suite** (`run_eval.py`, ablations) was removed from this branch and preserved on `archive/pre-llamaindex-refactor`; it will be rebuilt on the clean retrieval API.
 
-**Agentic layer (in progress — branch `claude/agentic-rag-foundation`).** An additive LlamaIndex `FunctionAgent` orchestration with Pydantic structured output, a config-driven retrieval pipeline (query-expansion + rerank), MLflow run-recording/judges, and typed ontology enrichment lives under `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/`. Foundation is unit-tested offline; live wiring + runtime verification are pending. See **[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md)**.
+**Agentic layer (runtime-verified — branch `claude/agentic-rag-foundation`).** An additive LlamaIndex `FunctionAgent` orchestration with Pydantic structured output, a config-driven retrieval pipeline (query-expansion + rerank), MLflow run-recording + autolog + `mlflow.genai` judges, and typed ontology enrichment lives under `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/`. Verified end-to-end on the GPU host (2026-06-22) and wired into `app.py` as a selectable **"Agentic RAG"** mode (additive — the existing workflows + live Phoenix tracer are untouched). Start here: **[docs/AGENTIC_GUIDE.md](docs/AGENTIC_GUIDE.md)** (step-by-step how-to); design in **[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md)**.
 
 See `.claude/work/` for work unit logs.
 

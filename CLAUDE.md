@@ -10,14 +10,18 @@
 > this branch (archived on `archive/pre-llamaindex-refactor`). Pre-refactor state: `main` @ `5c3c8a8`.
 > *See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) for the full retrieval picture.*
 
-> 🧪 **Agentic layer in progress** (branch `claude/agentic-rag-foundation`, **additive** — the
-> workflow/Phoenix stack above is untouched and is still what `app.py` runs). A LlamaIndex
-> `FunctionAgent` + tool-registry orchestration with Pydantic structured output, a
-> config-driven retrieval pipeline (query-expansion + rerank), MLflow run-recording/judges,
-> and typed ontology enrichment live under
-> `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/`. Foundation is unit-tested
-> offline; live wiring into `app.py` + runtime verification are pending.
-> *See [`docs/TARGET_ARCHITECTURE.md`](docs/TARGET_ARCHITECTURE.md).*
+> 🧪 **Agentic layer — runtime-verified** (branch `claude/agentic-rag-foundation`, **additive**).
+> A LlamaIndex `FunctionAgent` + tool-registry orchestration with Pydantic structured output
+> (`RegulatoryAnswer`), a config-driven retrieval pipeline (query-expansion + rerank), MLflow
+> run-recording + autolog + `mlflow.genai` judges, and typed ontology enrichment live under
+> `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/`. **Verified end-to-end on the
+> GPU host (2026-06-22, T1–T6):** offline tests, the agent demo, MLflow autolog (traces
+> complete — the mlflow#13352 hang did not occur), ontology enrichment into Neo4j, and
+> judges/eval all run. It is **wired into `app.py` as a selectable "Agentic RAG" workflow mode**
+> (additive — the existing workflows + the live **Phoenix** tracer are untouched; Phoenix still
+> traces every turn; MLflow is used by the demo/eval entrypoints). *How-to:
+> [`docs/AGENTIC_GUIDE.md`](docs/AGENTIC_GUIDE.md). Design: [`docs/TARGET_ARCHITECTURE.md`](docs/TARGET_ARCHITECTURE.md).
+> Verification runbook + results: [`docs/RUNTIME_VERIFICATION.md`](docs/RUNTIME_VERIFICATION.md).*
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 

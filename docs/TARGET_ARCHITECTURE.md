@@ -1,13 +1,19 @@
 # Target Architecture — Agentic RAG on the EMA Corpus
 
-> **Status: foundation implemented on branch `claude/agentic-rag-foundation` (2026-06-18); runtime wiring + live verification pending.**
-> The agentic layer described here is **built and unit-tested offline** —
-> `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/` (PR #46). The live Chainlit
-> app still runs the workflow stack + Phoenix; the infra-gated paths (MLflow autolog/judges,
-> Neo4j-native retrieval composition, ontology extraction, DSPy) are written but **not yet
-> executed** (need Neo4j/GPU/API keys/MLflow server). This is the agreed target for evolving
-> `ema_nlp` from a *RAG-strategy-comparison harness* into a *flexible, self-improving agentic
-> RAG framework* over the EMA corpus.
+> **Status: foundation runtime-verified on branch `claude/agentic-rag-foundation` (2026-06-22).**
+> The agentic layer described here is **built, unit-tested, and verified end-to-end on the GPU
+> host** — `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/` (PR #46). Verified
+> (T1–T6, see [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md)): the agent demo
+> (structured `RegulatoryAnswer` + citations), MLflow run-recording **and autolog (traces
+> complete — the mlflow#13352 hang did not occur)**, ontology extraction into Neo4j, and
+> `mlflow.genai` judges + `evaluate`. The agent is **wired into `app.py` as a selectable
+> "Agentic RAG" workflow strategy** (additive — the live Chainlit workflow stack + **Phoenix**
+> tracer are untouched; Phoenix still traces every turn, MLflow drives the demo/eval
+> entrypoints). **Still deferred** (by design, not blocked): the DSPy bootstrap loop and judge
+> *alignment* (need ≥10–100 paired labels, §8) and full-corpus ontology scaling (§4.5). This is
+> the agreed target for evolving `ema_nlp` from a *RAG-strategy-comparison harness* into a
+> *flexible, self-improving agentic RAG framework* over the EMA corpus.
+> **Usage how-to: [`AGENTIC_GUIDE.md`](AGENTIC_GUIDE.md).**
 >
 > **It deliberately overrides two standing V1 locks, by owner decision:**
 > - ontology/graph infrastructure is no longer "deferred to v2" — semantic ontology
@@ -318,6 +324,11 @@ harness/
 
 ## 7. Build order (each step independently useful)
 
+> **Status (2026-06-22):** steps 1, 2, 4 (judges + `evaluate`), and 5 (ontology extraction)
+> are built and runtime-verified; the agent is selectable in `app.py`. Still open: step 3's
+> full-corpus `LINKS_TO` graph-expansion measurement + the step-4 DSPy bootstrap/alignment
+> loop (needs labelled traces). See §8 and [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md).
+
 1. **Foundation** — Pydantic answer schema + MLflow tracing swap + resolved-config
    stamping (transparency). No agent work yet; unblocks everything.
 2. **Agent + Tier-1 tools** — `FunctionAgent` with `ema_search` + `follow_links` +
@@ -334,24 +345,34 @@ harness/
 
 ## 8. Spikes / verify before building
 
-- **MLflow autolog on a Workflow-based `FunctionAgent`** — confirm traces close
-  (mlflow#13352); if not, use explicit `mlflow.trace` at the agent entrypoint.
-- **Span-level human feedback in MLflow** — confirm per-tool-call assessments are
-  attachable (the granularity the retired per-step ReAct was built for).
+- **MLflow autolog on a Workflow-based `FunctionAgent`** — ✅ **RESOLVED (2026-06-22).**
+  Autolog traces **complete** (`state=OK`) on mlflow 3.14 + llama-index 0.14; the
+  mlflow#13352 "In Progress" hang did not occur. The explicit `traced()` span in
+  `harness/obs/tracing.py` is kept as a documented fallback. (Cosmetic: a `MockLLM`-in-the-
+  retriever span fails to serialize, non-blocking; lives in the live retriever path.)
+- **Span-level human feedback in MLflow** — ⏳ not yet exercised. The live app records
+  feedback via **Phoenix annotations** (`app.py`), not MLflow; MLflow per-tool-call
+  assessments remain to be wired if/when feedback moves to MLflow.
 - **Chunk-vector retriever** — *already settled* (LIR-007): native `VectorContextRetriever`
   can't drive the `:Chunk` index → keep `HierarchicalPGRetriever` as a `CustomPGRetriever`.
-- **Judge-alignment data volume** — need ≥10 (50–100 better) traces with paired
-  human + judge assessments before `align()` is meaningful.
+- **Judge-alignment data volume** — ⏳ still pending. The judge `.align(...)` API is present
+  and verified (`harness/eval/judges.py::align_judge`), but alignment needs ≥10 (50–100
+  better) traces with paired human + judge assessments before it is meaningful.
 
 ---
 
 ## 9. Open decisions
 
-- MLflow autolog vs manual `mlflow.trace` for the agent (settle in spike 1).
-- DSPy outputs: committed prompt artifact vs MLflow prompt registry.
-- Ontology extraction model + cost ceiling when scaling beyond the slice.
+- ~~MLflow autolog vs manual `mlflow.trace` for the agent~~ — **settled (2026-06-22):** autolog
+  works (traces complete); `traced()` kept as a fallback. See §8.
+- **Phoenix vs MLflow for live tracing** — **current state:** the Chainlit app stays on
+  **Phoenix** (the agent runs Phoenix-traced in-app); **MLflow** drives the demo/eval
+  entrypoints. The full Phoenix→MLflow migration for the live app is not done and is its own
+  decision (the two coexist for now).
+- DSPy outputs: committed prompt artifact vs MLflow prompt registry. *(deferred — DSPy loop unrun)*
+- Ontology extraction model + cost ceiling when scaling beyond the slice. *(haiku/`grader` works
+  with the case fix; opus richer — see [`AGENTIC_GUIDE.md`](AGENTIC_GUIDE.md) §3.)*
 - Online few-shot injection vs offline-DSPy-only (run both, or keep online off until DSPy proves out).
-- Whether to keep Phoenix temporarily in parallel for live tracing during the MLflow migration.
 
 ---
 
