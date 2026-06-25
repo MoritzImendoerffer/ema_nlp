@@ -12,7 +12,7 @@ Decisions not yet made. Each entry has enough context to make the decision witho
 **Context:** The CLI rating UI (TASK-027.8) will prompt for a 1–5 star rating on the full answer. Per-step labels (good / suboptimal / wrong on each agent thought-action step) would feed Ablation B's trajectory labeling directly, but add friction to every rating interaction.  
 **Options:**
 - Full-answer rating mandatory, per-step optional (prompted with `[y/N]`)
-- Full-answer rating only; per-step done in a separate batch labeling pass over Phoenix traces
+- Full-answer rating only; per-step done in a separate batch labeling pass over MLflow traces
 - Full-answer + per-step both mandatory (higher friction, most data)
 
 **Recommendation:** option 1 — per-step optional. Keeps the default path fast; power users can rate steps when a trajectory is interesting.

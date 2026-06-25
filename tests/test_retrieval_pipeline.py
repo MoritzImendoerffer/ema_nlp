@@ -151,13 +151,16 @@ def test_load_native_pipeline_config():
     assert "cypher_template" in cfg.sub_retrievers
 
 
-def test_resolved_attributes_no_silent_modes():
+def test_resolved_attributes_only_stamps_active_stages():
     cfg = load_pipeline_config("native")
     attrs = cfg.resolved_attributes()
-    assert attrs["ema.retrieval.graph_mode"] == "links"
     assert attrs["ema.retrieval.query_transform"] == "acronym"
     assert attrs["ema.retrieval.rerank"] == "cross_encoder"
-    assert attrs["ema.retrieval.k"] == 20
+    # sub_retrievers / graph_mode / k are declared config but NOT wired -> not stamped as
+    # active, so the trace never advertises a retrieval stage that didn't run.
+    assert "ema.retrieval.graph_mode" not in attrs
+    assert "ema.retrieval.sub_retrievers" not in attrs
+    assert "ema.retrieval.k" not in attrs
 
 
 def test_resolved_attributes_empty_rerank_is_explicit_none():

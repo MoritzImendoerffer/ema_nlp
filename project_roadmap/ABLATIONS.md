@@ -13,6 +13,8 @@ What changes is exactly one thing per ablation — that's what "ablation" means.
 
 > **Note:** the Phase 3 eval harness (run_eval.py, LLM judges, metrics, lift) was archived to branch `archive/pre-llamaindex-refactor` during the LlamaIndex/Neo4j retrieval refactor; it must be rebuilt on the Neo4j retriever API before these Phase 4 ablations can run.
 
+> **Note (2026-06-22):** the agentic layer that **Ablation B** builds on already exists — a LlamaIndex `FunctionAgent` + tool registry with Pydantic structured output lives under `harness/agents/`, runtime-verified and wired into the UI as "Agentic RAG". So Ablation B is now *"add SME-labeled process-reward supervision to the existing agent and measure the lift"*, not *"build the agent from scratch"*. The baseline it beats is the default-prompted agent.
+
 ---
 
 ## Ablation A — SME-curated evidence filtering and query reformulation

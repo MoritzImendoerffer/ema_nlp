@@ -1,0 +1,18 @@
+# Regulatory agent + retrieval pipeline — turns ON the config-driven pipeline
+# (query-expansion + cross-encoder rerank, configs/retrieval/native.yaml). Heavier per
+# turn (GPU for the cross-encoder); an advanced, explicitly-configured recipe.
+recipe:
+  label: "Regulatory agent + rerank"
+  description: "Regulatory agent with query-expansion + cross-encoder rerank (native pipeline). Heavier (GPU)."
+  orchestration:
+    system_prompt: agent_regulatory.md
+    tools: [ema_search, resolve_substance]
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_hier
+    pipeline: native
+  generation:
+    model: claude_opus
+    temperature: 0.0
+  judge:
+    enabled: false

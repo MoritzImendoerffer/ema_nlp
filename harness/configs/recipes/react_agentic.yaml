@@ -1,0 +1,17 @@
+# ReAct (agentic) — reason+act loop: the agent iteratively searches and resolves
+# substances, observing each result before the next action.
+recipe:
+  label: "ReAct (agentic)"
+  description: "Reason+act loop: iteratively search the corpus and resolve substances."
+  orchestration:
+    system_prompt: agent_react.md
+    tools: [ema_search, resolve_substance]
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_hier
+    pipeline: none
+  generation:
+    model: claude_opus
+    temperature: 0.0
+  judge:
+    enabled: false

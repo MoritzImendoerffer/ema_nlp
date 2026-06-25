@@ -1,14 +1,13 @@
-"""Unit tests for the agent-as-workflow adapter (T6 — app.py wiring).
+"""Unit tests for the AgentWorkflowAdapter (the invoke/ainvoke runner contract).
 
-Covers the pure mapping + registry registration offline (fake session / MockLLM); the
-live Chainlit selection is verified manually.
+Covers the pure RegulatoryAnswer→dict mapping + few-shot prepend offline (fake session);
+the live Chainlit selection is verified manually.
 """
 
 import asyncio
 
-from harness.agents.workflow_adapter import AgentWorkflowAdapter, build_agent_workflow
+from harness.agents.workflow_adapter import AgentWorkflowAdapter
 from harness.schemas import Citation, RegulatoryAnswer
-from harness.workflows.registry import WORKFLOW_REGISTRY, get_workflow, list_workflows
 
 
 class _FakeSession:
@@ -32,34 +31,28 @@ def test_adapter_maps_regulatory_answer_to_runner_dict():
     assert out["answer"] is ans  # structured answer preserved
 
 
-def test_agent_is_registered_as_a_workflow_strategy():
-    assert "agent" in list_workflows()
-    assert "agent" in WORKFLOW_REGISTRY
+class _RecordingSession:
+    def __init__(self, answer: RegulatoryAnswer) -> None:
+        self._answer = answer
+        self.last_query: str | None = None
+
+    async def arun(self, query: str, **_):
+        self.last_query = query
+        return self._answer
 
 
-def test_get_workflow_agent_builds_adapter():
-    from llama_index.core.llms import MockLLM
-    from llama_index.core.retrievers import BaseRetriever
-    from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
-
-    class _FakeRetriever(BaseRetriever):
-        def _retrieve(self, query_bundle: QueryBundle):
-            return [NodeWithScore(node=TextNode(text="x", id_="x"), score=1.0)]
-
-    runner = get_workflow("agent", retriever=_FakeRetriever(), llm=MockLLM(), prompt_strategy="zero_shot")
-    assert isinstance(runner, AgentWorkflowAdapter)
-    assert hasattr(runner, "ainvoke") and hasattr(runner, "invoke")
+def test_adapter_prepends_fewshot_context():
+    sess = _RecordingSession(RegulatoryAnswer(answer="ok"))
+    asyncio.run(
+        AgentWorkflowAdapter(sess).ainvoke(
+            {"question": "What is the AI for NDMA?", "few_shot_context": "EXAMPLE BLOCK"}
+        )
+    )
+    assert "EXAMPLE BLOCK" in sess.last_query
+    assert "What is the AI for NDMA?" in sess.last_query
 
 
-def test_build_agent_workflow_ignores_extra_kwargs():
-    from llama_index.core.llms import MockLLM
-    from llama_index.core.retrievers import BaseRetriever
-    from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
-
-    class _FakeRetriever(BaseRetriever):
-        def _retrieve(self, query_bundle: QueryBundle):
-            return [NodeWithScore(node=TextNode(text="x", id_="x"), score=1.0)]
-
-    # get_workflow forwards prompt_strategy; the agent builder must tolerate it
-    runner = build_agent_workflow(_FakeRetriever(), MockLLM(), prompt_strategy="cot_self")
-    assert isinstance(runner, AgentWorkflowAdapter)
+def test_adapter_without_fewshot_passes_question_only():
+    sess = _RecordingSession(RegulatoryAnswer(answer="ok"))
+    asyncio.run(AgentWorkflowAdapter(sess).ainvoke({"question": "Q only"}))
+    assert sess.last_query == "Q only"

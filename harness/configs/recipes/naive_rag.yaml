@@ -1,0 +1,21 @@
+# Naive RAG — retrieve once, answer from the passages. The lightest, most reproducible
+# path (GPU-light default): no rerank/expansion, no extra agent reasoning beyond a single
+# search. See docs/RAG_TECHNIQUES.md and docs/RECIPES.md.
+recipe:
+  label: "Naive RAG"
+  description: "Retrieve once with ema_search, then answer from the passages (lightest path)."
+  default: true
+  orchestration:
+    system_prompt: agent_naive.md
+    tools: [ema_search]
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_hier
+    pipeline: none
+    fewshot:
+      enabled: false
+  generation:
+    model: claude_opus
+    temperature: 0.0
+  judge:
+    enabled: false

@@ -1,0 +1,18 @@
+# Corrective RAG (agentic) — the agent is instructed to use corrective_search, which runs
+# a bounded grade→rewrite→retry loop for multi-hop / scoping questions (T2/T3). The loop is
+# deterministic code inside the tool; the prompt prescribes when to call it.
+recipe:
+  label: "Corrective RAG (agentic)"
+  description: "Agent uses corrective_search (grade + rewrite-retry) for multi-hop questions."
+  orchestration:
+    system_prompt: agent_crag.md
+    tools: [corrective_search, ema_search]
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_hier
+    pipeline: none
+  generation:
+    model: claude_opus
+    temperature: 0.0
+  judge:
+    enabled: false

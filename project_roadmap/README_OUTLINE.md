@@ -25,7 +25,7 @@ License · Python version · Last update · arXiv preprint · DOI (Zenodo)
 pip install -e ".[dev]"
 scripts/start_services.sh                     # MongoDB + Neo4j
 python -m harness.workflows.registry --list   # available RAG / agent strategies
-bash run_ui.sh                                # Chainlit chat UI (Phoenix tracing)
+bash run_ui.sh                                # Chainlit chat UI (MLflow tracing)
 ```
 *(The MIRAGE-style eval runner `run_eval.py` is archived on `archive/pre-llamaindex-refactor`
 and will be rebuilt on the Neo4j retriever API.)*

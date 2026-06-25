@@ -11,11 +11,13 @@ DSPy is the optimizer; the agent few-shot is the policy.
 
 from harness.eval.bootstrap import Exemplar, compile_fewshot, generate_exemplars, judge_filter
 from harness.eval.evaluate import run_evaluation
+from harness.eval.inline_judge import JudgeResult, run_inline_judges, runtime_judges
 from harness.eval.judges import align_judge, build_judge, ema_judges, load_judge_instructions
 from harness.eval.predict import build_predict_fn
 
 __all__ = [
     "Exemplar",
+    "JudgeResult",
     "align_judge",
     "build_judge",
     "build_predict_fn",
@@ -25,4 +27,6 @@ __all__ = [
     "judge_filter",
     "load_judge_instructions",
     "run_evaluation",
+    "run_inline_judges",
+    "runtime_judges",
 ]

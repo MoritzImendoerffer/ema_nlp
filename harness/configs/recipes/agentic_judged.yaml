@@ -1,0 +1,21 @@
+# Regulatory agent + inline judge — turns ON the optional post-generation judge layer:
+# a gold-free faithfulness judge scores each answer against its retrieved context, shown in
+# the chat and logged to MLflow as an LLM-judge assessment. Costs one extra LLM call/turn.
+# (The judge runs in the live Chainlit turn; see app.py / docs/RECIPES.md.)
+recipe:
+  label: "Regulatory agent + judge"
+  description: "Regulatory agent with an inline faithfulness judge (logged to MLflow)."
+  orchestration:
+    system_prompt: agent_regulatory.md
+    tools: [ema_search, resolve_substance]
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_hier
+    pipeline: none
+  generation:
+    model: claude_opus
+    temperature: 0.0
+  judge:
+    enabled: true
+    judges: [faithfulness]
+    model_role: judge

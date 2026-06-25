@@ -32,6 +32,10 @@ def build_agent(
 ) -> Any:
     """Build a configured ``FunctionAgent`` by name (or from a provided config)."""
     cfg = config or load_agent_config(name)
+    # Tool builders are NOT handed the agent LLM: a tool that needs its own model (e.g.
+    # corrective_search's grader) builds the cheap, dedicated role from models.yaml itself
+    # — keeping CRAG grading/rewriting off the expensive agent model. Tests inject a fake
+    # grader by passing ``llm=`` directly to the tool builder.
     tools = build_tools(cfg.tools, **tool_kwargs)
     system_prompt = load_agent_prompt(cfg.system_prompt)
     output_cls = _OUTPUT_SCHEMAS.get(cfg.output_schema, RegulatoryAnswer)

@@ -1,5 +1,13 @@
 # Strategies & workflows — what exists and how to add your own
 
+> ⛔ **SUPERSEDED / RETIRED (2026-06-25).** This document describes the legacy LlamaIndex
+> `Workflow` engine (`harness/workflows/*`: `simple_rag`, `crag`, `react_native`, the
+> composites, `WorkflowRunner`, `get_workflow`, the `prompt_strategy` axis) — **that engine was
+> deleted.** There is now **one engine** (a `FunctionAgent`) configured by **recipes**; RAG
+> techniques are tools + prompt instructions. See [`RECIPES.md`](RECIPES.md) and
+> [`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md). The content below is kept only for historical
+> reference and **no longer reflects the codebase**.
+
 This project has **two independent strategy axes**. Keep them separate in your head — the Chainlit config
 blob mixes them under one `ema.*` namespace, but they are configured in different places:
 
@@ -41,11 +49,12 @@ flowchart LR
 > Chainlit panel alongside the workflows below — it does not replace them. How-to:
 > [`AGENTIC_GUIDE.md`](AGENTIC_GUIDE.md); design: [`TARGET_ARCHITECTURE.md`](TARGET_ARCHITECTURE.md).
 >
-> **Tracing backend:** the live workflows + `app.py` (including the in-app `agent` strategy) use
-> **Arize Phoenix** (OpenInference) — that is what the "trace span per step" above is captured by.
-> **MLflow** is used by the agentic layer's **demo/eval entrypoints** (run-recording, autolog,
-> `mlflow.genai` judges); a full Phoenix→MLflow migration of the live app is a design target, not
-> a completed migration — the two coexist today.
+> **Tracing backend:** the live workflows + `app.py` (including the in-app `agent` strategy) are
+> traced by **MLflow** (`mlflow.llama_index.autolog()` + a per-turn `harness.obs.tracing.traced`
+> span) — that is what the "trace span per step" above is captured by. 👍/👎 feedback is written as
+> MLflow trace assessments. The same MLflow autolog also powers the agentic layer's demo/eval
+> entrypoints (run-recording, `mlflow.genai` judges). `run_ui.sh` starts the MLflow tracking server
+> on :5000.
 
 ---
 

@@ -27,9 +27,9 @@ flowchart TD
     PD -->|harness.indexing.build_index| NEO[("Neo4j PropertyGraphIndex<br/>:Document :Chunk + edges + vectors")]
     WI -. links_to .-> NEO
 
-    NEO -->|build_retriever| WF["harness/workflows/*"]
+    NEO -->|build_retriever| WF["harness/recipes + agents — FunctionAgent"]
     WF --> APP["app.py — Chainlit chat UI"]
-    APP --> PHX[Arize Phoenix traces + 👍/👎 feedback]
+    APP --> PHX[MLflow traces + 👍/👎 feedback]
     CJ -.benchmark.-> BM["benchmark/benchmark.jsonl<br/>(eval suite archived off-branch)"]
 ```
 
@@ -98,61 +98,55 @@ extraction to the `main-content-wrapper`; any "1.72M" figure is stale.)*
 
 ---
 
-## 4. LlamaIndex Workflow layer — `harness/workflows/`
+## 4. Orchestration — the recipe engine (`harness/recipes/`, `harness/agents/`)
 
-LlamaIndex-native orchestration on top of retrieval. Every strategy is a typed,
-event-driven `Workflow`. (LangChain/LangGraph are not in the stack.)
-
-| Strategy | Description |
-|----------|-------------|
-| `simple_rag` | retrieve → generate (zero / few-shot / CoT via `prompt_strategy`) |
-| `crag` | retrieve → grade ⇄ rewrite → generate |
-| `summarize_rag` | retrieve → summarize → generate |
-| `react` | `ReActNativeWorkflow` — per-step Phoenix spans; tools (`ema_search`, `filter_by_topic`) run on the injected retriever |
-| `crag_summarize` / `crag_review` / `react_review` | composites |
-
-`get_workflow(name, retriever=…, llm=…)` (in `harness/workflows/registry.py`) is the
-single entry point; every builder takes the LlamaIndex retriever as a constructor argument
-(LIR-009, done) and every runner exposes `.invoke()` / `.ainvoke()`. Model roles are in
-`harness/configs/models.yaml` (`agent`/`grader`/`rewriter`/`reranker`/`judge`/`reviewer`).
-
----
-
-### 4a. Agentic layer (runtime-verified — branch `claude/agentic-rag-foundation`)
-
-An additive LlamaIndex `FunctionAgent` orchestration runs alongside the workflow
-stack (the workflows above are untouched; the agent is registered as one more strategy):
+There is **one engine**: a LlamaIndex `FunctionAgent`. A *recipe*
+(`harness/configs/recipes/*.yaml` + `$EMA_CONFIG_DIR`) configures it — system prompt +
+tools + output schema + retrieval (index profile + optional pipeline + few-shot) +
+generation + an optional inline judge. RAG **techniques are tools + prompt instructions**,
+not separate engines. (LangChain/LangGraph are not in the stack.)
 
 | Package | Role |
 |---------|------|
+| `harness/recipes/` | `Recipe` dataclass + loader + registry; `build_recipe(recipe, index)` → the composition path (one `FunctionAgent`, wrapped in `AgentWorkflowAdapter`) |
+| `harness/agents/` | `build_agent` / `assemble_agent` / `build_session` → `FunctionAgent`; `AgentWorkflowAdapter` exposes the `invoke`/`ainvoke` contract |
+| `harness/tools/` | `FunctionTool` registry — `ema_search` (naive RAG), `corrective_search` (CRAG grade/rewrite loop), `resolve_substance` |
 | `harness/schemas/` | Pydantic structured output (`RegulatoryAnswer` + `Claim`/`Citation`) |
-| `harness/tools/` | `FunctionTool` registry (`ema_search`, `resolve_substance`) |
-| `harness/agents/` | `build_agent` / `build_session` → `FunctionAgent` (config in `harness/configs/agent/`) |
-| `harness/retrieval/` | config-driven pipeline (query transform + rerank) wrapping the retriever |
+| `harness/retrieval/` | config-driven pipeline (query transform + rerank) + the shared CRAG primitives (`corrective.py`) |
 | `harness/obs/` | resolved-config trace stamping + MLflow run recording/tracing |
 | `harness/ontology/` | typed entity/relation schema + `SchemaLLMPathExtractor` enrichment |
-| `harness/eval/` | `mlflow.genai` judges + DSPy bootstrap (the reward/optimizer loop) |
-| `harness/agents/workflow_adapter.py` | adapts the `FunctionAgent` to the workflow `invoke`/`ainvoke` contract → registered as the `agent` strategy, selectable in `app.py` |
+| `harness/eval/` | `mlflow.genai` judges + the inline judge layer + DSPy bootstrap |
 
-Runtime-verified end-to-end on the GPU host (2026-06-22, T1–T6) and selectable in the Chainlit
-UI as the **"Agentic RAG"** mode. How-to: **[AGENTIC_GUIDE.md](AGENTIC_GUIDE.md)**; full design:
-**[TARGET_ARCHITECTURE.md](TARGET_ARCHITECTURE.md)**.
+Techniques: **Naive RAG → `ema_search`**; **CRAG → `corrective_search`**; **ReAct → the
+agent's native tool loop**. Built-in recipes: `naive_rag` (default), `crag_agentic`,
+`react_agentic`, `regulatory_agent`, `agentic_reranked`, `agentic_judged`,
+`regulatory_fewshot`. Model roles in `harness/configs/models.yaml`
+(`agent`/`grader`/`rewriter`/`reranker`/`judge`/`reviewer`). How-to:
+**[RECIPES.md](RECIPES.md)** + **[RAG_TECHNIQUES.md](RAG_TECHNIQUES.md)**.
+
+> The legacy LlamaIndex Workflow engine (`harness/workflows/*`: `simple_rag`/`crag`/
+> `react_native`/composites + `WorkflowRunner`) was **retired 2026-06-25**. See
+> [WORKFLOWS.md](WORKFLOWS.md) (historical).
 
 ---
 
 ## 5. Chat UI — `app.py` (Chainlit)
 
-`bash run_ui.sh` (Phoenix + Chainlit). On session start it loads the index/retriever and
-builds a per-session `WorkflowRunner`; per message it checks the semantic query cache,
-optionally injects rated few-shot examples, runs the workflow, shows sources, and records
-👍/👎 to Phoenix as span annotations. Tracing (Phoenix + OpenInference) and the feedback
-stack (`query_cache.py`, `fewshot_inject.py`, `rating.py`) are **kept** through the refactor.
+`bash run_ui.sh` (MLflow server + Chainlit). A single **recipe dropdown** selects the
+pipeline; on session start `app.py` loads the index/retriever and builds the recipe's agent
+via `build_recipe` (with live model/temperature/k/cache overrides). Per message it checks the
+semantic query cache, optionally injects rated few-shot examples (when the recipe enables it),
+runs the agent, shows sources, optionally runs the inline judge, and records 👍/👎 to MLflow
+as trace assessments (feedback — which also rates the cache for few-shot). Tracing (MLflow
+autolog + `harness.obs.tracing.traced`) and the feedback stack (`query_cache.py`,
+`fewshot_inject.py`) are **kept**.
 
 > **Refactor status (LIR-010 done, 2026-06-02):** `app.py` now loads the Neo4j
 > `PropertyGraphIndex` via `EMA_INDEX_PROFILE` and builds a `HierarchicalPGRetriever`
 > (the old `EMA_RETRIEVER` faiss/pgvector switch is removed); source cards render
 > narrative-chunk snippets and citations key on node `source_url`. The full graph
-> (79,882 docs) is built and live Phoenix tracing + 👍/👎 feedback run in `app.py` (LIR-011).
+> (79,882 docs) is built and live MLflow tracing + 👍/👎 feedback run in `app.py`. The
+> recipe's `FunctionAgent` is traced by `mlflow.llama_index.autolog()` under one per-turn span.
 
 ---
 
@@ -162,16 +156,16 @@ The benchmark/eval suite (`run_eval.py`, `eval_retrieval.py`, ablations, eval co
 **removed from this branch** and preserved on `archive/pre-llamaindex-refactor`. It will be
 rebuilt on the clean retrieval API in a later work unit. The methodology (T1–T4 types, lift,
 contamination handling) is documented in `project_roadmap/{ROADMAP,ABLATIONS,LEAKAGE}.md`.
-The chat-time faithfulness `Judge` (`harness/judge.py`) is **kept** (used by the `review`
-workflows).
+The chat-time faithfulness `Judge` (`harness/judge.py`) is **kept** (used by the recipe
+engine's optional inline judge layer, `harness/eval/inline_judge.py`).
 
 ---
 
 ## 7. File storage layout
 
 **In Git:** `corpus/build_corpus.py` + schemas, `benchmark/benchmark.jsonl`,
-`harness/indexing/`, `harness/workflows/`, `harness/configs/`, `harness/prompts/`,
-`deploy/{mongo,neo4j}/`.
+`harness/indexing/`, `harness/{recipes,agents,tools}/`, `harness/configs/`,
+`harness/prompts/`, `deploy/{mongo,neo4j}/`.
 
 **Local only (gitignored / derived):** `corpus/corpus.jsonl` (rebuild from Mongo); Neo4j
 data (Docker volume `ema_neo4j_data`); `~/.cache/huggingface/` (BGE model); `results/`
@@ -191,7 +185,7 @@ data (Docker volume `ema_neo4j_data`); `~/.cache/huggingface/` (BGE model); `res
 | `scripts/backfill_parsed_documents_subset.py` | Seed a `parsed_documents` verify subset from legacy collections |
 | `corpus/build_corpus.py` | Rebuild `corpus.jsonl` from MongoDB |
 | `harness.indexing.build_index(profile)` (Python; see §9) | Build the Neo4j PropertyGraphIndex |
-| `bash run_ui.sh` | Start Phoenix + Chainlit chat UI |
+| `bash run_ui.sh` | Start MLflow server + Chainlit chat UI |
 
 ---
 

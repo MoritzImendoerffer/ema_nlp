@@ -2,21 +2,26 @@
 EMA Q&A Chat UI — Chainlit 2.11
 
 Browser chat with hybrid RAG retrieval, LlamaIndex Workflow pipeline,
-Arize Phoenix trace integration, and per-step 👍/👎 feedback.
+MLflow trace integration, and per-turn 👍/👎 feedback (logged as MLflow trace
+assessments). Traces + feedback are served by the MLflow UI (`run_ui.sh`).
 
 Features:
   - Left sidebar:   persistent chat history (SQLite); login with UI_PASSWORD env var
-  - Right sidebar:  live settings panel — workflow + prompt strategy + retrieval profile
-                    (all listed DYNAMICALLY from the registries, so a newly-registered
-                    strategy/profile appears automatically) plus model/temperature/k/cache.
-                    Changing the workflow or profile rebuilds the session pipeline in place.
-  - ChatProfile:    seeds the initial workflow; the settings panel is the live source of truth.
+  - Right sidebar:  live settings panel — a single Recipe selector (listed from the recipe
+                    registry: harness/configs/recipes/*.yaml + $EMA_CONFIG_DIR) plus live
+                    model/temperature/k/cache overrides. Changing the recipe rebuilds the
+                    session pipeline in place.
+  - ChatProfile:    seeds the initial recipe; the settings panel is the live source of truth.
+
+Each recipe is one agent-centric pipeline (orchestration + retrieval + optional few-shot /
+judge). See docs/RECIPES.md and docs/RAG_TECHNIQUES.md.
 
 Usage:
     chainlit run app.py
-    PHOENIX_DISABLED=1 chainlit run app.py           # tracing off
+    EMA_TRACING_DISABLED=1 chainlit run app.py       # tracing off
     UI_PASSWORD=secret chainlit run app.py           # override login password (default: dev)
-    EMA_WORKFLOW_STRATEGY=crag chainlit run app.py   # set default profile
+    EMA_RECIPE=crag_agentic chainlit run app.py      # set the default recipe
+    EMA_CONFIG_DIR=~/my_ema_configs chainlit run app.py   # add external recipes/prompts
 """
 
 from __future__ import annotations
@@ -34,59 +39,51 @@ from dotenv import load_dotenv
 
 load_dotenv(Path.home() / ".myenvs" / "ema_nlp.env", override=False)
 
-PHOENIX_URL = os.getenv("PHOENIX_URL", "http://localhost:6006")
-PHOENIX_DISABLED = os.getenv("PHOENIX_DISABLED", "").lower() in ("1", "true", "yes")
-WORKFLOW_STRATEGY = os.getenv("EMA_WORKFLOW_STRATEGY", "simple_rag")
+# MLflow tracking server (writes traces/feedback) + UI URL (the "View traces" link).
+# run_ui.sh starts `mlflow server` on :5000 backed by sqlite; both default there.
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
+MLFLOW_UI_URL = os.getenv("MLFLOW_UI_URL", "http://localhost:5000")
+MLFLOW_EXPERIMENT = os.getenv("EMA_MLFLOW_EXPERIMENT", "ema_nlp")
+TRACING_DISABLED = os.getenv("EMA_TRACING_DISABLED", "").lower() in ("1", "true", "yes")
+DEFAULT_RECIPE = os.getenv("EMA_RECIPE", "")  # default recipe name; "" -> registry default
 EMA_INDEX_PROFILE = os.getenv("EMA_INDEX_PROFILE", "neo4j_hier")
 RETRIEVAL_K = 10
 SOURCES_SHOWN = 5
 
 log = logging.getLogger(__name__)
 
-# ── Workflow profile → (strategy, prompt_strategy) mapping ───────────────────
+# ── Recipe selector (config-driven: recipes/*.yaml + $EMA_CONFIG_DIR) ─────────
 
-_PROFILE_STRATEGY: dict[str, tuple[str, str | None]] = {
-    "Simple RAG (zero-shot)": ("simple_rag", "zero_shot"),
-    "Simple RAG (few-shot)":  ("simple_rag", "few_shot"),
-    "Simple RAG (CoT)":       ("simple_rag", "cot_self"),
-    "ReAct":                  ("react",         None),
-    "CRAG":                   ("crag",          None),
-    "Summarize RAG":          ("summarize_rag", None),
-    "CRAG + Summarize":       ("crag_summarize", None),
-    "CRAG + Review":          ("crag_review",    None),
-    "ReAct + Review":         ("react_review",   None),
-    "Agentic RAG (FunctionAgent)": ("agent",     None),
-}
+def _model_choices() -> list[str]:
+    """Model-override choices for the settings panel, read from models.yaml at render
+    time (no hardcoded list to drift). The recipe sets the default; this lets a user
+    swap the model live. Falls back to the common pair if models.yaml can't be read."""
+    try:
+        from harness.models import list_model_names
 
-_PROFILE_DESCRIPTIONS: dict[str, str] = {
-    "simple_rag":    "Retrieve → generate (prompt variant set by profile)",
-    "react":         "ReAct loop with per-step Phoenix spans",
-    "crag":          "Retrieve → grade ⇄ rewrite → generate",
-    "summarize_rag": "Retrieve → summarize → generate",
-    "crag_summarize":"CRAG loop → summarize → generate",
-    "crag_review":   "CRAG loop → generate → reviewer pass",
-    "react_review":  "ReAct → reviewer (score only)",
-    "agent":         "FunctionAgent + tools → structured RegulatoryAnswer (Phoenix-traced)",
-}
-
-# Friendly labels for the settings-panel workflow Select. The option LIST is built
-# dynamically from the registry (list_workflows()), so a newly-registered strategy
-# appears automatically; this map only prettifies known keys — unknown/new keys fall
-# back to a title-cased key.
-_WORKFLOW_LABELS: dict[str, str] = {
-    "simple_rag": "Simple RAG",
-    "react": "ReAct",
-    "crag": "CRAG",
-    "summarize_rag": "Summarize RAG",
-    "crag_summarize": "CRAG + Summarize",
-    "crag_review": "CRAG + Review",
-    "react_review": "ReAct + Review",
-    "agent": "Agentic RAG",
-}
+        return list_model_names() or ["claude_haiku", "claude_opus"]
+    except Exception:
+        return ["claude_haiku", "claude_opus"]
 
 
-def _workflow_label(key: str) -> str:
-    return _WORKFLOW_LABELS.get(key, key.replace("_", " ").title())
+def _recipe_items() -> dict[str, str]:
+    """``{recipe_name: label}`` for the dropdowns, read from the registry at render time
+    so a recipe added to ``configs/recipes/`` or ``$EMA_CONFIG_DIR`` appears automatically."""
+    from harness.recipes import load_all_recipes
+
+    return {r.name: r.display_label for r in load_all_recipes()}
+
+
+def _resolve_recipe_name(name: str | None) -> str:
+    """A valid recipe name: the given one if known, else the env/registry default."""
+    from harness.recipes import default_recipe_name, list_recipes
+
+    names = list_recipes()
+    if name and name in names:
+        return name
+    if DEFAULT_RECIPE and DEFAULT_RECIPE in names:
+        return DEFAULT_RECIPE
+    return default_recipe_name() or (names[0] if names else "")
 
 # ── SQLite schema (created on first run via on_app_startup) ───────────────────
 
@@ -160,47 +157,35 @@ CREATE TABLE IF NOT EXISTS feedbacks (
 );
 """
 
-# ── Phoenix registration MUST come before any SDK imports ────────────────────
-if not PHOENIX_DISABLED:
+# ── MLflow tracing setup ──────────────────────────────────────────────────────
+# autolog instruments every LlamaIndex call (the workflow stack AND the agent), so
+# each turn becomes one MLflow trace; WorkflowRunner adds an explicit root span that
+# carries the resolved ema.* config. Feedback (👍/👎) attaches to the trace below.
+if not TRACING_DISABLED:
     try:
-        from phoenix.otel import register as _phoenix_register
-        _phoenix_register(
-            project_name="ema-nlp",
-            auto_instrument=True,
-            endpoint=f"{PHOENIX_URL}/v1/traces",
-        )
-        log.info("Phoenix tracing → %s", PHOENIX_URL)
+        from harness.obs import setup_tracing
+        if setup_tracing(MLFLOW_EXPERIMENT, tracking_uri=MLFLOW_TRACKING_URI, autolog=True):
+            log.info("MLflow tracing → %s (experiment=%s)", MLFLOW_TRACKING_URI, MLFLOW_EXPERIMENT)
+        else:
+            log.warning("MLflow unavailable — tracing disabled")
+            TRACING_DISABLED = True
     except Exception as exc:
-        log.warning("Phoenix setup failed (%s) — tracing disabled", exc)
-        PHOENIX_DISABLED = True
+        log.warning("MLflow tracing setup failed (%s) — tracing disabled", exc)
+        TRACING_DISABLED = True
 
 
-# Phoenix's UI uses base64-encoded node IDs in /projects/<id>, not raw names —
-# resolve the ID lazily on first use (project is created server-side only after
-# the first trace arrives) and cache it.
-_PHOENIX_PROJECT_URL: str | None = None
+# Deep link to the experiment's Traces tab in the MLflow UI. Resolving the
+# experiment id is a tracking-server call, so resolve lazily and cache it.
+_TRACES_URL: str | None = None
 
 
-async def _phoenix_project_url() -> str:
-    global _PHOENIX_PROJECT_URL
-    if _PHOENIX_PROJECT_URL:
-        return _PHOENIX_PROJECT_URL
-
-    def _fetch() -> str | None:
-        import json
-        import urllib.request
-        try:
-            with urllib.request.urlopen(f"{PHOENIX_URL}/v1/projects", timeout=2) as r:
-                for p in json.load(r).get("data", []):
-                    if p.get("name") == "ema-nlp":
-                        return f"{PHOENIX_URL}/projects/{p['id']}"
-        except Exception as exc:
-            log.warning("Phoenix project lookup failed: %s", exc)
-        return None
-
-    url = await asyncio.to_thread(_fetch)
-    _PHOENIX_PROJECT_URL = url or f"{PHOENIX_URL}/projects"
-    return _PHOENIX_PROJECT_URL
+def _traces_url() -> str:
+    global _TRACES_URL
+    if _TRACES_URL:
+        return _TRACES_URL
+    from harness.obs import experiment_traces_url
+    _TRACES_URL = experiment_traces_url(MLFLOW_UI_URL, MLFLOW_EXPERIMENT)
+    return _TRACES_URL
 
 
 # ── Schema init (runs once at app startup) ────────────────────────────────────
@@ -235,36 +220,24 @@ def get_data_layer():
     return SQLAlchemyDataLayer("sqlite+aiosqlite:///chat_history.db")
 
 
-# ── Chat profiles (workflow strategy selector) ────────────────────────────────
+# ── Chat profiles (recipe selector) ───────────────────────────────────────────
 
 @cl.set_chat_profiles
 async def set_chat_profiles(user: cl.User | None) -> list[cl.ChatProfile]:
+    """One profile per recipe; exactly one is flagged default."""
+    from harness.recipes import load_all_recipes
+
+    recipes = load_all_recipes()  # parse once, derive the default from the same list
+    explicit = next((r.name for r in recipes if r.default), None)
+    default = explicit if (explicit and not DEFAULT_RECIPE) else _resolve_recipe_name(None)
     return [
         cl.ChatProfile(
-            name=display_name,
-            markdown_description=_PROFILE_DESCRIPTIONS.get(strategy, strategy),
-            default=(strategy == WORKFLOW_STRATEGY),
+            name=r.name,
+            markdown_description=f"**{r.display_label}** — {r.description or r.name}",
+            default=(r.name == default),
         )
-        for display_name, (strategy, _prompt_strategy) in _PROFILE_STRATEGY.items()
+        for r in recipes
     ]
-
-
-# ── Dynamic options (registry-driven — new strategies appear automatically) ────
-
-def _chat_options() -> dict[str, list[str]]:
-    """The live option lists for the settings panel, read from the registries at
-    render time so a newly-registered workflow / prompt file / index profile is
-    picked up with no edit here."""
-    from harness.indexing.profiles import PROFILE_DIR
-    from harness.workflows.registry import list_workflows
-    from harness.workflows.utils import list_prompt_strategies
-
-    profiles = sorted(p.stem for p in PROFILE_DIR.glob("*.yaml")) if PROFILE_DIR.exists() else []
-    return {
-        "workflows": list_workflows(),
-        "prompt_strategies": list_prompt_strategies(),
-        "index_profiles": profiles or [EMA_INDEX_PROFILE],
-    }
 
 
 # ── Index loading ─────────────────────────────────────────────────────────────
@@ -298,62 +271,44 @@ def _embed_query_sync(query: str) -> np.ndarray | None:
         return None
 
 
-def _build_session_workflow(
+def _build_session_sync(
     index: Any,
+    recipe_name: str,
     *,
-    index_profile: str = EMA_INDEX_PROFILE,
-    strategy: str = WORKFLOW_STRATEGY,
-    prompt_strategy: str | None = None,
-    model_name: str = "claude_opus",
+    model: str = "claude_opus",
     temperature: float = 0.0,
     retrieval_k: int = RETRIEVAL_K,
 ) -> Any:
-    from harness.indexing import load_index_profile
-    from harness.indexing.registry import build_retriever
-    from harness.llms import get_llm_for_model
-    from harness.workflows.registry import get_workflow
+    """Build the recipe's agent pipeline over ``index`` (model/temp/k are live overrides)."""
+    from harness.recipes import build_recipe, get_recipe
 
-    llm = get_llm_for_model(model_name, temperature_override=temperature)
-    profile = load_index_profile(index_profile)
-    if retrieval_k:
-        profile.retrieval.k = retrieval_k
-    retriever = build_retriever(profile, index)
-
-    # Only ``prompt_strategy`` reaches the builder (via get_workflow); model/temp/k
-    # are applied above. Workflows that ignore prompt_strategy (react/react_review)
-    # tolerate it via **_ in their builders.
-    return get_workflow(
-        strategy, retriever=retriever, llm=llm, prompt_strategy=prompt_strategy,
+    return build_recipe(
+        get_recipe(recipe_name),
+        index,
+        model=model,
+        temperature=temperature,
+        retrieval_k=retrieval_k,
     )
 
 
 # ── Settings helpers ──────────────────────────────────────────────────────────
 
 def _make_chat_settings(current: dict) -> cl.ChatSettings:
-    """Build the settings panel. Option lists are dynamic (``_chat_options``); every
-    widget is seeded from ``current`` — a (re)render resets ALL widgets to their
+    """Build the settings panel: a Recipe selector (from the registry) + live overrides.
+    Every widget is seeded from ``current`` — a (re)render resets ALL widgets to their
     ``initial``, so passing the full current state avoids snapping others to defaults."""
-    opts = _chat_options()
+    items = _recipe_items()
+    recipe_initial = current.get("recipe") or _resolve_recipe_name(None)
     return cl.ChatSettings([
         cl.input_widget.Select(
-            id="workflow", label="Workflow",
-            items={k: _workflow_label(k) for k in opts["workflows"]},
-            initial_value=current.get("workflow", WORKFLOW_STRATEGY),
+            id="recipe", label="Recipe",
+            items=items or {recipe_initial: recipe_initial},
+            initial_value=recipe_initial,
         ),
         cl.input_widget.Select(
-            id="prompt_strategy", label="Prompt strategy (ignored by ReAct)",
-            items={p: p for p in opts["prompt_strategies"]},
-            initial_value=current.get("prompt_strategy") or "zero_shot",
-        ),
-        cl.input_widget.Select(
-            id="index_profile", label="Retrieval profile",
-            items={p: p for p in opts["index_profiles"]},
-            initial_value=current.get("index_profile", EMA_INDEX_PROFILE),
-        ),
-        cl.input_widget.Select(
-            id="agent_model", label="Agent model",
-            values=["claude_haiku", "claude_opus", "olmo_32b", "local_qwen32"],
-            initial_value=str(current.get("agent_model", "claude_opus")),
+            id="model", label="Model (override)",
+            values=_model_choices(),
+            initial_value=str(current.get("model", "claude_opus")),
         ),
         cl.input_widget.Slider(
             id="temperature", label="Temperature",
@@ -370,28 +325,31 @@ def _make_chat_settings(current: dict) -> cl.ChatSettings:
     ])
 
 
-def _settings_to_pipeline_kwargs(settings: dict) -> dict:
-    """Map raw widget values → _build_session_workflow kwargs (workflow/prompt/profile
-    selectors included, so the panel drives the pipeline)."""
+def _settings_to_kwargs(settings: dict) -> dict:
+    """Map raw widget values → _build_session_sync kwargs (recipe + live overrides)."""
     return {
-        "strategy":        str(settings.get("workflow", WORKFLOW_STRATEGY)),
-        "prompt_strategy": settings.get("prompt_strategy") or "zero_shot",
-        "index_profile":   str(settings.get("index_profile", EMA_INDEX_PROFILE)),
-        "model_name":      str(settings.get("agent_model", "claude_opus")),
-        "temperature":     float(settings.get("temperature", 0.0)),
-        "retrieval_k":     int(settings.get("retrieval_k", RETRIEVAL_K)),
+        "recipe_name": _resolve_recipe_name(str(settings.get("recipe", ""))),
+        "model":       str(settings.get("model", "claude_opus")),
+        "temperature": float(settings.get("temperature", 0.0)),
+        "retrieval_k": int(settings.get("retrieval_k", RETRIEVAL_K)),
     }
 
 
-def _seed_settings(strategy: str, prompt_strategy: str | None, index_profile: str) -> dict:
-    """Initial settings dict for a new/resumed session — the ChatProfile seeds the
-    workflow/prompt; the panel is the live source of truth thereafter."""
+def _seed_settings(recipe_name: str) -> dict:
+    """Initial settings dict — the ChatProfile seeds the recipe; model/temperature default
+    to the recipe's own values; the panel is the live source of truth thereafter."""
+    model, temperature = "claude_opus", 0.0
+    try:
+        from harness.recipes import get_recipe
+
+        r = get_recipe(recipe_name)
+        model, temperature = r.model, r.temperature
+    except Exception:
+        pass
     return {
-        "workflow": strategy,
-        "prompt_strategy": prompt_strategy or "zero_shot",
-        "index_profile": index_profile,
-        "agent_model": "claude_opus",
-        "temperature": 0.0,
+        "recipe": recipe_name,
+        "model": model,
+        "temperature": temperature,
         "retrieval_k": float(RETRIEVAL_K),
         "cache_enabled": True,
     }
@@ -410,13 +368,15 @@ async def on_chat_start() -> None:
         content="Loading EMA Q&A index… (first run builds embeddings and may take ≤ 30 s)"
     ).send()
 
-    profile_name = cl.user_session.get("chat_profile")
-    strategy, prompt_strategy = _PROFILE_STRATEGY.get(profile_name or "", (WORKFLOW_STRATEGY, None))
-    seed = _seed_settings(strategy, prompt_strategy, EMA_INDEX_PROFILE)
-    log.info("Strategy: %s prompt_strategy: %s (profile: %s)", strategy, prompt_strategy, profile_name)
+    from harness.recipes import get_recipe
+
+    recipe_name = _resolve_recipe_name(cl.user_session.get("chat_profile"))
+    recipe = get_recipe(recipe_name)
+    seed = _seed_settings(recipe_name)
+    log.info("Recipe: %s (index_profile=%s)", recipe_name, recipe.index_profile)
 
     try:
-        index = await asyncio.to_thread(_load_index_sync, seed["index_profile"])
+        index = await asyncio.to_thread(_load_index_sync, recipe.index_profile)
     except Exception as exc:
         await cl.Message(content=f"Index load failed: {exc}").send()
         raise
@@ -425,7 +385,9 @@ async def on_chat_start() -> None:
     log.info("Session started: %s", session_id)
 
     pipeline = await asyncio.to_thread(
-        _build_session_workflow, index, **_settings_to_pipeline_kwargs(seed),
+        _build_session_sync, index, recipe_name,
+        model=seed["model"], temperature=float(seed["temperature"]),
+        retrieval_k=int(seed["retrieval_k"]),
     )
     cache = await asyncio.to_thread(_init_cache_sync)
 
@@ -433,35 +395,41 @@ async def on_chat_start() -> None:
     cl.user_session.set("index", index)
     cl.user_session.set("pipeline", pipeline)
     cl.user_session.set("cache", cache)
-    cl.user_session.set("strategy", strategy)
-    cl.user_session.set("prompt_strategy", seed["prompt_strategy"])
-    cl.user_session.set("index_profile", seed["index_profile"])
+    cl.user_session.set("recipe", recipe)
+    cl.user_session.set("recipe_name", recipe_name)
+    cl.user_session.set("index_profile", recipe.index_profile)
     cl.user_session.set("settings", seed)
     cl.user_session.set("msg_counter", 0)
 
     await _make_chat_settings(seed).send()
     await cl.Message(
-        content="Ready. Ask any question about EMA human-regulatory guidance."
+        content=f"Ready — recipe **{recipe.display_label}**. "
+        "Ask any question about EMA human-regulatory guidance."
     ).send()
 
 
 @cl.on_chat_resume
 async def on_chat_resume(thread: dict) -> None:
-    # auto_tag_thread=true means the profile name is stored as a tag
-    tags = thread.get("tags") or []
-    profile_name = next((t for t in tags if t in _PROFILE_STRATEGY), None)
-    strategy, prompt_strategy = _PROFILE_STRATEGY.get(profile_name or "", (WORKFLOW_STRATEGY, None))
-    seed = _seed_settings(strategy, prompt_strategy, EMA_INDEX_PROFILE)
-    log.info("Resuming thread %s — strategy=%s prompt_strategy=%s", thread.get("id"), strategy, prompt_strategy)
+    # auto_tag_thread is disabled (it breaks thread persistence on the SQLite data layer —
+    # see .chainlit/config.toml), so resume falls back to the default recipe; the panel is
+    # the live source of truth thereafter.
+    from harness.recipes import get_recipe
+
+    recipe_name = _resolve_recipe_name(None)
+    recipe = get_recipe(recipe_name)
+    seed = _seed_settings(recipe_name)
+    log.info("Resuming thread %s — recipe=%s", thread.get("id"), recipe_name)
 
     try:
-        index = await asyncio.to_thread(_load_index_sync, seed["index_profile"])
+        index = await asyncio.to_thread(_load_index_sync, recipe.index_profile)
     except Exception as exc:
         await cl.Message(content=f"Index load failed on resume: {exc}").send()
         raise
 
     pipeline = await asyncio.to_thread(
-        _build_session_workflow, index, **_settings_to_pipeline_kwargs(seed),
+        _build_session_sync, index, recipe_name,
+        model=seed["model"], temperature=float(seed["temperature"]),
+        retrieval_k=int(seed["retrieval_k"]),
     )
     cache = await asyncio.to_thread(_init_cache_sync)
     step_count = sum(
@@ -472,9 +440,9 @@ async def on_chat_resume(thread: dict) -> None:
     cl.user_session.set("index", index)
     cl.user_session.set("pipeline", pipeline)
     cl.user_session.set("cache", cache)
-    cl.user_session.set("strategy", strategy)
-    cl.user_session.set("prompt_strategy", seed["prompt_strategy"])
-    cl.user_session.set("index_profile", seed["index_profile"])
+    cl.user_session.set("recipe", recipe)
+    cl.user_session.set("recipe_name", recipe_name)
+    cl.user_session.set("index_profile", recipe.index_profile)
     cl.user_session.set("settings", seed)
     cl.user_session.set("msg_counter", step_count)
 
@@ -489,11 +457,14 @@ async def on_settings_update(settings: dict) -> None:
     if index is None:
         return
 
-    kwargs = _settings_to_pipeline_kwargs(settings)
-    new_profile = kwargs["index_profile"]
+    from harness.recipes import get_recipe
+
+    kwargs = _settings_to_kwargs(settings)
+    recipe = get_recipe(kwargs["recipe_name"])
+    new_profile = recipe.index_profile
     old_profile = cl.user_session.get("index_profile", EMA_INDEX_PROFILE)
 
-    # Reload the index ONLY when the retrieval profile changed — avoids reloading
+    # Reload the index ONLY when the recipe's retrieval profile changed — avoids reloading
     # Neo4j + re-instantiating the embed model on every settings save (GPU-friendly).
     if new_profile != old_profile:
         await cl.Message(
@@ -507,10 +478,13 @@ async def on_settings_update(settings: dict) -> None:
         cl.user_session.set("index", index)
         cl.user_session.set("index_profile", new_profile)
 
-    pipeline = await asyncio.to_thread(_build_session_workflow, index, **kwargs)
+    pipeline = await asyncio.to_thread(
+        _build_session_sync, index, kwargs["recipe_name"],
+        model=kwargs["model"], temperature=kwargs["temperature"], retrieval_k=kwargs["retrieval_k"],
+    )
     cl.user_session.set("pipeline", pipeline)
-    cl.user_session.set("strategy", kwargs["strategy"])
-    cl.user_session.set("prompt_strategy", kwargs["prompt_strategy"])
+    cl.user_session.set("recipe", recipe)
+    cl.user_session.set("recipe_name", kwargs["recipe_name"])
     cl.user_session.set("settings", settings)
 
     cache_enabled = bool(settings.get("cache_enabled", True))
@@ -525,75 +499,158 @@ async def on_settings_update(settings: dict) -> None:
 
 async def _run_pipeline(query: str, msg_num: int) -> None:
     from harness.fewshot_inject import get_fewshot_context
+    from harness.obs import last_trace_id, record_answer_on_span, traced
     from harness.query_cache import QueryCache
 
     pipeline: Any = cl.user_session.get("pipeline")
     cache: QueryCache | None = cl.user_session.get("cache")
-    query_vec = await asyncio.to_thread(_embed_query_sync, query)
-
-    # ── Cache lookup ──────────────────────────────────────────────────────────
-    if cache is not None and query_vec is not None:
-        cache_hits = cache.get_similar(query_vec, k=3)
-        if cache_hits:
-            lines = ["Similar past questions found:\n"]
-            for i, (entry, sim) in enumerate(cache_hits):
-                letter = chr(ord("a") + i)
-                rating_str = f"{entry.rating:.1f}/5" if entry.rating is not None else "unrated"
-                q_prev = entry.question_text[:100] + ("…" if len(entry.question_text) > 100 else "")
-                a_prev = entry.answer_summary[:150] + ("…" if len(entry.answer_summary) > 150 else "")
-                lines.append(
-                    f"**[{letter}]** sim={sim:.2f} · rating={rating_str}\n"
-                    f"Q: {q_prev}\n"
-                    f"A: {a_prev}\n"
-                )
-
-            ask_actions = [
-                cl.Action(
-                    name="cache_pick",
-                    payload={"v": f"use_{i}"},
-                    label=f"[{chr(ord('a') + i)}] Use cached",
-                )
-                for i in range(len(cache_hits))
-            ] + [
-                cl.Action(name="cache_pick", payload={"v": "skip"}, label="[c] Run full pipeline"),
-            ]
-
-            res = await cl.AskActionMessage(
-                content="\n".join(lines),
-                actions=ask_actions,
-                timeout=60,
-            ).send()
-
-            choice: str = res["payload"].get("v", "skip") if res else "skip"
-
-            if choice.startswith("use_"):
-                idx = int(choice.split("_")[1])
-                entry, sim = cache_hits[idx]
-                await cl.Message(
-                    content=f"*[Cached answer — similarity {sim:.2f}]*\n\n{entry.answer_summary}"
-                ).send()
-                return
-
-    # ── LlamaIndex Workflow invocation ───────────────────────────────────────
-    few_shot_block = (
-        get_fewshot_context(query_vec, cache, k=3, min_rating=4) or ""
-        if query_vec is not None
-        else ""
-    )
-
     run_id = str(uuid.uuid4())
-    async with cl.Step(name="Pipeline", type="run") as step:
-        step.input = query
-        result: dict = await pipeline.ainvoke({
-            "question": query,
-            "few_shot_context": few_shot_block,
-            "run_id": run_id,
-            "source": "chainlit",
-        })
-        step.output = f"Done: {len(result.get('answer_text', ''))} chars"
+    trace_id = ""
+    result: dict = {}
 
-    answer_text: str = result.get("answer_text", "No answer generated.")
-    docs: list = result.get("docs", [])
+    # One MLflow trace per turn: the cache-lookup embedding, retrieval, and
+    # generation all nest under this single root span. Without it the standalone
+    # cache-lookup embedding (autolog-instrumented, run before the workflow) opens
+    # its own *second* trace for every prompt.
+    with traced(
+        "chat.turn",
+        attributes={
+            "ema.run.id": run_id,
+            "ema.run.source": "chainlit",
+            "ema.index.profile": os.getenv("EMA_INDEX_PROFILE", "neo4j_hier"),
+        },
+    ) as turn_span:
+        if turn_span is not None:
+            try:
+                turn_span.set_inputs({"question": query})
+            except Exception:
+                pass
+
+        query_vec = await asyncio.to_thread(_embed_query_sync, query)
+
+        # ── Cache lookup ──────────────────────────────────────────────────────
+        if cache is not None and query_vec is not None:
+            cache_hits = cache.get_similar(query_vec, k=3)
+            if cache_hits:
+                lines = ["Similar past questions found:\n"]
+                for i, (entry, sim) in enumerate(cache_hits):
+                    letter = chr(ord("a") + i)
+                    rating_str = f"{entry.rating:.1f}/5" if entry.rating is not None else "unrated"
+                    q_prev = entry.question_text[:100] + ("…" if len(entry.question_text) > 100 else "")
+                    a_prev = entry.answer_summary[:150] + ("…" if len(entry.answer_summary) > 150 else "")
+                    lines.append(
+                        f"**[{letter}]** sim={sim:.2f} · rating={rating_str}\n"
+                        f"Q: {q_prev}\n"
+                        f"A: {a_prev}\n"
+                    )
+
+                ask_actions = [
+                    cl.Action(
+                        name="cache_pick",
+                        payload={"v": f"use_{i}"},
+                        label=f"[{chr(ord('a') + i)}] Use cached",
+                    )
+                    for i in range(len(cache_hits))
+                ] + [
+                    cl.Action(name="cache_pick", payload={"v": "skip"}, label="[c] Run full pipeline"),
+                ]
+
+                res = await cl.AskActionMessage(
+                    content="\n".join(lines),
+                    actions=ask_actions,
+                    timeout=60,
+                ).send()
+
+                choice: str = res["payload"].get("v", "skip") if res else "skip"
+
+                if choice.startswith("use_"):
+                    idx = int(choice.split("_")[1])
+                    entry, sim = cache_hits[idx]
+                    await cl.Message(
+                        content=f"*[Cached answer — similarity {sim:.2f}]*\n\n{entry.answer_summary}"
+                    ).send()
+                    record_answer_on_span(
+                        turn_span, answer={"answer": entry.answer_summary, "source": "cache"}
+                    )
+                    # Allow re-rating the reused entry (feeds the few-shot cache); cache-only,
+                    # so it targets the ORIGINAL entry and writes no trace assessment.
+                    await cl.Message(
+                        content="Rate this cached response:",
+                        actions=[
+                            cl.Action(name="rate", payload={"rating": "good", "run_id": entry.run_id, "cache_only": True}, label="👍 Helpful"),
+                            cl.Action(name="rate", payload={"rating": "bad", "run_id": entry.run_id, "cache_only": True}, label="👎 Not helpful"),
+                        ],
+                    ).send()
+                    return
+
+        # ── Recipe-gated few-shot injection ───────────────────────────────────
+        recipe = cl.user_session.get("recipe")
+        fewshot = getattr(recipe, "fewshot", None)
+        few_shot_block = ""
+        if fewshot is not None and fewshot.enabled and query_vec is not None:
+            few_shot_block = (
+                get_fewshot_context(query_vec, cache, k=fewshot.k, min_rating=fewshot.min_rating)
+                or ""
+            )
+
+        async with cl.Step(name="Pipeline", type="run") as step:
+            step.input = query
+            result = await pipeline.ainvoke({
+                "question": query,
+                "few_shot_context": few_shot_block,
+                "run_id": run_id,
+                "source": "chainlit",
+            })
+            step.output = f"Done: {len(result.get('answer_text', ''))} chars"
+
+        record_answer_on_span(turn_span, answer=result.get("answer"))
+
+        answer_text = result.get("answer_text", "No answer generated.")
+        docs = result.get("docs", [])
+
+        # ── Optional inline judge layer (recipe.judge) ────────────────────────
+        # Run INSIDE the turn span so the judge's LLM call nests under this trace (no
+        # second trace per turn); feedback is logged after the span closes, when the
+        # trace id is available. Faithfulness is graded against the FULL retrieved
+        # passages (context_passages) when the agent surfaced them, else citation text.
+        judge_note = ""
+        judge_results: list = []
+        judge_policy = getattr(recipe, "judge", None)
+        if judge_policy is not None and judge_policy.enabled and answer_text and docs:
+            from harness.eval import run_inline_judges
+
+            context_passages = result.get("context_passages") or [
+                d.text for d in docs if getattr(d, "text", "")
+            ]
+            judge_results = await asyncio.to_thread(
+                run_inline_judges,
+                judge_policy.judges,
+                question=query,
+                answer=answer_text,
+                context_passages=context_passages,
+            )
+            if judge_results:
+                judge_note = "\n\n_Judge: " + ", ".join(
+                    f"{r.name} {r.score}/5" for r in judge_results
+                ) + "_"
+
+    # Trace id of the turn just traced (read after the span closes).
+    if not TRACING_DISABLED:
+        trace_id = last_trace_id() or ""
+
+    # Log judge assessments to the now-flushed turn trace (alongside the 👍/👎).
+    if judge_results and not TRACING_DISABLED and trace_id:
+        from harness.obs import log_judge_feedback
+
+        for r in judge_results:
+            await asyncio.to_thread(
+                log_judge_feedback,
+                trace_id,
+                name=f"judge_{r.name}",
+                value=r.value,
+                rationale=r.rationale,
+                metadata={"score": r.score, "run_id": run_id},
+            )
 
     # ── Source sidebar elements ───────────────────────────────────────────────
     source_elements: list[cl.Text] = []
@@ -616,8 +673,11 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
         source_elements.append(cl.Text(name=f"Q{msg_num} · Src {i}", content=card, display="side"))
 
     # ── Final message ─────────────────────────────────────────────────────────
-    footer = f"\n\n[View traces →]({await _phoenix_project_url()})" if not PHOENIX_DISABLED else ""
-    await cl.Message(content=answer_text + footer, elements=source_elements).send()
+    footer = ""
+    if not TRACING_DISABLED:
+        traces_link = await asyncio.to_thread(_traces_url)
+        footer = f"\n\n[View traces →]({traces_link})"
+    await cl.Message(content=answer_text + judge_note + footer, elements=source_elements).send()
 
     # ── Store in cache ────────────────────────────────────────────────────────
     if cache is not None and query_vec is not None and answer_text:
@@ -637,13 +697,15 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
             query_vec,
         )
     cl.user_session.set("last_run_id", run_id)
+    cl.user_session.set("last_trace_id", trace_id)
 
     # ── Rating actions ────────────────────────────────────────────────────────
+    # Carry the trace id in the payload so the 👍/👎 maps to this exact turn's trace.
     await cl.Message(
         content="Rate this response:",
         actions=[
-            cl.Action(name="rate", payload={"rating": "good", "run_id": cl.user_session.get("last_run_id", "")}, label="👍 Helpful"),
-            cl.Action(name="rate", payload={"rating": "bad",  "run_id": cl.user_session.get("last_run_id", "")}, label="👎 Not helpful"),
+            cl.Action(name="rate", payload={"rating": "good", "run_id": run_id, "trace_id": trace_id}, label="👍 Helpful"),
+            cl.Action(name="rate", payload={"rating": "bad",  "run_id": run_id, "trace_id": trace_id}, label="👎 Not helpful"),
         ],
     ).send()
 
@@ -674,31 +736,35 @@ async def on_rate(action: cl.Action) -> None:
     payload = action.payload
     rating = payload.get("rating", "")
     run_id = payload.get("run_id", "")
+    # A cache-only rating (reused cached answer) updates just the cache entry — there is
+    # no fresh turn trace, so do NOT fall back to last_trace_id (that's a stale, prior turn).
+    cache_only = bool(payload.get("cache_only", False))
+    trace_id = "" if cache_only else (payload.get("trace_id", "") or cl.user_session.get("last_trace_id", ""))
     if not rating:
         return
 
     label = "good" if rating == "good" else "bad"
-    score = 1.0 if rating == "good" else 0.0
 
-    if not PHOENIX_DISABLED and run_id:
-        try:
-            from phoenix.client import Client as PhoenixClient
+    # Persist the rating into the semantic cache so rated-trajectory few-shot injection
+    # can use it: good->5, bad->1 on the 1-5 scale get_fewshot_context filters on
+    # (min_rating). The cache entry was stored under this run_id during _run_pipeline.
+    # (Injection itself stays gated by recipe config — see Phase 3.)
+    cache = cl.user_session.get("cache")
+    if cache is not None and run_id:
+        await asyncio.to_thread(cache.update_rating, run_id, 5.0 if rating == "good" else 1.0)
 
-            from harness.rating import _find_recent_root_span_id
-
-            client = PhoenixClient(base_url=PHOENIX_URL)
-            span_id = _find_recent_root_span_id(client, "ema-nlp")
-            if span_id:
-                client.spans.add_span_annotation(
-                    span_id=span_id,
-                    annotation_name="user_rating",
-                    annotator_kind="HUMAN",
-                    label=label,
-                    score=score,
-                    metadata={"run_id": run_id},
-                )
-        except Exception as exc:
-            log.warning("Phoenix annotation failed: %s", exc)
+    if not TRACING_DISABLED and trace_id:
+        # Log as an MLflow trace assessment (👍=True / 👎=False). Done off-loop:
+        # log_user_feedback flushes the async trace export then writes over HTTP.
+        from harness.obs import log_user_feedback
+        await asyncio.to_thread(
+            log_user_feedback,
+            trace_id,
+            value=(rating == "good"),
+            name="user_rating",
+            rationale=None,
+            metadata={"run_id": run_id, "label": label},
+        )
 
     emoji = "👍" if rating == "good" else "👎"
     await cl.Message(content=f"{emoji} Recorded ({label}).").send()

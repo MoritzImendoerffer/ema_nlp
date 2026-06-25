@@ -9,9 +9,9 @@ both of which are removed.
 > **Refactor status (2026-06-04). Complete.** `harness/indexing/` builds a
 > hierarchical `PropertyGraphIndex` in Neo4j and the `HierarchicalPGRetriever`
 > returns results over the **full graph** (79,882 `:Document`, 5.82M leaf-embedded
-> chunks, 99,520 `LINKS_TO` edges). The workflows (`harness/workflows/`) and the
-> chat UI (`app.py`) consume the LlamaIndex retriever (LIR-009/010), and the old
-> pgvector/FAISS stack has been deleted (LIR-012). Track in
+> chunks, 99,520 `LINKS_TO` edges). The recipe engine (`harness/recipes/` → a
+> `FunctionAgent`) and the chat UI (`app.py`) consume the LlamaIndex retriever
+> (LIR-009/010), and the old pgvector/FAISS stack has been deleted (LIR-012). Track in
 > [the work unit](../.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json).
 
 ---
@@ -61,9 +61,9 @@ flowchart TD
 
     UP --> NEO[("Neo4j PropertyGraph<br/>:Document :Chunk + edges + vector index")]
     NEO --> RET["build_retriever(profile, index)<br/>HierarchicalPGRetriever"]
-    RET --> WF["harness/workflows/* (LIR-009)"]
+    RET --> WF["harness/recipes + agents — FunctionAgent (LIR-009)"]
     WF --> APP["app.py chat UI (LIR-010)"]
-    APP --> PHX[Arize Phoenix traces + 👍/👎]
+    APP --> PHX[MLflow traces + 👍/👎]
 ```
 
 The **three Mongo collections**:
@@ -200,7 +200,7 @@ then in **one Cypher** expands `HAS_CHUNK`→doc and `PARENT_OF`→parent, retur
 
 ## 7. Adding another index kind
 
-The registry is the seam (mirrors `harness/workflows/registry.py`):
+The registry is the seam (mirrors the `harness/tools/registry.py` decorator pattern):
 
 1. Write a builder and register it:
    ```python

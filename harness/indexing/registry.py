@@ -1,8 +1,8 @@
 """Index + retriever registries — the extension seam for the retrieval pipeline.
 
 Adding a new index kind or retriever strategy is a registration + a profile
-file; nothing in the workflows / chat UI / tracing changes. This mirrors the
-existing ``harness/workflows/registry.py`` pattern.
+file; nothing in the agent / chat UI / tracing changes. This mirrors the
+``harness/tools/registry.py`` decorator-registry pattern.
 
     from harness.indexing import build_index, build_retriever, load_index_profile
 

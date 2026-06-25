@@ -19,6 +19,14 @@
 > The task steps below remain as a **re-run reference**. For day-to-day *usage* (not verification),
 > see the how-to: **[`AGENTIC_GUIDE.md`](AGENTIC_GUIDE.md)**.
 
+> ℹ️ **Update — the Phoenix→MLflow migration has since been completed.** The live Chainlit app
+> (`app.py`) is now traced by **MLflow** (`mlflow.llama_index.autolog()` + `harness.obs.tracing.traced`),
+> 👍/👎 feedback is written as MLflow trace assessments, and `run_ui.sh` starts an MLflow tracking
+> server on **:5000** (sqlite backend `mlflow.db`) instead of Phoenix on :6006. Arize Phoenix is fully
+> removed from the live path and the deps. The "do not touch Phoenix" guardrail in §3 and the
+> "Phoenix still traces every turn" notes below are therefore **obsolete** — they describe the
+> pre-migration state and are kept here only as history.
+
 ## 1. Catch up (read these first, in order)
 
 1. **`CLAUDE.md`** — project guardrails + the "Agentic layer — runtime-verified" banner.
@@ -36,18 +44,20 @@
 - An **additive** agentic layer lives under `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/`.
   Foundation is **unit-tested offline (77 tests)** and, as of 2026-06-22, **runtime-verified +
   wired into `app.py`** as the selectable "Agentic RAG" strategy (see the ✅ block above). The
-  live app still runs the LlamaIndex **workflow** stack + **Arize Phoenix** (the agent is one more
-  selectable strategy; Phoenix still traces every turn).
+  live app runs the LlamaIndex **workflow** stack (the agent is one more selectable strategy),
+  now traced by **MLflow** (the Phoenix→MLflow migration has since completed — see the note above;
+  at the time these tasks were run, the live app was still on Phoenix).
 - **Original job (now done):** run the runtime-gated paths on real infra (Neo4j + LLM + MLflow),
-  fix what breaks, on the branch — without disturbing the live workflow/Phoenix path. Re-run the
-  steps below to re-verify after changes.
+  fix what breaks, on the branch. Re-run the steps below to re-verify after changes.
 
 ## 3. Guardrails (do not violate)
 
 - Develop on **`claude/agentic-rag-foundation`**; commit + push there; **append a `.claude/HISTORY.md`
   row** after any code/config change (per `CLAUDE.md`).
-- **Additive only.** Do **not** modify the live workflow stack or `app.py`'s Phoenix wiring unless
-  explicitly asked. The MLflow switch is a *target*, not a completed migration.
+- **Additive only.** Keep diffs scoped to the agentic layer; do **not** modify the live workflow
+  stack unless explicitly asked. *(Historical: this bullet originally said "do not modify `app.py`'s
+  Phoenix wiring" because the MLflow switch was a target — that migration is now done, so the
+  guardrail no longer applies.)*
 - **Do not rebuild the Neo4j index** unless the smoke test in §4 returns 0/errors — the 5.82M-embedding
   build is a ~15 h GPU run. The graph already exists in the `ema_neo4j_data` Docker volume.
 - Keep diffs scoped to the agentic layer; prefer minimal fixes; re-run the relevant test after each fix.
@@ -114,13 +124,18 @@ Check the `SchemaLLMPathExtractor` `kg_validation_schema` shape for your llama-i
 shape for the installed mlflow (`align_judge`).
 
 **T6 — (only if asked) wire the agent into `app.py`** as a selectable mode alongside the workflows.
+*(Since superseded: the workflow engine was retired 2026-06-25 and the agent is now the single
+engine, selected via the recipe dropdown — see [`RECIPES.md`](RECIPES.md).)*
 
 ## 6. View results
 
 ```bash
-mlflow ui        # ./mlruns → http://localhost:5000  (agent runs: resolved-config params + answer metrics)
-bash run_ui.sh   # the live Chainlit workflow app (Phoenix-traced) — the untouched baseline
+mlflow ui        # CLI run-recording (./mlruns) → http://localhost:5000  (agent runs: resolved-config params + answer metrics)
+bash run_ui.sh   # the live Chainlit app — starts the MLflow tracking server on :5000 + Chainlit on :8000
 ```
+
+> `run_ui.sh` runs its own `mlflow server` (sqlite backend `mlflow.db`) on :5000 for the live app's
+> traces + 👍/👎 feedback; the standalone `mlflow ui` above is just for browsing the CLI `./mlruns` runs.
 
 ## 7. After each task
 

@@ -5,10 +5,12 @@ answer's shape as metrics, and the answer text as an artifact. This is the
 reproducibility substrate the target architecture relies on (MLflow runs + params
 + artifacts), deliberately *without* ``log_model`` (see DECISIONS / target doc).
 
-Defaults to a local **file-store** tracking URI (``./mlruns``) and opts out of
-MLflow's file-store maintenance-mode exception, so it needs **no server and no SQL
-backend**. Switch ``tracking_uri`` to ``sqlite:///mlflow.db`` or a server URL in
-production. Degrades gracefully if ``mlflow`` is not importable (all ops no-op).
+Defaults to a local **sqlite** backend (``mlflow.db``) — the same store the live app's
+``mlflow server`` (``run_ui.sh``) serves, so demo/eval runs and live UI traces share one
+MLflow UI. sqlite (not the file store) is required so trace **assessments** (👍/👎) persist.
+Honors ``MLFLOW_TRACKING_URI`` when set (e.g. ``run_ui.sh`` exports the server URL, so a CLI
+run in that shell logs through the server). Needs no SQL *server*. Degrades gracefully if
+``mlflow`` is not importable (all ops no-op).
 
 See ``docs/TARGET_ARCHITECTURE.md`` §4.7.
 """
@@ -25,7 +27,7 @@ from harness.schemas import RegulatoryAnswer
 log = logging.getLogger(__name__)
 
 DEFAULT_EXPERIMENT = "ema_nlp"
-DEFAULT_TRACKING_DIR = "mlruns"
+DEFAULT_DB = "mlflow.db"  # sqlite — shared with the live app's `mlflow server` (run_ui.sh)
 _PARAM_VALUE_MAX = 250
 
 
@@ -50,10 +52,11 @@ def setup_mlflow(experiment: str = DEFAULT_EXPERIMENT, *, tracking_uri: str | No
     if mf is None:
         log.info("mlflow not installed — run recording disabled")
         return False
-    # The file store is in maintenance mode in mlflow>=3; opt out so the local,
-    # server-free backend keeps working.
+    # Harmless if someone overrides to the file store; sqlite needs no opt-out.
     os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
-    uri = tracking_uri or f"file:{Path(DEFAULT_TRACKING_DIR).resolve()}"
+    # Precedence: explicit arg → MLFLOW_TRACKING_URI env (run_ui.sh exports the
+    # server URL) → a local sqlite file shared with the live app's mlflow server.
+    uri = tracking_uri or os.getenv("MLFLOW_TRACKING_URI") or f"sqlite:///{Path(DEFAULT_DB).resolve()}"
     mf.set_tracking_uri(uri)
     mf.set_experiment(experiment)
     log.info("mlflow tracking → %s (experiment=%s)", uri, experiment)

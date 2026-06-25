@@ -1,3 +1,14 @@
+> ⚠️ **STATUS: UNIMPLEMENTED PROPOSAL (superseded).** This is a 2026-06-04 design spec, not
+> shipped code. Only its **prerequisite P1** (the link-extraction upgrade, work unit 24) was
+> built; **Tracks A/B/C and the comparison harness were never implemented**, and
+> `GraphRetrievalConfig`'s `max_hops`/`edge_types` remain parsed-but-unconsumed. Its **§4
+> comparison harness is wired around Arize Phoenix, which was fully removed on 2026-06-22** in
+> favour of MLflow — that section's tracing approach and `app.py`/`utils.py` line refs are dead.
+> The project's direction has since moved to the **agent-centric recipe engine**
+> ([`RECIPES.md`](RECIPES.md), [`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md)); the native-retriever
+> ideas here survive only as the reserved (unwired) `harness/retrieval/native_pg.py` seam. Kept
+> for its adversarial LlamaIndex/Neo4j findings, which remain accurate.
+
 # Retrieval tracks — three retrievers over the existing ingest seam
 
 Spec for **three new retrieval tracks** plus the **comparison harness** that grades them, all

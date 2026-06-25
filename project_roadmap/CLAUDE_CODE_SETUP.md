@@ -128,11 +128,10 @@ We are currently in **Phase X** (update this line as we progress). Phase definit
 - Python 3.11+
 - Data: pandas, jsonlines
 - Parsing: BeautifulSoup4, PyMuPDF, pymupdf4llm
-- Embeddings/retrieval: sentence-transformers, qdrant-client (or FAISS)
+- Embeddings/retrieval: sentence-transformers (BGE-large, local CUDA) + LlamaIndex over **Neo4j** `PropertyGraphIndex` (no qdrant/FAISS doc store — FAISS survives only as the semantic query cache)
 - LLM clients: anthropic, openai
 - Testing: pytest
-- Linting: ruff
-- Formatting: black
+- Linting + formatting: ruff (`ruff check` / `ruff format`)
 
 ## Commands
 - Install deps: `pip install -e ".[dev]"`
@@ -150,8 +149,8 @@ We are currently in **Phase X** (update this line as we progress). Phase definit
 - Never commit anything under `data/raw/` — those are large scraped artifacts
 
 ## Important constraints (read before making changes)
-- Scope lock: human-regulatory EMA Q&As only. Do not add EPARs, clinical trial documents, or FDA content.
-- No ontology/graph infrastructure in v1. See the deferral list in `docs/ROADMAP.md`.
+- Scope lock: EMA human-regulatory content only — no clinical-trial documents, no FDA content. *(EPARs are now **in scope for retrieval** since 2026-06-02 — ~18k EPAR reports are indexed into Neo4j. Benchmark Q&A curation scope is unchanged. The earlier "no EPARs" lock is lifted for retrieval.)*
+- Neo4j is the **live retrieval store** (a hierarchical `PropertyGraphIndex`); a typed-ontology seam exists under `harness/ontology/`. *(The earlier "no ontology/graph infrastructure in v1" lock is superseded — see `ROADMAP.md` and `DECISIONS.md`.)*
 - When unsure whether a task fits v1 scope, ask before implementing.
 
 ## Working style

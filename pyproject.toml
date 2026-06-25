@@ -15,9 +15,9 @@ dependencies = [
     "trafilatura>=1.12",
     # Database
     "pymongo>=4.17",
-    "psycopg[binary]>=3.2",
-    "psycopg_pool>=3.2",
-    "pgvector>=0.3",
+    # NOTE: the Postgres/pgvector stack (psycopg, psycopg_pool, pgvector) was removed
+    # in the LlamaIndex/Neo4j retrieval refactor (LIR-012) — nothing imports it anymore.
+    # Neo4j is reached through llama-index-graph-stores-neo4j (below).
     # RAG framework — LlamaIndex core + backends
     "llama-index-core>=0.12",
     "llama-index-embeddings-huggingface>=0.4",   # wraps sentence-transformers
@@ -30,10 +30,8 @@ dependencies = [
     "rank-bm25>=0.2.2",
     "faiss-cpu>=1.13",
     "sentence-transformers>=5.4",
-    # Observability — model-agnostic tracing
-    "arize-phoenix>=4.0",
-    "openinference-instrumentation-llama-index>=2.0",
-    "mlflow>=3.0",                                # MLflow tracking + eval/judges (target architecture)
+    # Observability — MLflow tracing + run-recording + eval/judges (replaced Arize Phoenix)
+    "mlflow>=3.0",
     # LLM
     "anthropic>=0.100",
     # Utilities
@@ -46,7 +44,6 @@ dependencies = [
 [project.optional-dependencies]
 ui = [
     "chainlit>=2.11,<3",
-    "openinference-instrumentation-anthropic>=0.1",
     "aiosqlite>=0.20",
 ]
 parsers-llamahub = [

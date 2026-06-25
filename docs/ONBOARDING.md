@@ -39,12 +39,12 @@ flowchart TD
     N4J --> RET
     RET --> DOCS[ranked chunks]
 
-    DOCS --> WF[get_workflow strategy<br/>simple_rag / crag / react / …]
-    WF --> ANS[answer]
+    DOCS --> WF[FunctionAgent recipe<br/>naive_rag / crag_agentic / react_agentic / …]
+    WF --> ANS[structured RegulatoryAnswer]
 
     ANS --> APP[app.py — Chainlit UI]
-    APP --> PHX[(Phoenix traces<br/>localhost:6006)]
-    APP -->|👍 / 👎| FB[user_rating annotation<br/>on root span]
+    APP --> PHX[(MLflow traces<br/>localhost:5000)]
+    APP -->|👍 / 👎| FB[user_rating assessment<br/>on the turn's trace]
     FB --> CACHE[FAISS query cache<br/>harness/query_cache.py]
 ```
 
@@ -61,11 +61,12 @@ flowchart TD
 | Pick which retrieval setup is active | `EMA_INDEX_PROFILE` env var → `harness/configs/index/<name>.yaml` (default `neo4j_hier`) |
 | Build / rebuild the Neo4j index | `python -m harness.indexing.build` (entry: `harness/indexing/build.py`) |
 | Add a new index kind or retriever strategy | register via `harness/indexing/registry.py` + a new profile YAML |
-| Add a new workflow strategy | `harness/workflows/<name>.py` + register in `harness/workflows/registry.py` |
-| Add a new prompt variant | drop a file under `harness/prompts/` + add to `_PROMPT_FILES` in `harness/workflows/utils.py` |
+| Add a new pipeline (technique/mode) | drop a recipe YAML in `harness/configs/recipes/` (or `$EMA_CONFIG_DIR/recipes/`) — see [`RECIPES.md`](RECIPES.md) |
+| Add a new tool (RAG technique) | implement + `@register_tool` in `harness/tools/`, then list it in a recipe's `tools` — see [`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md) |
+| Change an agent's instructions | edit its prompt under `harness/prompts/` (e.g. `agent_crag.md`) named by the recipe's `system_prompt` |
 | Change which model does what role | `harness/configs/models.yaml` (role-based bindings via `harness/llms.py`) |
-| Chat interactively | `bash run_ui.sh` → Chainlit on :8000, Phoenix on :6006 |
-| Inspect / collect feedback | Phoenix annotations (`harness/rating.py`) + Chainlit 👍/👎; cache in `harness/query_cache.py` |
+| Chat interactively | `bash run_ui.sh` → Chainlit on :8000, MLflow on :5000 |
+| Inspect / collect feedback | MLflow trace assessments (👍/👎 via `mlflow.log_feedback`) + Chainlit; export with `harness/export_traces.py`; cache in `harness/query_cache.py` |
 | Tag docs with IDMP concepts | `python scripts/tag_concepts.py` (requires RDF in Nextcloud) |
 
 > **Archived (on `archive/pre-llamaindex-refactor`, not on this branch):** `harness/run_eval.py`,
@@ -103,23 +104,26 @@ Currently **one** retrieval strategy is built: `hierarchical` over `index.kind =
 
 ---
 
-## Workflow registry — the 7 strategies
+## Recipe registry — the built-in recipes
 
-From `harness/workflows/registry.py`. See [`docs/WORKFLOWS.md`](WORKFLOWS.md) for the full how-to.
+From `harness/configs/recipes/*.yaml` (+ `$EMA_CONFIG_DIR/recipes/`). One engine — a
+`FunctionAgent` — configured per recipe; the toolset + prompt define the technique. See
+[`docs/RECIPES.md`](RECIPES.md) + [`docs/RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md).
 
-| Name | What it does |
-|---|---|
-| `simple_rag` | retrieve → generate (prompt variant from `prompt_strategy`: `zero_shot` / `few_shot` / `cot_self`) |
-| `react` | `ReActNativeWorkflow` — hand-written think/act/observe loop; per-step Phoenix spans |
-| `crag` | retrieve → grade ⇄ rewrite → generate |
-| `summarize_rag` | retrieve → summarize → generate |
-| `crag_summarize` | CRAG loop → summarize → generate |
-| `crag_review` | CRAG loop → generate → faithfulness review |
-| `react_review` | ReAct → single faithfulness review pass (score only) |
+| Recipe | Tools | What it does |
+|---|---|---|
+| `naive_rag` (default) | `ema_search` | retrieve once → answer (lightest baseline) |
+| `crag_agentic` | `corrective_search`, `ema_search` | CRAG: grade ⇄ rewrite-retry (bounded) for multi-hop/scoping |
+| `react_agentic` | `ema_search`, `resolve_substance` | reason→act loop |
+| `regulatory_agent` | `ema_search`, `resolve_substance` | the full agent |
+| `agentic_reranked` | + `native` pipeline | query-expansion + cross-encoder rerank (GPU) |
+| `agentic_judged` | + inline judge | faithfulness judge per turn (logged to MLflow) |
+| `regulatory_fewshot` | + few-shot | injects 👍-rated past answers as examples |
 
-The three prompt strategies (`zero_shot`, `few_shot`, `cot_self`) apply to every workflow **except** `react` / `react_review`. The Chainlit UI flattens these 7 workflows × prompt variants into **9 display profiles** (the `_PROFILE_STRATEGY` map in `app.py`), but there are 7 underlying workflows.
-
-`get_workflow(name, retriever=…, llm=…, prompt_strategy=…)` returns a runner with `invoke(inputs)` / `ainvoke(inputs)`. Inputs is always `{"question": str, "few_shot_context"?: str}`.
+A single Chainlit **recipe dropdown** selects one (the resolved recipe is stamped on every
+MLflow trace); `model`/`temperature`/`retrieval_k`/`cache` are live overrides. The pipeline
+exposes `invoke(inputs)` / `ainvoke(inputs)` with inputs `{"question": str, "few_shot_context"?: str}`
+and returns a structured `RegulatoryAnswer`. Programmatically: `build_recipe(get_recipe(name), index)`.
 
 ---
 
@@ -128,10 +132,10 @@ The three prompt strategies (`zero_shot`, `few_shot`, `cot_self`) apply to every
 ```mermaid
 flowchart TD
     Q[Ask a question in Chainlit] --> WF[Workflow runs]
-    WF --> PHX[(Phoenix captures<br/>root + per-step spans)]
+    WF --> PHX[(MLflow captures<br/>root + per-step spans)]
     WF --> ANS[Answer shown]
 
-    ANS -->|Chainlit 👍 / 👎| FB[user_rating annotation<br/>on root span<br/>harness/rating.py]
+    ANS -->|Chainlit 👍 / 👎| FB[user_rating assessment<br/>on the turn's trace<br/>mlflow.log_feedback]
 
     Q --> CACHE[query_cache<br/>FAISS over past queries<br/>harness/query_cache.py]
     FB --> CACHE
@@ -140,8 +144,8 @@ flowchart TD
 ```
 
 **Current state:**
-- The Chainlit UI captures a 👍/👎 rating per answer, written as a `user_rating` annotation on the run's root span in Phoenix (`harness/rating.py`, via `_find_recent_root_span_id`).
-- Phoenix + OpenInference is the trace store and labeling surface; `app.py` registers tracing via `phoenix.otel` using the `PHOENIX_URL` env var (default `http://localhost:6006`).
+- The Chainlit UI captures a 👍/👎 rating per answer, written as a `user_rating` trace assessment (feedback) on the turn's MLflow trace (`mlflow.log_feedback`).
+- MLflow is the trace store and HITL/feedback surface; `app.py` enables `mlflow.llama_index.autolog()` + a per-turn `harness.obs.tracing.traced` span against the `MLFLOW_TRACKING_URI` env var (default `http://localhost:5000`). Rated traces are harvested to JSONL with `harness/export_traces.py`.
 - `harness/query_cache.py` is a FAISS index over past query embeddings; `get_fewshot_context()` (in `harness/fewshot_inject.py`) is wired into `app.py` and injects top-k rated examples once ≥ 3 entries with rating ≥ 4 exist.
 
 ---
@@ -159,12 +163,12 @@ No Postgres — it was removed by the refactor.
 ### Chat with the system
 
 ```bash
-bash run_ui.sh                       # Phoenix (:6006) + Chainlit (:8000)
+bash run_ui.sh                            # MLflow (:5000) + Chainlit (:8000)
 # or
-PHOENIX_DISABLED=1 bash run_ui.sh    # Chainlit only, no tracing
+EMA_TRACING_DISABLED=1 bash run_ui.sh     # Chainlit only, no tracing
 ```
 
-Chainlit on http://localhost:8000, Phoenix on http://localhost:6006. The workflow strategy is selected per-session via the **chat-profile dropdown** (the 9 display profiles); changing it does not require a restart.
+Chainlit on http://localhost:8000, MLflow on http://localhost:5000. The workflow strategy is selected per-session via the **chat-profile dropdown** (the 9 display profiles); changing it does not require a restart.
 
 ### Build / rebuild the Neo4j index
 
@@ -201,9 +205,9 @@ python scripts/tag_concepts.py        # requires IDMP RDF in Nextcloud
 
 1. **One retrieval store.** Neo4j `PropertyGraphIndex` (`:Document` + `:Chunk`, `HAS_CHUNK`/`PARENT_OF`/`LINKS_TO` edges, native chunk vector index). `HierarchicalPGRetriever` walks small-to-big and expands 1 hop over `LINKS_TO`. There is no pgvector, no FAISS doc index, no `EMA_RETRIEVER` switch.
 2. **Retrieval is a profile, not code.** `EMA_INDEX_PROFILE` → `harness/configs/index/<name>.yaml` selects the index kind + retriever. Today only `neo4j_hier` (hierarchical over property_graph) is built.
-3. **Workflows are a registry.** `get_workflow(name, retriever=…, llm=…)` returns something with `invoke()`. Always. 7 workflows; prompt variants are a separate axis.
+3. **One engine, configured by recipes.** Every pipeline is a `FunctionAgent` configured by a recipe YAML; RAG techniques are tools + prompt instructions (naive RAG = `ema_search`; CRAG = `corrective_search`; ReAct = the tool loop). `build_recipe(get_recipe(name), index)` returns the runner (`invoke()`/`ainvoke()`). The legacy `harness/workflows/*` Workflow engine was retired 2026-06-25.
 4. **Models are role-bound.** Code never hardcodes a model — it asks `get_llm("frontier")` / `get_llm("mid")` etc. `models.yaml` decides what those mean.
-5. **Phoenix is the trace store and labeling surface.** Every LlamaIndex call is instrumented automatically (`PHOENIX_URL`); 👍/👎 annotations are the human signal.
+5. **MLflow is the trace store and HITL/feedback surface.** Every LlamaIndex call is instrumented automatically (`mlflow.llama_index.autolog()`, `MLFLOW_TRACKING_URI`); 👍/👎 trace assessments are the human signal.
 6. **Corpus + benchmark are in Git; the graph is not.** The Neo4j graph rebuilds from Mongo `parsed_documents`. The eval/judge/lift suite is archived off-branch.
 
 ---

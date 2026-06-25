@@ -76,6 +76,33 @@ class RegulatoryAnswer(BaseModel):
         )
 
 
+def citations_from_nodes(nodes: list[Any]) -> list[Citation]:
+    """Build deduped, score-sorted ``Citation`` objects from retrieved nodes.
+
+    Dedupes by underlying node id (falling back to ``chunk_id``, then
+    ``source_url|quote``), keeping the highest-scoring occurrence, and orders
+    strongest-evidence-first. Used to give the agent's structured answer the same
+    node-derived provenance the single-step RAG path gets from
+    :meth:`RegulatoryAnswer.from_nodes` — real ``doc_id``/``chunk_id``/``quote``/``score``
+    rather than the URL-only citations the LLM emits. Robust to nodes the agent
+    retrieved across several ``ema_search`` calls in one run.
+    """
+    best: dict[str, Citation] = {}
+    for node_with_score in nodes:
+        cit = citation_from_node(node_with_score)
+        node = getattr(node_with_score, "node", node_with_score)
+        key = getattr(node, "node_id", None) or cit.chunk_id or f"{cit.source_url}|{cit.quote}"
+        prev = best.get(key)
+        if prev is None or (cit.score or float("-inf")) > (prev.score or float("-inf")):
+            best[key] = cit
+    # Stable sort keeps first-seen order among equal scores; None scores sort last.
+    return sorted(
+        best.values(),
+        key=lambda c: c.score if c.score is not None else float("-inf"),
+        reverse=True,
+    )
+
+
 def citation_from_node(node_with_score: Any) -> Citation:
     """Build a ``Citation`` from a ``NodeWithScore`` or bare ``TextNode``.
 

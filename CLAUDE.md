@@ -6,7 +6,7 @@
 > (79,882 docs / 5.82M leaf embeddings / 99,520 main-content-scoped `LINKS_TO` edges, work unit 24)
 > replaced Postgres + pgvector, FAISS, and the hand-rolled SQL retrieval — **all now deleted**
 > (LIR-012, 2026-06-03). Workflows + the Chainlit UI consume the retriever (LIR-009/010, 2026-06-02),
-> with live Phoenix tracing/feedback wired in `app.py` (LIR-011). The benchmark suite was removed from
+> with live MLflow tracing/feedback wired in `app.py`. The benchmark suite was removed from
 > this branch (archived on `archive/pre-llamaindex-refactor`). Pre-refactor state: `main` @ `5c3c8a8`.
 > *See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) for the full retrieval picture.*
 
@@ -18,10 +18,27 @@
 > GPU host (2026-06-22, T1–T6):** offline tests, the agent demo, MLflow autolog (traces
 > complete — the mlflow#13352 hang did not occur), ontology enrichment into Neo4j, and
 > judges/eval all run. It is **wired into `app.py` as a selectable "Agentic RAG" workflow mode**
-> (additive — the existing workflows + the live **Phoenix** tracer are untouched; Phoenix still
-> traces every turn; MLflow is used by the demo/eval entrypoints). *How-to:
+> (additive — the existing workflows are untouched; the live app **and** the agent are now
+> **MLflow-traced** with 👍/👎 logged as MLflow trace assessments — Arize Phoenix was fully
+> removed in the 2026-06-22 migration; `run_ui.sh` starts the MLflow server on :5000). *How-to:
 > [`docs/AGENTIC_GUIDE.md`](docs/AGENTIC_GUIDE.md). Design: [`docs/TARGET_ARCHITECTURE.md`](docs/TARGET_ARCHITECTURE.md).
 > Verification runbook + results: [`docs/RUNTIME_VERIFICATION.md`](docs/RUNTIME_VERIFICATION.md).*
+
+> 🍳 **Recipe engine — config-driven, single-engine agentic RAG** (this branch).
+> There is **one engine**: a LlamaIndex `FunctionAgent`. The UI/eval select a **recipe**
+> (`harness/configs/recipes/*.yaml` + `$EMA_CONFIG_DIR`) = orchestration (system prompt + tools
+> + output schema) + retrieval (index profile + optional pipeline + few-shot) + generation +
+> an optional inline judge layer. RAG *techniques are tools + instructions*, not separate
+> engines — Naive RAG → the agent with one `ema_search` tool; **CRAG → `corrective_search`**
+> (a bounded grade/rewrite loop, single-sourced in `harness/retrieval/corrective.py`); ReAct →
+> the agent's native tool loop. A single Chainlit **recipe dropdown** replaces the old
+> workflow/prompt/profile selectors; the resolved recipe is stamped honestly on every MLflow
+> trace; 👍/👎 also feeds the rated-trajectory few-shot cache. *How-to:
+> [`docs/RECIPES.md`](docs/RECIPES.md); techniques + citations: [`docs/RAG_TECHNIQUES.md`](docs/RAG_TECHNIQUES.md).*
+> **The legacy `harness/workflows/*` Workflow engine was deleted (2026-06-25) — fully retired
+> in favour of recipes.** *(Docs still referencing `harness/workflows/*`, `WorkflowRunner`,
+> `get_workflow`, or `prompt_strategy` — e.g. `docs/WORKFLOWS.md`, `ONBOARDING.md`, `DECISIONS.md`,
+> `ARCHITECTURE.md` — predate the retirement and are stale pending a sweep.)*
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -40,8 +57,8 @@ Read `DECISIONS.md` before planning any implementation. Short summary of the one
 
 - **Retrieval framework:** LlamaIndex — hierarchical **`PropertyGraphIndex` on Neo4j** (the former pgvector + FAISS paths were deleted in LIR-012). See `docs/RETRIEVAL.md`.
 - **Site structure is the retrieval signal.** Page→PDF/page hyperlinks become `LINKS_TO` edges and section hierarchy becomes `PARENT_OF` edges in Neo4j; the retriever walks them (small-to-big + `links_to`) when semantic search underfetches. *(Historical note: the MIGR-018..025 `link_graph`/recursive-CTE machinery was documented as shipped but **never actually built** — see `docs/RETRIEVAL.md`. Links are now extracted at ingest from `web_items.html_raw` by `harness.indexing.links`.)*
-- **Tracing:** Arize Phoenix + OpenInference — model-agnostic, self-hosted, registered in `app.py`
-- **Feedback store:** Phoenix annotations API — no separate database
+- **Tracing:** MLflow (`mlflow.llama_index.autolog()` + an explicit per-turn span) — self-hosted, set up in `app.py`; `run_ui.sh` starts the MLflow server on :5000 (sqlite-backed). *(Replaced Arize Phoenix + OpenInference on 2026-06-22.)*
+- **Feedback store:** MLflow trace assessments (`mlflow.log_feedback`, the Chainlit 👍/👎) — sqlite backend (`mlflow.db`), no separate database. *(Replaced the Phoenix annotation API.)*
 - **Semantic cache:** thin FAISS index over past query embeddings (`harness/index/query_cache.faiss`) — GPTCache is abandoned, do not use it
 - **Learning from feedback:** runtime few-shot injection from rated trajectories — no model training in the live path. *(A DSPy bootstrap loop — teacher → judge-filter → `BootstrapFewShot` — is now **scaffolded** in `harness/eval/bootstrap.py` on the agentic branch; deferred until ≥ 50 rated examples + a rebuilt eval harness exist.)*
 - **Credentials:** `~/.myenvs/ema_nlp.env` via python-dotenv — never in the repo

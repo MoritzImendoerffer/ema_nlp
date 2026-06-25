@@ -19,10 +19,18 @@ PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 
 def load_agent_prompt(name: str) -> str:
-    """Read an agent system prompt from ``harness/prompts/``."""
-    path = PROMPTS_DIR / name
+    """Read an agent system prompt by name.
+
+    Searches ``$EMA_CONFIG_DIR/prompts/`` first (so a recipe shipped outside the source
+    tree can carry its own prompt), then the built-in ``harness/prompts/``.
+    """
+    from harness.config_paths import find_config
+
+    path = find_config("prompts", name) or (PROMPTS_DIR / name)
     if not path.exists():
-        raise FileNotFoundError(f"Agent prompt not found: {path}")
+        raise FileNotFoundError(
+            f"Agent prompt not found: {name!r} (searched $EMA_CONFIG_DIR/prompts and {PROMPTS_DIR})"
+        )
     return path.read_text(encoding="utf-8")
 
 

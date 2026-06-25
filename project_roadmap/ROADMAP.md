@@ -7,6 +7,31 @@
 > T1–T4 types, lift, ablations) still stands; the eval-suite *code* was archived off the
 > refactor branch (`archive/pre-llamaindex-refactor`), to be rebuilt on the new retrieval API.
 
+> 🧭 **Current state (2026-06-22) — reconcile the plan below with what's actually built.**
+> This roadmap was written **benchmark-first**. Since then the project also grew an **additive
+> agentic RAG pipeline** — a LlamaIndex `FunctionAgent` + tool registry with Pydantic structured
+> output (`RegulatoryAnswer`), config-driven retrieval, and MLflow run-recording/judges under
+> `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/`. It is runtime-verified on the GPU
+> host and wired into the Chainlit UI as a selectable **"Agentic RAG"** mode (additive — the
+> existing workflows are untouched; the live app is traced by **MLflow**). See
+> [`docs/AGENTIC_GUIDE.md`](../docs/AGENTIC_GUIDE.md) and
+> [`docs/TARGET_ARCHITECTURE.md`](../docs/TARGET_ARCHITECTURE.md). **The benchmark goal below is
+> still on** — phase status against today's code:
+>
+> | Phase | Status | Notes |
+> |---|---|---|
+> | 0 Scoping | ✅ done | |
+> | 1 Corpus | ✅ done | `corpus/corpus.jsonl` — 26,251 Q&A pairs |
+> | 1.5 Leakage verification | ◻ planned | methodology in [`LEAKAGE.md`](LEAKAGE.md) |
+> | 1.7 Narrative corpus | ✅ done (re-platformed) | now the Neo4j `PropertyGraphIndex`, not pgvector |
+> | 2 Benchmark | 🟡 drafted | `benchmark/benchmark.jsonl` — 45 items (20 T1 / 10 T2 / 10 T3 / 5 T4); contamination screen still TODO |
+> | 3 Baseline RAG + eval harness | 🟡 partial | retrieval + 7 workflows + the agent are live; the **scoring harness** (`run_eval.py`, judges, lift) was archived off this branch and must be **rebuilt** on the Neo4j API — its partial new home is `harness/eval/` (`mlflow.genai` judges/scorers) |
+> | 4 Ablations | ◻ planned | A/B/C methodology unchanged; **Ablation B's agent already exists** (`harness/agents/`) — it becomes "test SME process-rewards on the agent", not "build the agent" |
+> | 5 Writeup | ◻ planned | |
+>
+> Bottom line: the **methodology** (T1–T4, lift, contamination, the three ablations) is unchanged and
+> still the plan; the **eval/scoring harness** is the main missing piece to resume benchmark work.
+
 **Project goal.** Build a shareable Q&A benchmark from EMA human-regulatory content, plus reference RAG implementations of increasing sophistication, to test where subject-matter expert (SME) effort actually pays off in agentic RAG.
 
 **Scope lock for v1.** EMA human-regulatory Q&A only. ~30–50 benchmark questions mined directly from EMA Q&A documents. Three targeted ablations. Flat baseline first; graph/ontology only introduced if a specific failure class demands it.
@@ -248,8 +273,9 @@ ema-rag-benchmark/
 │   ├── TAXONOMY.md
 │   └── curation_notes.md
 ├── harness/
-│   ├── run_eval.py
-│   ├── judges/
+│   ├── eval/                 # scoring harness — to be rebuilt on the Neo4j API (mlflow.genai judges live here)
+│   ├── indexing/             # Neo4j PropertyGraphIndex build + retriever
+│   ├── workflows/            # RAG/agent strategies
 │   └── configs/
 ├── ablations/
 │   ├── A_evidence_filter/

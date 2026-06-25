@@ -20,7 +20,8 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 | `corpus/corpus.jsonl` | Normalized Q&A pairs extracted from EMA HTML accordions and PDFs (benchmark source; not the retrieval target) |
 | `benchmark/benchmark.jsonl` | 45 evaluation questions stratified across four types (T1–T4) with gold answers |
 | `harness/indexing/` | LlamaIndex-first retrieval pipeline (Neo4j PropertyGraphIndex) |
-| `harness/workflows/` | RAG/agent strategies (simple RAG, CRAG, ReAct, composites) over the retriever |
+| `harness/recipes/` | Config-driven **recipe engine** — one `FunctionAgent` configured per recipe (naive RAG, CRAG, ReAct as tools + prompt) |
+| `harness/{agents,tools}/` | The single agent engine + its tool registry (`ema_search`, `corrective_search`, `resolve_substance`) |
 
 ## Quick links
 
@@ -43,7 +44,7 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 - ✅ Workflows + chat UI consume the retriever (LIR-009/010); the old pgvector/FAISS stack is deleted (LIR-012).
 - The **benchmark/eval suite** (`run_eval.py`, ablations) was removed from this branch and preserved on `archive/pre-llamaindex-refactor`; it will be rebuilt on the clean retrieval API.
 
-**Agentic layer (runtime-verified — branch `claude/agentic-rag-foundation`).** An additive LlamaIndex `FunctionAgent` orchestration with Pydantic structured output, a config-driven retrieval pipeline (query-expansion + rerank), MLflow run-recording + autolog + `mlflow.genai` judges, and typed ontology enrichment lives under `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/`. Verified end-to-end on the GPU host (2026-06-22) and wired into `app.py` as a selectable **"Agentic RAG"** mode (additive — the existing workflows + live Phoenix tracer are untouched). Start here: **[docs/AGENTIC_GUIDE.md](docs/AGENTIC_GUIDE.md)** (step-by-step how-to); design in **[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md)**.
+**Recipe engine — single-engine agentic RAG (branch `claude/agentic-rag-foundation`).** There is **one engine**: a LlamaIndex `FunctionAgent`. The UI/eval select a **recipe** (`harness/configs/recipes/*.yaml` + `$EMA_CONFIG_DIR`) = orchestration (system prompt + tools + output schema) + retrieval (index profile + optional pipeline + few-shot) + generation + an optional inline judge. RAG *techniques are tools + instructions* — Naive RAG → `ema_search`; **CRAG → `corrective_search`** (a bounded grade/rewrite loop); ReAct → the agent's tool loop. Structured `RegulatoryAnswer` output, MLflow autolog + `mlflow.genai` judges, and typed ontology enrichment live under `harness/{schemas,tools,agents,retrieval,recipes,obs,ontology,eval}/`. A single Chainlit **recipe dropdown** drives it; the resolved recipe is stamped honestly on every MLflow trace (Arize Phoenix was fully removed in the 2026-06-22 migration). **The legacy `harness/workflows/*` Workflow engine was retired (2026-06-25).** Start here: **[docs/RECIPES.md](docs/RECIPES.md)** + **[docs/RAG_TECHNIQUES.md](docs/RAG_TECHNIQUES.md)**; design in **[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md)**.
 
 See `.claude/work/` for work unit logs.
 
@@ -53,11 +54,11 @@ See `.claude/work/` for work unit logs.
 |-------|--------|
 | Retrieval framework | LlamaIndex (`PropertyGraphIndex`, custom `BaseRetriever`) |
 | Index + vector store | **Neo4j** — `Neo4jPropertyGraphStore` (graph) + native vector index over chunk embeddings |
-| Workflow orchestration | LlamaIndex Workflows (`Workflow` + typed `Event` steps) |
+| Orchestration | Config-driven recipe engine over one LlamaIndex `FunctionAgent` (techniques = tools + prompt) |
 | Chat UI | Chainlit 2.11 — streaming answers, source sidebar, 👍/👎 |
 | Embeddings | BGE-large-en-v1.5 via sentence-transformers (local CUDA, no API key) |
-| Tracing | Arize Phoenix + OpenInference (model-agnostic, self-hosted) |
-| Feedback | Phoenix span annotations via Chainlit 👍/👎 |
+| Tracing | MLflow — `llama_index.autolog()` + an explicit per-turn span (self-hosted, sqlite-backed; UI on :5000) |
+| Feedback | MLflow trace assessments (`log_feedback`) via Chainlit 👍/👎 |
 | LLM | Anthropic Claude (primary); OLMo 3 (contamination-verifiable reference) |
 | Data | MongoDB (raw scrape + parsed text) → Neo4j (graph + vectors); JSONL (corpus/benchmark) |
 
@@ -80,8 +81,8 @@ Scraped content comes from the companion repo [ema_scraper](https://github.com/M
 flowchart LR
     EMA[EMA website] -->|ema_scraper| MG[("MongoDB ema_scraper<br/>web_items · parsed_pdfs · parsed_documents")]
     MG -->|harness.indexing.build_index| NEO[("Neo4j PropertyGraphIndex<br/>:Document · :Chunk + LINKS_TO + chunk vectors")]
-    NEO -->|HierarchicalPGRetriever| WF[harness/workflows — LlamaIndex Workflows]
-    WF --> UI[app.py — Chainlit + Phoenix tracing/👍👎]
+    NEO -->|HierarchicalPGRetriever| AG[harness/recipes + agents — FunctionAgent recipe engine]
+    AG --> UI[app.py — Chainlit recipe dropdown + MLflow tracing/👍👎]
     MG -.benchmark source.-> CJ[corpus/corpus.jsonl → benchmark/benchmark.jsonl]
 ```
 

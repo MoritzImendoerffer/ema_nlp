@@ -94,9 +94,11 @@ CHAINLIT_AUTH_SECRET=<64-char hex string>
 # others in docs/RETRIEVAL_TRACKS.md are spec-only.
 # EMA_INDEX_PROFILE=neo4j_hier
 
-# Phoenix tracing endpoint for the chat UI (default: http://localhost:6006)
-# app.py reads PHOENIX_URL and registers tracing via phoenix.otel at startup.
-# PHOENIX_URL=http://localhost:6006
+# MLflow tracking server for the chat UI (default: http://localhost:5000)
+# app.py logs traces + 👍/👎 feedback here via mlflow.llama_index.autolog() at startup.
+# MLFLOW_TRACKING_URI=http://localhost:5000
+# MLFLOW_UI_URL=http://localhost:5000          # the "View traces" link target
+# EMA_TRACING_DISABLED=1                        # turn tracing/feedback off entirely
 
 # ── Corpus and index paths (LEGACY — not used by retrieval) ─────────────────────
 # config.py still defines CORPUS_PATH (EMA_CORPUS_PATH) and INDEX_DIR
@@ -249,75 +251,65 @@ Transfer the `ema_scraper.archive` file between machines however is convenient
 
 ---
 
-## 6. Arize Phoenix — tracing and HITL annotation
+## 6. MLflow — tracing and HITL feedback
 
-Phoenix is the trace store and HITL labelling UI. Every LLM call and
-retrieval step is captured as a span tree in Phoenix, which the SME
-uses to label answer quality and individual tool-call quality.
+MLflow is the trace store and HITL/feedback surface. Every LLM call and
+retrieval step is captured as a trace (via `mlflow.llama_index.autolog()` plus an
+explicit per-turn span from `harness.obs.tracing.traced`), which the SME uses to
+inspect answer quality and individual tool-call quality. Both the workflow stack
+and the agent are traced by the same autolog.
 
-### Phoenix hosting
+### MLflow hosting
 
-Phoenix runs locally on the same host as the chat UI (marvin-gpu is the single
-project host). Start it once at boot:
+`run_ui.sh` starts a local **MLflow tracking server** (`mlflow server`) on the same
+host as the chat UI (marvin-gpu is the single project host) before launching
+Chainlit — you do not normally start it by hand. It uses a **sqlite** backend
+(`mlflow.db`, created on first run) because the local file store cannot persist
+trace assessments (👍/👎):
 
 ```bash
-python -c "import phoenix as px; px.launch_app()"
-# or as a background service — see phoenix docs
+bash run_ui.sh                        # MLflow server on :5000, Chainlit on :8000
 ```
 
-If you run Phoenix on a different host (or a non-default port), point the chat UI
+To run the server standalone (same command `run_ui.sh` uses):
+
+```bash
+mlflow server --backend-store-uri sqlite:///mlflow.db --host 127.0.0.1 --port 5000
+```
+
+If you run MLflow on a different host (or a non-default port), point the chat UI
 at it via `~/.myenvs/ema_nlp.env`:
 
 ```bash
-PHOENIX_URL=http://localhost:6006
+MLFLOW_TRACKING_URI=http://localhost:5000
+MLFLOW_UI_URL=http://localhost:5000        # the "View traces" link target
 ```
 
-`app.py` reads `PHOENIX_URL` and registers tracing via `phoenix.otel` at startup
-(`auto_instrument=True`, posting spans to `<PHOENIX_URL>/v1/traces`). If unset, it
-defaults to `http://localhost:6006`. Set `PHOENIX_DISABLED=1` to turn tracing off.
+`app.py` reads `MLFLOW_TRACKING_URI` and logs traces + feedback there at startup.
+If unset, it defaults to `http://localhost:5000`. Set `EMA_TRACING_DISABLED=1` to
+turn tracing (and feedback recording) off.
 
-### Phoenix annotation schemas
+### Feedback and labelling
 
-Create these two annotation configs once in the Phoenix UI
-(*Settings → Annotations → New annotation*):
+The chat UI captures a 👍/👎 rating per answer and writes it as an MLflow **trace
+assessment** (`mlflow.log_feedback`, name `user_rating`) on the turn's trace. Open
+the experiment's **Traces** tab in the MLflow UI (http://localhost:5000) to inspect
+the span tree and review the recorded ratings; filter by the stamped `ema.*`
+attributes (e.g. `ema.recipe`) to inspect a particular recipe.
 
-**`step_quality`** — labels individual tool-call, thought, and observe spans:
-- Type: **Categorical**
-- Values: `good`, `suboptimal`, `wrong`
-- Use: attach to spans whose `span_kind` is `TOOL` or whose name starts
-  with `think` / `act` / `observe`
+### Exporting feedback to Nextcloud
 
-**`answer_quality`** — labels the root span (final answer):
-- Type: **Continuous** (1–5 scale)
-- Also add a freeform **`reason`** string annotation on the same span
-- Use: attach to the top-level workflow span
-
-### Annotation queues (per strategy)
-
-Create one annotation queue per strategy you are actively labelling.
-In the Phoenix UI (*Datasets → Annotation Queues → New queue*):
-
-| Queue name | Filter |
-|------------|--------|
-| `recent_crag` | `attributes.workflow_name = "crag"` |
-| `recent_react` | `attributes.workflow_name = "react"` |
-
-Work through spans in each queue during an SME session; label both
-`step_quality` (per tool call) and `answer_quality` (root span).
-
-### Exporting annotations to Nextcloud
-
-After each labelling session, export the Phoenix annotations to the
-shared Nextcloud JSONL store so the few-shot injection system can use them:
+After a labelling session, harvest the rated MLflow traces to the shared Nextcloud
+JSONL store so the few-shot injection system can use them:
 
 ```bash
-python -m harness.hitl.export_annotations --since 2026-05-23
+python -m harness.export_traces --since 2026-05-23
 ```
 
 Output: `~/Nextcloud/Datasets/ema_nlp/annotations/YYYY-MM-DD.jsonl`
 
-See `harness/hitl/export_annotations.py` for `--strategy` and
-`--dry-run` flags.
+`harness/export_traces.py` reads MLflow `search_traces` and emits one JSONL row per
+rated trace.
 
 ---
 
@@ -359,7 +351,7 @@ ln -s ~/Nextcloud/Datasets/ema_nlp/results /path/to/ema_nlp/results
 │   │   ├── metrics.png
 │   │   └── run_summary.md
 │   └── ...
-└── annotations/         ← Phoenix HITL export JSONL files
+└── annotations/         ← MLflow HITL feedback export JSONL files
 ```
 
 > The retrieval store itself is **not** a file on Nextcloud — it is the Neo4j

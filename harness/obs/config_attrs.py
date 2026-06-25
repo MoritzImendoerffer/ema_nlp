@@ -5,9 +5,9 @@ fixed here: the *resolved* config is flattened to ``ema.*`` keys, stamped on the
 current trace span, and echoed to the log. ``None``/empty values become the
 explicit string ``"none"`` rather than vanishing.
 
-Backend-agnostic: ``stamp_current_span`` uses OpenTelemetry if present (which both
-Phoenix and MLflow build on) and silently no-ops otherwise — so this module has no
-hard tracing dependency and is unit-testable with nothing installed.
+Backend-agnostic: ``stamp_current_span`` uses OpenTelemetry if present (which MLflow's
+tracing builds on) and silently no-ops otherwise — so this module has no hard tracing
+dependency and is unit-testable with nothing installed.
 """
 
 import logging

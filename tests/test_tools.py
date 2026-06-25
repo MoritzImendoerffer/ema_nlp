@@ -50,7 +50,7 @@ class _FakeRetriever(BaseRetriever):
 
 
 def test_registry_lists_builtin_tools():
-    assert list_tools() == ["ema_search", "resolve_substance"]
+    assert list_tools() == ["corrective_search", "ema_search", "resolve_substance"]
 
 
 def test_get_unknown_tool_raises():
@@ -119,6 +119,25 @@ def test_ema_search_tool_runs_over_fake_retriever():
     assert tool.metadata.name == "ema_search"
     out = tool.call(query="ndma acceptable intake")
     assert "ema.europa.eu/ndma" in str(out)
+
+
+def test_capture_search_nodes_collects_retrieved_nodes():
+    from harness.tools.search import capture_search_nodes
+
+    tool = get_tool("ema_search", retriever=_FakeRetriever())
+    with capture_search_nodes() as sink:
+        tool.call(query="q1")
+        tool.call(query="q2")
+    # both calls' nodes accumulate; metadata is the real node provenance
+    assert len(sink) == 2
+    assert sink[0].node.metadata["doc_id"] == "d1"
+    assert sink[0].score == 0.91
+
+
+def test_ema_search_without_capture_scope_is_inert():
+    # No active sink -> the tool still returns its string, no error.
+    tool = get_tool("ema_search", retriever=_FakeRetriever())
+    assert "ema.europa.eu/ndma" in str(tool.call(query="q"))
 
 
 def test_build_tools_heterogeneous_kwargs():

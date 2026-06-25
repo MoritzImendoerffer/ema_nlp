@@ -7,7 +7,14 @@ citation builder.
 import pytest
 from pydantic import ValidationError
 
-from harness.schemas import Citation, Claim, RegulatoryAnswer, Substance, citation_from_node
+from harness.schemas import (
+    Citation,
+    Claim,
+    RegulatoryAnswer,
+    Substance,
+    citation_from_node,
+    citations_from_nodes,
+)
 
 
 class _FakeNode:
@@ -87,6 +94,21 @@ def test_from_nodes_collects_citations():
     ans = RegulatoryAnswer.from_nodes("answer", nodes, confidence=0.7)
     assert [c.source_url for c in ans.citations] == ["u1", "u2"]
     assert ans.confidence == pytest.approx(0.7)
+
+
+def test_citations_from_nodes_dedupes_and_sorts_by_score():
+    a = _FakeNodeWithScore(_FakeNode("a", {"source_url": "u1", "id": "c1"}), 0.8)
+    b = _FakeNodeWithScore(_FakeNode("b", {"source_url": "u2", "id": "c2"}), 0.95)
+    a_dup = _FakeNodeWithScore(_FakeNode("a", {"source_url": "u1", "id": "c1"}), 0.99)
+    cits = citations_from_nodes([a, b, a_dup])
+    # deduped by chunk id (c1 once), highest-scoring kept, strongest first
+    assert [c.chunk_id for c in cits] == ["c1", "c2"]
+    assert cits[0].score == pytest.approx(0.99)
+    assert cits[1].score == pytest.approx(0.95)
+
+
+def test_citations_from_nodes_empty():
+    assert citations_from_nodes([]) == []
 
 
 def test_substance_defaults():

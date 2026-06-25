@@ -1,0 +1,24 @@
+# Regulatory agent + rated-trajectory few-shot — turns ON few-shot injection: the top-k
+# 👍-rated past answers (from the semantic cache) are prepended as examples before each
+# turn. Demonstrates the feedback→cache-rating→few-shot loop (👍/👎 writes the cache rating;
+# get_fewshot_context reads entries with rating >= min_rating). Dormant until enough rated
+# examples exist. See docs/RECIPES.md.
+recipe:
+  label: "Regulatory agent + few-shot"
+  description: "Regulatory agent that injects 👍-rated past answers as few-shot examples."
+  orchestration:
+    system_prompt: agent_regulatory.md
+    tools: [ema_search, resolve_substance]
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_hier
+    pipeline: none
+    fewshot:
+      enabled: true
+      k: 3
+      min_rating: 4
+  generation:
+    model: claude_opus
+    temperature: 0.0
+  judge:
+    enabled: false

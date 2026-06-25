@@ -92,12 +92,23 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Note:** Not yet benchmarked against alternatives — document the choice and revisit if retrieval metrics in Phase 3 are disappointing.
 
 ### LlamaIndex Workflows for all orchestration (supersedes LangChain + LangGraph)
+> **Superseded 2026-06-25** by *Single-engine agentic RAG (recipe engine)* below. The bespoke
+> `Workflow` engine (`harness/workflows/*`, `WorkflowRunner`, `get_workflow`) was deleted;
+> LlamaIndex itself stays (the orchestrator is now a `FunctionAgent`).
+
 **Decided:** 2026-05-22  
 **What:** LlamaIndex Workflows (`harness/workflows/`) handle all prompt chains, agent loops, and pipeline orchestration. LangChain, LangGraph, and LangSmith are removed from the stack entirely.  
 **Why:** The LangChain bridge (`EMARetriever`) stripped node metadata, required global LlamaIndex state to be configured before any LangGraph node ran retrieval, and forced two divergent ReAct implementations. Using LlamaIndex Workflows end-to-end eliminates the bridge, keeps node metadata intact throughout the pipeline, and reduces dependency count.  
 **Architecture:** `harness/workflows/registry.py` provides a single `get_workflow(name, index, llm)` entry point for 8 registered strategies — the 7 workflow strategies plus the additive `agent` strategy (the agentic `FunctionAgent`, registered 2026-06-22 via `harness/agents/workflow_adapter.py`; see [`docs/TARGET_ARCHITECTURE.md`](docs/TARGET_ARCHITECTURE.md)). Every strategy is a typed, event-driven `Workflow` (or, for `agent`, a `FunctionAgent` wrapped to the same `invoke`/`ainvoke` contract). All strategies expose `.invoke()` and `.ainvoke()` via `WorkflowRunner`.  
 **Not chosen:** Using LangGraph for orchestration — the impedance mismatch at the LlamaIndex/LangChain boundary outweighed the benefits of LangGraph's state machine semantics for this retrieval-centric project.  
 **Ref:** [`.claude/work/2026-05-22_10_llamaindex-langgraph-assessment/`](.claude/work/2026-05-22_10_llamaindex-langgraph-assessment/)
+
+### Single-engine agentic RAG (recipe engine) supersedes the Workflow engine
+**Decided:** 2026-06-25  
+**What:** There is now **one** orchestration engine — a LlamaIndex `FunctionAgent` — configured by a **recipe** (`harness/configs/recipes/*.yaml` + `$EMA_CONFIG_DIR`). The legacy Workflow engine (`harness/workflows/*`: `simple_rag`/`crag`/`summarize_rag`/`react_native`/composites, `WorkflowRunner`, `get_workflow`, the `prompt_strategy` axis) was **deleted**. RAG techniques are now **tools + prompt instructions**, not workflow classes: Naive RAG → `ema_search`; CRAG → the `corrective_search` tool (the bounded grade/rewrite loop, single-sourced in `harness/retrieval/corrective.py`); ReAct → the agent's native tool loop. `build_recipe(recipe, index)` is the single composition path.  
+**Why:** Agentic RAG is the first-class citizen — naive RAG is a simple tool call and CRAG is a *configuration* of the agent, not a parallel engine. The prior "additive agent alongside the workflow zoo" was two engines + a dual mode-selector (ChatProfiles × workflow×prompt) modelling the same choice twice. Collapsing to one engine removes the duplication, makes techniques composable (add a tool + a recipe — no new orchestration code), and lets one recipe dropdown drive everything with the resolved config stamped honestly on each MLflow trace. Deterministic loop bounds (CRAG `max_cycles`) live inside the tool, so the agent doesn't improvise control flow; adherence is checked retrospectively (trace inspection + the optional inline judge).  
+**Still LlamaIndex:** the `FunctionAgent`, retriever, and tools are all LlamaIndex — only the bespoke `Workflow` *engine* was retired, not the framework.  
+**Ref:** [`docs/RECIPES.md`](docs/RECIPES.md), [`docs/RAG_TECHNIQUES.md`](docs/RAG_TECHNIQUES.md). Supersedes "LlamaIndex Workflows for all orchestration" + "Native ReAct workflow" above and "Workflow registry collapsed: prompt_strategy as YAML field" below.
 
 ### Role/model separation in models.yaml
 **Decided:** 2026-05-23  
@@ -110,6 +121,10 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Default role mapping:** grader/rewriter/reranker → `claude_haiku`; agent/judge/reviewer → `claude_opus`. Note: `agent` was initially Haiku but promoted to Opus after HITL-004a diagnosis showed Haiku skips tool calls in the ReAct loop (see `.claude/work/2026-05-24_12_hitl-pipeline-gaps/react_diagnosis.md`).
 
 ### Native ReAct workflow (`react_native.py`) as the default `react` strategy
+> **Superseded 2026-06-25** — `react_native.py` was deleted with the Workflow engine. ReAct is
+> now the `FunctionAgent`'s native tool loop (the `react_agentic` recipe); per-step visibility
+> comes from MLflow autolog rather than hand-written `@step` spans.
+
 **Decided:** 2026-05-23  
 **What:** The registry key `react` now points to `ReActNativeWorkflow` (`harness/workflows/react_native.py`), a hand-written LlamaIndex `Workflow` where every agent action is a separate `@step`. The legacy `FunctionAgent`/`AgentWorkflow` implementation (`react.py`) was deleted (HITL-001, 2026-05-24).  
 **Why:** `FunctionAgent`/`AgentWorkflow` wraps the entire ReAct loop in a single span — Phoenix can label the final answer but not individual tool calls or thoughts. `ReActNativeWorkflow` splits each think/act/observe into its own `@step`, so Phoenix traces show per-step spans that the HITL annotation system can label independently (`step_quality: good/suboptimal/wrong`).  
@@ -133,7 +148,18 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 
 ## Observability and tracing
 
+### MLflow replaces Arize Phoenix for tracing + feedback (live app)
+**Decided:** 2026-06-22 (shipped)  
+**What:** The live Chainlit app, the workflow stack, and the in-app agent are all traced by **MLflow** — `mlflow.llama_index.autolog()` plus an explicit per-turn root span (`harness.obs.tracing.traced`) that carries the resolved `ema.*` config. 👍/👎 feedback is an **MLflow trace assessment** (`mlflow.log_feedback`, name `user_rating`). `run_ui.sh` starts an `mlflow server` on :5000 backed by **sqlite** (`mlflow.db`); the app logs over HTTP and the same server serves the UI. **Arize Phoenix + OpenInference were fully removed:** the deps (`arize-phoenix`, `openinference-*`), the `phoenix.otel` registration, the annotation feedback path, and the Phoenix CLI tools (`harness/rating.py`, `harness/hitl/`) are gone; `harness/export_traces.py` now harvests rated traces from MLflow `search_traces`.  
+**Why:** One tool for traces + eval + judges + judge **alignment** (the reward signal the bootstrap loop needs — no Phoenix equivalent). The agentic layer already used MLflow for run-recording/judges; unifying the live app on it removes the two-backend split. **Backend = sqlite** because the MLflow file store cannot persist trace assessments (verified: `log_feedback` 404s on the file store, succeeds on sqlite/server).  
+**Supersedes:** the two entries below (*Arize Phoenix + OpenInference*, *Phoenix annotations as the feedback store*).  
+**Ref:** `app.py`, `harness/obs/tracing.py`, `run_ui.sh`, [`docs/TARGET_ARCHITECTURE.md`](docs/TARGET_ARCHITECTURE.md) §4.7.
+
+---
+
 ### Arize Phoenix + OpenInference for model-agnostic tracing
+> ⚠ **SUPERSEDED 2026-06-22** by *MLflow replaces Arize Phoenix for tracing + feedback* above. Retained for history.
+
 **Decided:** 2026-05-15  
 **What:** Arize Phoenix (self-hosted, open source) captures every retrieval step, reranking call, and LLM call as an inspectable span tree. Instrumented via `LlamaIndexInstrumentor` at the framework level — works regardless of which LLM is used (Claude, GPT, OLMo 3, local models). Per-run trace export (`traces.jsonl`) is saved alongside config and results in `results/<run_id>/`.  
 **Why:** OlmoTrace (the other tracing tool mentioned in the roadmap) is OLMo-specific. Phoenix covers all models. Self-hosted means no cloud account, traces stay local.  
@@ -144,6 +170,8 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 ## Feedback and online learning
 
 ### Phoenix annotations as the feedback store (not SQLite)
+> ⚠ **SUPERSEDED 2026-06-22** by *MLflow replaces Arize Phoenix for tracing + feedback* (above). Feedback is now an MLflow trace assessment. Retained for history.
+
 **Decided:** 2026-05-15 (revised from initial SQLite design)  
 **What:** User ratings (1–5 stars, optional per-step labels) are posted to Phoenix via its annotation API and attached to the relevant trace span. No separate database. Phoenix's Postgres instance (part of its Docker deployment) is the store.  
 **Why:** Phoenix is already running for tracing. Its annotation API accepts exactly the data model needed. A custom SQLite store would duplicate infrastructure already present. GPTCache (the obvious semantic caching library) is effectively abandoned since late 2023 with a broken LlamaIndex integration.  
@@ -231,6 +259,10 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 **Ref:** [`deploy/mongo/README.md`](deploy/mongo/README.md), [`scripts/start_services.sh`](scripts/start_services.sh)
 
 ### Workflow registry collapsed: prompt_strategy as YAML field (Change 3 of harness refactoring)
+> **Superseded 2026-06-25** — the workflow registry and the `prompt_strategy` axis were removed
+> with the Workflow engine. A recipe's behaviour is set by its toolset + system-prompt file, not
+> a prompt-strategy enum.
+
 **Decided:** 2026-05-25  
 **What:** The three `simple_rag_zero/few/cot` registry entries were removed and replaced with a single `simple_rag` entry. The prompt variant is now driven by `orchestration.prompt_strategy: zero_shot|few_shot|cot_self` in the YAML config rather than by the registry key. All workflow constructors renamed their `strategy` parameter to `prompt_strategy` to disambiguate it from `orchestration.strategy` (the registry key). No backward-compatibility aliases.  
 **Why:** Adding a fourth prompt variant previously required three new registry entries, three builder functions, and equivalent expansion for every other strategy that supports prompts. The coupling between "orchestration shape" and "prompt variant" was artificial. Separating them means a new prompt file + one `_PROMPT_FILES` entry + a YAML change suffices.  

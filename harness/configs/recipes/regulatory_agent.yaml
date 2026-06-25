@@ -1,0 +1,17 @@
+# Regulatory agent — the full EMA agent (corpus search + substance resolution) with a
+# structured RegulatoryAnswer. Equivalent to the pre-recipe "Agentic RAG" mode.
+recipe:
+  label: "Regulatory agent"
+  description: "Full EMA regulatory agent: search + substance resolution, structured answer."
+  orchestration:
+    system_prompt: agent_regulatory.md
+    tools: [ema_search, resolve_substance]
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_hier
+    pipeline: none
+  generation:
+    model: claude_opus
+    temperature: 0.0
+  judge:
+    enabled: false

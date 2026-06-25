@@ -1,10 +1,18 @@
 # Agentic RAG — usage guide (how-to)
 
+> **Update (recipe engine):** the live UI/eval now select a **recipe** — one agent-centric
+> pipeline defined in `harness/configs/recipes/*.yaml` (+ `$EMA_CONFIG_DIR`) — rather than a raw
+> "workflow strategy". See [`RECIPES.md`](RECIPES.md) and [`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md).
+> The agent internals described below (tool registry, structured output, judges, ontology) are
+> unchanged and still apply; references to "the `agent` strategy" and the old workflow+prompt
+> selectors are superseded by the recipe dropdown.
+
 A practical, task-by-task guide to the **agentic layer** on branch
 `claude/agentic-rag-foundation`: a LlamaIndex `FunctionAgent` + tool registry that returns a
 structured, cited `RegulatoryAnswer`, plus its MLflow run-recording/tracing, `mlflow.genai`
 judges, and typed ontology enrichment. It is **additive** — the existing LlamaIndex workflows
-and the live Phoenix tracer are untouched; the agent is one more selectable strategy.
+are untouched; the agent is one more selectable strategy. The live Chainlit app is traced by
+**MLflow** (autolog), the same as everything else.
 
 - **Design / rationale:** [`TARGET_ARCHITECTURE.md`](TARGET_ARCHITECTURE.md)
 - **Verification runbook + results (T1–T6):** [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md)
@@ -105,8 +113,9 @@ MLFLOW_ALLOW_FILE_STORE=true mlflow ui --backend-store-uri ./mlruns   # → http
 mlflow 3.14 + llama-index 0.14. View them in the **Traces** tab of the run. If autolog ever hangs
 on a future version, `harness/obs/tracing.py::traced()` is the explicit-span fallback.
 
-> The **Chainlit app** (task 5) uses **Phoenix**, not MLflow — MLflow is for these CLI/eval
-> entrypoints. Both can run; they don't conflict.
+> The **Chainlit app** (task 5) is also traced by **MLflow** (via `mlflow.llama_index.autolog()`,
+> against the `run_ui.sh` tracking server on :5000). The `record=True` run-recording shown here
+> is for these CLI/eval entrypoints; the live app records traces + 👍/👎 feedback to the same MLflow.
 
 ---
 
@@ -202,7 +211,7 @@ result = run_evaluation(data, predict_fn=predict_fn, scorers=judges, experiment=
 ## Task 5 — Use the agent in the Chainlit chat UI
 
 ```bash
-bash run_ui.sh                 # Phoenix + Chainlit; open the printed localhost URL, log in
+bash run_ui.sh                 # MLflow server + Chainlit; open the printed localhost URL, log in
 ```
 
 Select the agent in either place:
@@ -211,10 +220,11 @@ Select the agent in either place:
 - **Live, any time:** open the right-hand settings panel and set **Workflow → "Agentic RAG"**
   (the panel is the live source of truth; switching rebuilds the pipeline in place).
 
-The agent runs **Phoenix-traced** (the "View traces →" link works), shows its citations in the
-source sidebar, and supports 👍/👎 feedback like the other strategies. In-app the agent uses a
+The agent runs **MLflow-traced** (the "View traces →" link points at the MLflow UI experiment's
+Traces tab on :5000), shows its citations in the source sidebar, and supports 👍/👎 feedback
+(written as MLflow trace assessments) like the other strategies. In-app the agent uses a
 plain retrieve (GPU-light); the full query-expansion + rerank pipeline is on the CLI demo / eval
-paths (task 1/4). No MLflow is involved in the live app.
+paths (task 1/4).
 
 ---
 

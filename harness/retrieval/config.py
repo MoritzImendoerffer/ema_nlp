@@ -35,15 +35,18 @@ class RetrievalPipelineConfig:
     rerank_top_n: int = 8
 
     def resolved_attributes(self) -> dict[str, Any]:
-        """Flatten to ``ema.retrieval.*`` trace attributes (no silent modes)."""
+        """Flatten the *active* pipeline stages to ``ema.retrieval.*`` (honest stamping).
+
+        Only what ``assemble_agent`` actually wires — the query transform and the rerank
+        postprocessors — is stamped. ``sub_retrievers``/``graph_mode``/``k`` are declared
+        config for the not-yet-wired native composition (see ``native_pg.py``) and are NOT
+        stamped as active, so a trace never advertises a retrieval stage that did not run.
+        """
         return resolved_config_attributes(
             {
                 "retrieval": {
                     "profile": self.profile,
                     "query_transform": self.query_transform,
-                    "sub_retrievers": self.sub_retrievers,
-                    "graph_mode": self.graph_mode,
-                    "k": self.k,
                     "rerank": self.rerank,
                 }
             }

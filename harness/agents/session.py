@@ -44,6 +44,7 @@ def assemble_agent(
     base_retriever: Any,
     llm: Any,
     agent_name: str = "regulatory",
+    agent_config: Any = None,
     pipeline_config: Any = None,
     acronyms: dict[str, str] | None = None,
     fetcher: Any = None,
@@ -51,7 +52,9 @@ def assemble_agent(
     """Wire a FunctionAgent whose ``ema_search`` runs the config-driven pipeline.
 
     Pure assembly — no index/LLM is opened here. Pass ``pipeline_config=None`` for a
-    plain retrieve (no transform/rerank).
+    plain retrieve (no transform/rerank). ``agent_config`` (an ``AgentConfig``) lets a
+    caller supply the toolset/prompt/schema inline (e.g. from a recipe) instead of
+    loading ``configs/agent/<agent_name>.yaml``; when ``None`` the named YAML is used.
     """
     transform = None
     postprocessors: list = []
@@ -63,6 +66,7 @@ def assemble_agent(
     return build_agent(
         agent_name,
         llm=llm,
+        config=agent_config,
         retriever=base_retriever,
         transform=transform,
         postprocessors=postprocessors,
@@ -85,11 +89,9 @@ class AgentSession:
         if record:
             from harness.obs import record_answer_run, setup_mlflow
 
-            # Ensure a usable MLflow backend exists before recording. Without this,
-            # record=True with enable_tracing=False (no prior setup_tracing) falls back
-            # to MLflow's default store, which in mlflow>=3 raises on the file store
-            # (maintenance mode) unless MLFLOW_ALLOW_FILE_STORE is set. setup_mlflow sets
-            # that flag and pins the run to file:./mlruns under the session experiment.
+            # Ensure a usable MLflow backend exists before recording. setup_mlflow
+            # pins the run to the local sqlite store (mlflow.db) — or MLFLOW_TRACKING_URI
+            # if set — under the session experiment, the same store the live app serves.
             # Idempotent if setup_tracing already ran.
             setup_mlflow(self.experiment or "ema_nlp")
             params = self.pipeline_config.resolved_attributes() if self.pipeline_config else None

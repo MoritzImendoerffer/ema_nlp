@@ -224,6 +224,10 @@ results
 # Build/embedding run logs
 logs/
 
-# MLflow local tracking store (agentic-layer run-recording / tracing) — never commit
+# MLflow local tracking store (run-recording / tracing / feedback) — never commit
 mlruns/
 mlflow.db
+mlflow.db-journal
+mlflow.db-wal
+mlartifacts/
+.mlflow.log

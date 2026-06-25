@@ -1,12 +1,12 @@
-# Default parser preference for the harness.embed_pg.sync pipeline.
+# Default parser preference (per MIME content_type), highest priority first.
 #
-# Each key is a MIME content_type; the value is an ordered list of parser
-# names (highest priority first). The sync's preference selector picks
-# the first parser in this list that has a row in `parsed_documents`
-# for the URL under consideration.
-#
-# Override per-run with one or more --parser-preference 'content_type=parser'
-# flags. Per-content_type the CLI flag fully replaces the YAML default.
+# NOTE: the consumer of this file — the old `harness.embed_pg.sync` pipeline and
+# its `--parser-preference` CLI flag — was deleted in the LlamaIndex/Neo4j
+# refactor (LIR-012). The current ingestion path (`harness.indexing.ingest`)
+# reads a single parser per URL from Mongo `parsed_documents` and does NOT yet
+# consume this file; preference-based selection is a planned refinement
+# (see the comment in `harness/indexing/ingest.py`). This file is retained as
+# the intended default for when that selection is wired back in.
 
 application/pdf:
   - pymupdf4llm

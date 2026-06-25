@@ -42,6 +42,17 @@ class ModelConfig:
     api_key_env: str | None = field(default=None)   # openai_compatible only
 
 
+def list_model_names(config_path: Path = _MODELS_YAML) -> list[str]:
+    """Sorted model names from the ``models:`` section of models.yaml.
+
+    The settings panel reads this so the model-override dropdown stays in sync with
+    models.yaml (no hardcoded list to drift).
+    """
+    with config_path.open(encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh) or {}
+    return sorted((raw.get("models") or {}).keys())
+
+
 def load_model_for_role(role_name: str, config_path: Path = _MODELS_YAML) -> ModelConfig:
     """Load ModelConfig for a given role name.
 
