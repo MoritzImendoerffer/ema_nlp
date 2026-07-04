@@ -11,6 +11,7 @@ from harness.obs.config_attrs import (
 from harness.obs.runs import (
     RunHandle,
     answer_metrics,
+    default_experiment,
     mlflow_available,
     record_answer_run,
     record_run,
@@ -24,6 +25,7 @@ from harness.obs.tracing import (
     log_user_feedback,
     record_answer_on_span,
     setup_tracing,
+    tag_current_trace,
     traced,
     tracing_enabled,
 )
@@ -31,6 +33,7 @@ from harness.obs.tracing import (
 __all__ = [
     "RunHandle",
     "answer_metrics",
+    "default_experiment",
     "echo_resolved_config",
     "enable_llama_index_autolog",
     "experiment_traces_url",
@@ -45,6 +48,7 @@ __all__ = [
     "setup_mlflow",
     "setup_tracing",
     "stamp_current_span",
+    "tag_current_trace",
     "traced",
     "tracing_enabled",
 ]

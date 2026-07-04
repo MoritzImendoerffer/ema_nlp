@@ -12,15 +12,39 @@ from typing import Any
 
 from harness.agents.config import AgentConfig, load_agent_config
 from harness.agents.regulatory import build_regulatory_agent, load_agent_prompt
-from harness.schemas import RegulatoryAnswer
+from harness.schemas import RegulatoryAnswer, Substance
 from harness.tools import build_tools
 
 log = logging.getLogger(__name__)
 
-# Output-schema name -> Pydantic class. Extend as new report formats are added.
+# Output-schema name -> Pydantic class. Extend via register_output_schema.
 _OUTPUT_SCHEMAS: dict[str, type] = {
     "RegulatoryAnswer": RegulatoryAnswer,
+    "Substance": Substance,
 }
+
+
+def register_output_schema(name: str, cls: type) -> None:
+    """Register a Pydantic output schema under ``name`` (config-selectable)."""
+    if name in _OUTPUT_SCHEMAS and _OUTPUT_SCHEMAS[name] is not cls:
+        raise ValueError(f"Output schema {name!r} is already registered")
+    _OUTPUT_SCHEMAS[name] = cls
+
+
+def list_output_schemas() -> list[str]:
+    """Sorted names of registered output schemas."""
+    return sorted(_OUTPUT_SCHEMAS)
+
+
+def get_output_schema(name: str) -> type:
+    """Strict lookup: an unknown schema name is a hard config error, not a silent
+    fallback — the trace stamp must never claim a schema that did not run (F2)."""
+    try:
+        return _OUTPUT_SCHEMAS[name]
+    except KeyError:
+        raise KeyError(
+            f"Unknown output schema {name!r}. Registered: {list_output_schemas()}"
+        ) from None
 
 
 def build_agent(
@@ -38,7 +62,7 @@ def build_agent(
     # grader by passing ``llm=`` directly to the tool builder.
     tools = build_tools(cfg.tools, **tool_kwargs)
     system_prompt = load_agent_prompt(cfg.system_prompt)
-    output_cls = _OUTPUT_SCHEMAS.get(cfg.output_schema, RegulatoryAnswer)
+    output_cls = get_output_schema(cfg.output_schema)
     log.info(
         "building agent %r: tools=%s output_schema=%s", name, cfg.tools, cfg.output_schema
     )

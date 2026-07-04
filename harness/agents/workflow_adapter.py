@@ -16,7 +16,6 @@ on the demo/eval entrypoints (``AgentSession.arun(record=True)``).
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import Any
 
 from harness.schemas import RegulatoryAnswer
@@ -52,11 +51,14 @@ class AgentWorkflowAdapter:
         self._extra_attributes = dict(extra_attributes or {})
 
     def _config_attributes(self, payload: dict) -> dict[str, Any]:
-        """``ema.*`` attributes for the agent turn — same root-span contract as
-        ``WorkflowRunner`` so agent and workflow traces share one shape."""
+        """``ema.*`` attributes for the agent turn (one shape for all recipes).
+
+        The index profile is NOT read from the env here — the recipe's resolved
+        attributes carry the honest ``ema.retrieval.index_profile`` (a process-global
+        env read can mis-stamp concurrent sessions after a profile switch, F13).
+        """
         attrs: dict[str, Any] = {
             "ema.orchestration.strategy": "agent",
-            "ema.index.profile": os.getenv("EMA_INDEX_PROFILE", "neo4j_hier"),
         }
         attrs.update(self._extra_attributes)
         if payload.get("few_shot_context"):
@@ -68,7 +70,7 @@ class AgentWorkflowAdapter:
         return attrs
 
     async def ainvoke(self, payload: dict) -> dict:
-        from harness.obs.tracing import record_answer_on_span, traced
+        from harness.obs.tracing import record_answer_on_span, tag_current_trace, traced
         from harness.tools.search import capture_search_nodes
 
         question = payload.get("question", "")
@@ -77,6 +79,10 @@ class AgentWorkflowAdapter:
         few_shot = (payload.get("few_shot_context") or "").strip()
         user_msg = f"{few_shot}\n\nNow answer this question:\n{question}" if few_shot else question
         with traced("AgentWorkflowAdapter.invoke", attributes=self._config_attributes(payload)) as span:
+            # Recipe name as a TRACE tag (searchable via mlflow.search_traces),
+            # not just a child-span attribute (F14).
+            if recipe := self._extra_attributes.get("ema.recipe"):
+                tag_current_trace({"ema.recipe": recipe})
             # Capture the FULL retrieved passages (not just the truncated citation quotes)
             # so a downstream judge can grade faithfulness against the real context. The
             # inner capture in arun_agent reuses this sink (see capture_search_nodes).

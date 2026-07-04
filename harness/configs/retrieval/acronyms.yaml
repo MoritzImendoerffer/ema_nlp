@@ -1,5 +1,5 @@
 # EMA Q&A acronym/synonym dictionary — v1
-# Used by harness/ablations/a1_query_expansion.py for query expansion.
+# Used by harness/retrieval/transforms.py (the "acronym" query transform) for query expansion.
 #
 # Schema per entry:
 #   acronym:          The short form as it appears in questions

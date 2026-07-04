@@ -12,7 +12,6 @@ existing ``harness.indexing`` pipeline, builds the LLM, and wires the agent
 import asyncio
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from harness.agents.registry import build_agent
@@ -21,22 +20,6 @@ from harness.retrieval import build_postprocessors, get_transform, load_pipeline
 from harness.schemas import RegulatoryAnswer
 
 log = logging.getLogger(__name__)
-
-_ACRONYM_DICT = Path("ablations/A_evidence_filter/acronym_dict.yaml")
-
-
-def _load_default_acronyms() -> dict[str, str]:
-    """Best-effort load of the project acronym dictionary (empty if absent)."""
-    try:
-        import yaml
-
-        if _ACRONYM_DICT.exists():
-            data = yaml.safe_load(_ACRONYM_DICT.read_text(encoding="utf-8")) or {}
-            # accept either {acr: full} or {"acronyms": {acr: full}}
-            return dict(data.get("acronyms", data)) if isinstance(data, dict) else {}
-    except Exception as exc:
-        log.debug("acronym dict load failed: %s", exc)
-    return {}
 
 
 def assemble_agent(
@@ -59,7 +42,10 @@ def assemble_agent(
     transform = None
     postprocessors: list = []
     if pipeline_config is not None:
-        transform = get_transform(pipeline_config.query_transform, llm=llm, acronyms=acronyms or {})
+        # acronyms=None lets the ``acronym`` transform load the shipped EMA
+        # dictionary (configs/retrieval/acronyms.yaml) — an explicit mapping
+        # (tests) overrides it.
+        transform = get_transform(pipeline_config.query_transform, llm=llm, acronyms=acronyms)
         postprocessors = build_postprocessors(
             pipeline_config.rerank, top_n=pipeline_config.rerank_top_n, llm=llm
         )
@@ -87,13 +73,13 @@ class AgentSession:
     ) -> RegulatoryAnswer:
         answer = await arun_agent(self.agent, query, pipeline_config=self.pipeline_config)
         if record:
-            from harness.obs import record_answer_run, setup_mlflow
+            from harness.obs import default_experiment, record_answer_run, setup_mlflow
 
             # Ensure a usable MLflow backend exists before recording. setup_mlflow
             # pins the run to the local sqlite store (mlflow.db) — or MLFLOW_TRACKING_URI
             # if set — under the session experiment, the same store the live app serves.
             # Idempotent if setup_tracing already ran.
-            setup_mlflow(self.experiment or "ema_nlp")
+            setup_mlflow(self.experiment or default_experiment())
             params = self.pipeline_config.resolved_attributes() if self.pipeline_config else None
             record_answer_run(run_name or "agent_run", answer, params=params, query=query)
         return answer
@@ -135,6 +121,6 @@ def build_session(
         llm=llm,
         agent_name=agent_name,
         pipeline_config=pipeline_config,
-        acronyms=acronyms if acronyms is not None else _load_default_acronyms(),
+        acronyms=acronyms,
     )
     return AgentSession(agent=agent, pipeline_config=pipeline_config, experiment=experiment)

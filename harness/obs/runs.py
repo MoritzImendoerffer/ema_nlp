@@ -27,8 +27,19 @@ from harness.schemas import RegulatoryAnswer
 log = logging.getLogger(__name__)
 
 DEFAULT_EXPERIMENT = "ema_nlp"
+EXPERIMENT_ENV = "EMA_MLFLOW_EXPERIMENT"
 DEFAULT_DB = "mlflow.db"  # sqlite — shared with the live app's `mlflow server` (run_ui.sh)
 _PARAM_VALUE_MAX = 250
+
+
+def default_experiment() -> str:
+    """The MLflow experiment name: ``EMA_MLFLOW_EXPERIMENT`` env, else ``ema_nlp``.
+
+    Single resolver for the app, the demo script, and the eval runner — a hardcoded
+    name in any one of them splits human and judge assessments across experiments
+    and breaks judge alignment (F15).
+    """
+    return os.getenv(EXPERIMENT_ENV) or DEFAULT_EXPERIMENT
 
 
 def _mlflow() -> Any:

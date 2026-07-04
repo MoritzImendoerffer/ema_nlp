@@ -15,13 +15,17 @@ def run_evaluation(
     *,
     predict_fn: Any,
     scorers: list,
-    experiment: str = "ema_nlp",
+    experiment: str | None = None,
     tracking_uri: str | None = None,
 ) -> Any:
-    """Evaluate ``predict_fn`` over ``data`` with ``scorers`` and log to MLflow."""
+    """Evaluate ``predict_fn`` over ``data`` with ``scorers`` and log to MLflow.
+
+    ``experiment=None`` resolves via ``EMA_MLFLOW_EXPERIMENT`` (same resolver as the
+    live app) so eval assessments land in the same experiment as human feedback (F15).
+    """
     import mlflow.genai as genai
 
-    from harness.obs import setup_mlflow
+    from harness.obs import default_experiment, setup_mlflow
 
-    setup_mlflow(experiment, tracking_uri=tracking_uri)
+    setup_mlflow(experiment or default_experiment(), tracking_uri=tracking_uri)
     return genai.evaluate(data=data, predict_fn=predict_fn, scorers=scorers)

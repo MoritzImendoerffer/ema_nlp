@@ -1,9 +1,9 @@
-"""
-A1 — Acronym-aware query expansion.
+"""Acronym-aware query expansion (the ``acronym`` query transform's engine).
 
-Reads ablations/A_evidence_filter/acronym_dict.yaml and expands EMA acronyms
-in a query to their canonical forms (and vice versa), making retrieval more
-robust against vocabulary mismatch.
+Reads the EMA acronym dictionary (``configs/retrieval/acronyms.yaml``; an
+external ``$EMA_CONFIG_DIR/retrieval/acronyms.yaml`` wins) and expands EMA
+acronyms in a query to their canonical forms (and vice versa), making retrieval
+more robust against vocabulary mismatch.
 
 Examples:
     "What is the AI for nitrosamines?" →
@@ -24,12 +24,24 @@ from typing import Any
 
 import yaml
 
-REPO_ROOT = Path(__file__).parent.parent.parent
-DEFAULT_DICT_PATH = REPO_ROOT / "ablations" / "A_evidence_filter" / "acronym_dict.yaml"
+ACRONYMS_FILENAME = "acronyms.yaml"
 
 
-def load_acronym_dict(dict_path: Path = DEFAULT_DICT_PATH) -> list[dict[str, Any]]:
-    with dict_path.open(encoding="utf-8") as fh:
+def default_dict_path() -> Path:
+    """The acronym dictionary on the config search path (external dir wins)."""
+    from harness.config_paths import find_config
+
+    path = find_config("retrieval", ACRONYMS_FILENAME)
+    if path is None:
+        raise FileNotFoundError(
+            f"Acronym dictionary not found: {ACRONYMS_FILENAME!r} "
+            "(searched $EMA_CONFIG_DIR/retrieval and the built-in configs/retrieval/)"
+        )
+    return path
+
+
+def load_acronym_dict(dict_path: Path | None = None) -> list[dict[str, Any]]:
+    with (dict_path or default_dict_path()).open(encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
     return data.get("acronyms", [])
 
@@ -42,7 +54,7 @@ class QueryExpander:
         entries: list of acronym dicts from acronym_dict.yaml
     """
 
-    def __init__(self, dict_path: Path = DEFAULT_DICT_PATH) -> None:
+    def __init__(self, dict_path: Path | None = None) -> None:
         self.entries = load_acronym_dict(dict_path)
 
     def expand(self, query: str) -> str:
@@ -137,6 +149,6 @@ class QueryExpander:
         return query
 
 
-def expand_query(query: str, dict_path: Path = DEFAULT_DICT_PATH) -> str:
+def expand_query(query: str, dict_path: Path | None = None) -> str:
     """Convenience function — expand a single query."""
     return QueryExpander(dict_path).expand(query)

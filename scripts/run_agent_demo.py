@@ -27,10 +27,12 @@ def main() -> None:
     args = parser.parse_args()
 
     from harness.indexing import load_index_profile, open_index
-    from harness.obs import setup_tracing
+    from harness.obs import default_experiment, setup_tracing
     from harness.recipes import build_recipe, default_recipe_name, get_recipe
 
-    setup_tracing("ema_nlp")
+    # Same experiment resolver as the live app (EMA_MLFLOW_EXPERIMENT env) so demo
+    # traces + assessments land next to the UI's (F15).
+    setup_tracing(default_experiment())
     recipe = get_recipe(args.recipe or default_recipe_name())
     logging.info("recipe=%s index_profile=%s", recipe.name, recipe.index_profile)
 

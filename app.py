@@ -37,13 +37,15 @@ import chainlit as cl
 import numpy as np
 from dotenv import load_dotenv
 
+from harness.obs import default_experiment
+
 load_dotenv(Path.home() / ".myenvs" / "ema_nlp.env", override=False)
 
 # MLflow tracking server (writes traces/feedback) + UI URL (the "View traces" link).
 # run_ui.sh starts `mlflow server` on :5000 backed by sqlite; both default there.
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
 MLFLOW_UI_URL = os.getenv("MLFLOW_UI_URL", "http://localhost:5000")
-MLFLOW_EXPERIMENT = os.getenv("EMA_MLFLOW_EXPERIMENT", "ema_nlp")
+MLFLOW_EXPERIMENT = default_experiment()  # EMA_MLFLOW_EXPERIMENT env, shared resolver (F15)
 TRACING_DISABLED = os.getenv("EMA_TRACING_DISABLED", "").lower() in ("1", "true", "yes")
 DEFAULT_RECIPE = os.getenv("EMA_RECIPE", "")  # default recipe name; "" -> registry default
 EMA_INDEX_PROFILE = os.getenv("EMA_INDEX_PROFILE", "neo4j_hier")

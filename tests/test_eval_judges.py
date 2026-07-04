@@ -20,9 +20,13 @@ _RESERVED = {"inputs", "outputs", "expectations", "trace", "conversation"}
 def test_to_mlflow_instructions_maps_custom_vars():
     src = "CONTEXT:{{context}} QUESTION:{{ question }} ANSWER:{{answer}} GOLD:{{gold_answer}}"
     out = to_mlflow_instructions(src)
-    assert "{{ inputs }}" in out
-    assert "{{ outputs }}" in out
-    assert "{{ expectations }}" in out
+    assert "QUESTION:{{ inputs }}" in out
+    assert "ANSWER:{{ outputs }}" in out
+    assert "GOLD:{{ expectations }}" in out
+    # F3: the retrieved context is produced by the RUN (predict_fn returns it in the
+    # prediction dict), so it must map to outputs — mapping it to inputs starves the
+    # faithfulness judge of context.
+    assert "CONTEXT:{{ outputs }}" in out
 
 
 def test_real_judge_prompts_only_use_reserved_vars_after_mapping():

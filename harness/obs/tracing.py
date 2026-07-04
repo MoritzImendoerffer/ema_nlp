@@ -93,6 +93,25 @@ def traced(name: str, *, attributes: dict[str, Any] | None = None) -> Iterator[A
         yield span
 
 
+def tag_current_trace(tags: dict[str, Any]) -> bool:
+    """Best-effort: set ``tags`` on the *current trace* (the root, not a span).
+
+    Trace-level tags are what ``mlflow.search_traces`` filters on, so the recipe
+    name must land here — stamping it only on a child span makes recipe-level
+    filtering require span drilling (F14). No-op (False) when tracing is off,
+    no trace is active, or the client predates ``update_current_trace``.
+    """
+    mf = _mlflow()
+    if mf is None or not _TRACING_ENABLED or not tags:
+        return False
+    try:
+        mf.update_current_trace(tags={k: str(v) for k, v in tags.items() if v is not None})
+        return True
+    except Exception as exc:
+        log.debug("tag_current_trace failed: %s", exc)
+        return False
+
+
 def record_answer_on_span(span: Any, *, question: Any = None, answer: Any = None) -> None:
     """Best-effort: set the turn's question + structured answer as the span's I/O.
 

@@ -23,9 +23,15 @@ JUDGE_NAMES = ("faithfulness", "correctness")
 # string-templated harness.judge). mlflow.genai.make_judge only allows the reserved
 # vars inputs/outputs/expectations/trace/conversation, so map onto those at build time
 # (the .md files stay the human-readable source of truth, untouched).
+#
+# ``context`` maps to ``outputs`` — NOT ``inputs`` — because the retrieved passages
+# are produced by the run, not part of the dataset row: ``build_predict_fn`` returns
+# them as ``context_passages`` in the prediction dict, so the faithfulness judge
+# grades against the real retrieval (F3; mapping it to ``inputs`` starved the judge
+# of context and made its scores meaningless).
 _VAR_MAP = {
     "question": "inputs",
-    "context": "inputs",
+    "context": "outputs",
     "answer": "outputs",
     "gold_answer": "expectations",
 }

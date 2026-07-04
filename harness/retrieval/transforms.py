@@ -63,8 +63,26 @@ def build_identity(**_: Any) -> QueryTransform:
 
 @register_transform("acronym")
 def build_acronym(*, acronyms: dict[str, str] | None = None, **_: Any) -> QueryTransform:
-    """Expand known acronyms (word-boundary) into an extra query variant."""
-    mapping = dict(acronyms or {})
+    """Expand known acronyms into an extra query variant.
+
+    With an explicit ``acronyms`` mapping, does plain word-boundary substitution
+    (deterministic, used by tests). With ``acronyms=None`` (the config-driven
+    default), uses the context-aware :class:`~harness.retrieval.acronyms.QueryExpander`
+    over the EMA acronym dictionary (``configs/retrieval/acronyms.yaml``) — this
+    is the path that disambiguates "AI = Acceptable Intake".
+    """
+    if acronyms is None:
+        from harness.retrieval.acronyms import QueryExpander
+
+        expander = QueryExpander()  # raises if the dictionary is missing (no silent no-op)
+
+        def _transform_dict(query: str) -> list[str]:
+            expanded = expander.expand(query)
+            return [query, expanded] if expanded != query else [query]
+
+        return _transform_dict
+
+    mapping = dict(acronyms)
 
     def _transform(query: str) -> list[str]:
         expanded = query
