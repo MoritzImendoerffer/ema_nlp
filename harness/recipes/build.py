@@ -66,7 +66,6 @@ def build_recipe(
     agent = assemble_agent(
         base_retriever=retriever,
         llm=llm,
-        agent_name=recipe.name,
         agent_config=agent_config,
         pipeline_config=pipeline_config,
     )

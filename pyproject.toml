@@ -21,14 +21,11 @@ dependencies = [
     # RAG framework — LlamaIndex core + backends
     "llama-index-core>=0.12",
     "llama-index-embeddings-huggingface>=0.4",   # wraps sentence-transformers
-    "llama-index-vector-stores-faiss>=0.3",       # wraps faiss-cpu
-    "llama-index-retrievers-bm25>=0.5",           # wraps rank-bm25
     "llama-index-llms-anthropic>=0.6",            # Claude LLM integration
     "llama-index-llms-openai>=0.7",              # OpenAI-compatible LLMs (Together AI / OLMo)
     "llama-index-graph-stores-neo4j>=0.4",       # Neo4j PropertyGraphStore (LlamaIndex-first refactor)
     # Retrieval backends (used by LlamaIndex)
-    "rank-bm25>=0.2.2",
-    "faiss-cpu>=1.13",
+    "faiss-cpu>=1.13",                            # semantic query cache (harness/query_cache.py)
     "sentence-transformers>=5.4",
     # Observability — MLflow tracing + run-recording + eval/judges (replaced Arize Phoenix)
     "mlflow>=3.0",

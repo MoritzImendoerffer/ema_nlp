@@ -43,7 +43,7 @@ class _CitationDoc:
 
 
 class AgentWorkflowAdapter:
-    """Expose an :class:`AgentSession` through the WorkflowRunner invoke/ainvoke contract."""
+    """Expose an :class:`AgentSession` through the invoke/ainvoke runner contract."""
 
     def __init__(self, session: Any, *, extra_attributes: dict[str, Any] | None = None) -> None:
         self._session = session
@@ -71,7 +71,7 @@ class AgentWorkflowAdapter:
 
     async def ainvoke(self, payload: dict) -> dict:
         from harness.obs.tracing import record_answer_on_span, tag_current_trace, traced
-        from harness.tools.search import capture_search_nodes
+        from harness.tools.search import capture_search_nodes, passages_from_nodes
 
         question = payload.get("question", "")
         # Optional rated-trajectory few-shot examples (recipe.fewshot): prepend to the
@@ -89,10 +89,7 @@ class AgentWorkflowAdapter:
             with capture_search_nodes() as evidence:
                 answer: RegulatoryAnswer = await self._session.arun(user_msg)
             record_answer_on_span(span, question=question, answer=answer)
-            context_passages = [
-                t for nws in evidence
-                if (t := (getattr(getattr(nws, "node", nws), "text", "") or "").strip())
-            ]
+            context_passages = passages_from_nodes(evidence)
             return {
                 "answer_text": answer.answer,
                 "docs": [_CitationDoc(c) for c in answer.citations],

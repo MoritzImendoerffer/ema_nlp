@@ -1,7 +1,8 @@
 """Unit tests for harness.agents.session (assemble_agent + AgentSession).
 
 assemble_agent is verified with a fake retriever + MockLLM and an empty rerank
-list (so no cross-encoder model download). build_session is runtime-only (Neo4j).
+list (so no cross-encoder model download). The runtime composition path is
+build_recipe (needs Neo4j).
 """
 
 import asyncio
@@ -10,9 +11,12 @@ from llama_index.core.llms import MockLLM
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 
+from harness.agents import AgentConfig
 from harness.agents.session import AgentSession, assemble_agent
 from harness.retrieval import RetrievalPipelineConfig
 from harness.schemas import RegulatoryAnswer
+
+_CONFIG = AgentConfig(name="regulatory", tools=["ema_search", "resolve_substance"])
 
 
 class _FakeRetriever(BaseRetriever):
@@ -42,6 +46,7 @@ def test_assemble_agent_with_pipeline_config():
     agent = assemble_agent(
         base_retriever=_FakeRetriever(),
         llm=MockLLM(),
+        agent_config=_CONFIG,
         pipeline_config=cfg,
         acronyms={"AI": "Acceptable Intake"},
     )
@@ -50,7 +55,7 @@ def test_assemble_agent_with_pipeline_config():
 
 
 def test_assemble_agent_plain_without_pipeline():
-    agent = assemble_agent(base_retriever=_FakeRetriever(), llm=MockLLM())
+    agent = assemble_agent(base_retriever=_FakeRetriever(), llm=MockLLM(), agent_config=_CONFIG)
     assert {t.metadata.name for t in agent.tools} == {"ema_search", "resolve_substance"}
 
 

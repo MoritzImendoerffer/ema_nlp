@@ -172,3 +172,14 @@ def test_build_recipe_naive_single_tool(monkeypatch):
     adapter = build_recipe(get_recipe("naive_rag"), index=None)
     assert {t.metadata.name for t in adapter._session.agent.tools} == {"ema_search"}
     assert isinstance(get_recipe("naive_rag"), Recipe)
+
+
+def test_fewshot_min_examples_tunable_and_stamped():
+    # F7: min_examples is a recipe knob (default 1 — a hardcoded 3 made injection
+    # unreachable for k<3 recipes) and is stamped when fewshot is enabled.
+    assert FewshotPolicy.from_dict({}).min_examples == 1
+    policy = FewshotPolicy.from_dict({"enabled": True, "k": 2, "min_examples": 2})
+    assert policy.min_examples == 2
+    r = get_recipe("regulatory_fewshot")
+    assert r.fewshot.min_examples == 1
+    assert r.resolved_attributes()["ema.fewshot.min_examples"] == 1

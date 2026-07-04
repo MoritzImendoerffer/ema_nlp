@@ -66,7 +66,7 @@ flowchart TB
       CHAT["chat"] --> FB["human feedback to MLflow assessments"]
     end
 
-    subgraph AGENT["Agent layer (config: configs/agent/*.yaml)"]
+    subgraph AGENT["Agent layer (config: configs/recipes/*.yaml)"]
       AG["FunctionAgent: prompt + toolset + output schema + retrieval profile"]
       OUT["RegulatoryAnswer (Pydantic): answer + claims[] + citations[]"]
       AG --> OUT
@@ -119,14 +119,15 @@ profile)*. CRAG-style "grade/rewrite" becomes query expansion + the agent re-cal
 ### 4.1 Agent layer (`harness/agents/` — **the single engine**; `harness/workflows/` was retired 2026-06-25)
 
 ```yaml
-# harness/configs/agent/regulatory.yaml
-agent:
-  model_role: agent                # -> harness/configs/models.yaml
+# harness/configs/recipes/<name>.yaml — the agent-shaped fields of a recipe
+# (recipes are the single config surface; the separate configs/agent/*.yaml
+# layer was absorbed into recipes, F6)
+recipe:
   system_prompt: agent_regulatory.md
   tools: [ema_search, follow_links, resolve_substance, lookup_limit]
-  output_schema: RegulatoryAnswer  # Pydantic, enforced
-  max_iterations: 6
-  retrieval_profile: neo4j_hier
+  output_schema: RegulatoryAnswer  # Pydantic, enforced (strict registry lookup)
+  index_profile: neo4j_hier
+  model: claude_opus               # -> harness/configs/models.yaml
   fewshot: { source: mlflow_rated, k: 3, min_rating: 4 }   # online policy (aim 1)
 ```
 

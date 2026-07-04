@@ -42,3 +42,10 @@ def test_anthropic_judge_base_url(monkeypatch):
     assert _anthropic_judge_base_url("openai:/m") is None  # only anthropic models
     monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
     assert _anthropic_judge_base_url("anthropic:/m") is None  # no gateway -> default endpoint
+
+
+def test_judge_model_uri_resolves_role_from_models_yaml():
+    from harness.eval.judges import judge_model_uri
+
+    uri = judge_model_uri("judge")
+    assert uri.startswith("anthropic:/")  # provider-qualified for mlflow make_judge

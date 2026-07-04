@@ -88,6 +88,24 @@ def build_judge(name: str, instructions: str, *, model: str, **kwargs: Any) -> A
     return make_judge(name=name, instructions=to_mlflow_instructions(instructions), model=model, **kwargs)
 
 
+def judge_model_uri(role: str = "judge") -> str:
+    """The provider-qualified mlflow judge model for a models.yaml *role*.
+
+    Resolves the role via the same ``models.yaml`` binding the rest of the harness
+    uses (no drift between the inline and offline judge model), mapped onto
+    mlflow's ``provider:/model`` form.
+    """
+    from harness.models import load_model_for_role
+
+    cfg = load_model_for_role(role)
+    if cfg.provider != "anthropic":
+        raise ValueError(
+            f"mlflow judges support the anthropic provider only; role {role!r} "
+            f"is bound to provider {cfg.provider!r} (models.yaml)"
+        )
+    return f"anthropic:/{cfg.model_id}"
+
+
 def ema_judges(*, model: str) -> list:
     """Build the project's faithfulness + correctness judges from the prompt files."""
     return [build_judge(n, load_judge_instructions(n), model=model) for n in JUDGE_NAMES]

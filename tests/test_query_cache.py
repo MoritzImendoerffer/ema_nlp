@@ -146,3 +146,40 @@ def test_cited_qa_ids_stored(tmp_path):
     cache.add_entry("run-cit", "Q", "A", ["qa-001", "qa-002"], query_vec=v)
     results = cache.get_similar(v, k=1, threshold=0.99)
     assert results[0][0].cited_qa_ids == ["qa-001", "qa-002"]
+
+
+# ---------------------------------------------------------------------------
+# F4: shared instance + concurrent writes
+# ---------------------------------------------------------------------------
+
+def test_get_query_cache_returns_shared_instance(tmp_path):
+    from harness.query_cache import get_query_cache
+
+    a = get_query_cache(tmp_path)
+    b = get_query_cache(tmp_path)
+    assert a is b  # separate instances would clobber each other's saves (F4)
+
+
+def test_concurrent_adds_and_ratings_all_persist(tmp_path):
+    """Entries + ratings written from many threads all survive a reload (F4)."""
+    import threading
+
+    cache = QueryCache(index_dir=tmp_path)
+    n = 16
+
+    def _write(i: int) -> None:
+        cache.add_entry(f"run-{i}", f"Q{i}", f"A{i}", [], query_vec=_vec(i))
+        cache.update_rating(f"run-{i}", 5.0)
+
+    threads = [threading.Thread(target=_write, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    reloaded = QueryCache(index_dir=tmp_path)
+    assert len(reloaded) == n
+    ratings = {e.run_id: e.rating for e in reloaded._entries}
+    assert all(ratings[f"run-{i}"] == 5.0 for i in range(n))
+    # No stray tmp files left behind by the atomic writes.
+    assert not list(tmp_path.glob("*.tmp"))

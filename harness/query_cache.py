@@ -10,16 +10,24 @@ Persistence layout (paths relative to INDEX_DIR from config.py):
     query_cache.json   — sidecar: list of entry dicts, position == FAISS vector id
 
 Usage:
-    cache = QueryCache()          # loads existing cache or starts empty
+    cache = get_query_cache()     # process-wide shared instance (loads or starts empty)
     cache.add_entry(...)          # append an interaction
     cache.get_similar(vec, k=3)   # find similar past queries
     cache.update_rating(run_id, 5)
+
+Concurrency: one shared ``QueryCache`` per index dir (``get_query_cache``), with a
+lock around mutations and atomic tmp+rename writes — concurrent Chainlit sessions
+in one process no longer clobber each other's entries/ratings (F4). Multiple
+*processes* sharing the files are still last-writer-wins (out of scope: the app
+runs as a single process).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
+import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -62,6 +70,9 @@ class QueryCache:
         self._index_dir = index_dir
         self._entries: list[CacheEntry] = []
         self._faiss_index: faiss.IndexFlatIP = faiss.IndexFlatIP(EMBED_DIM)
+        # Guards _entries + _faiss_index across sessions/threads (app writes happen
+        # on worker threads via make_async). Reentrant so locked methods may nest.
+        self._lock = threading.RLock()
         self._load()
 
     # ------------------------------------------------------------------
@@ -78,12 +89,17 @@ class QueryCache:
             log.info("Query cache empty — starting fresh")
 
     def _save(self) -> None:
+        """Persist atomically (tmp + rename) so a crash mid-write never truncates."""
         self._index_dir.mkdir(parents=True, exist_ok=True)
-        faiss.write_index(self._faiss_index, str(self._faiss_path))
-        self._json_path.write_text(
+        faiss_tmp = self._faiss_path.with_suffix(".faiss.tmp")
+        json_tmp = self._json_path.with_suffix(".json.tmp")
+        faiss.write_index(self._faiss_index, str(faiss_tmp))
+        json_tmp.write_text(
             json.dumps([e.to_dict() for e in self._entries], ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        os.replace(faiss_tmp, self._faiss_path)
+        os.replace(json_tmp, self._json_path)
 
     # ------------------------------------------------------------------
     # Public API
@@ -114,19 +130,18 @@ class QueryCache:
             rating=None,
             cited_qa_ids=cited_qa_ids,
         )
-        self._entries.append(entry)
-
         if query_vec is None and embed_fn is not None:
             query_vec = embed_fn(question)
 
-        if query_vec is not None:
-            vec = _normalize(np.asarray(query_vec, dtype=np.float32).reshape(1, -1))
-            self._faiss_index.add(vec)
-        else:
-            # Pad index with a zero vector so sidecar indices stay aligned
-            self._faiss_index.add(np.zeros((1, EMBED_DIM), dtype=np.float32))
-
-        self._save()
+        with self._lock:
+            self._entries.append(entry)
+            if query_vec is not None:
+                vec = _normalize(np.asarray(query_vec, dtype=np.float32).reshape(1, -1))
+                self._faiss_index.add(vec)
+            else:
+                # Pad index with a zero vector so sidecar indices stay aligned
+                self._faiss_index.add(np.zeros((1, EMBED_DIM), dtype=np.float32))
+            self._save()
         log.debug("Cache: added entry run_id=%s", run_id)
 
     def get_similar(
@@ -148,26 +163,27 @@ class QueryCache:
         Returns:
             List of (entry, similarity) sorted descending by similarity.
         """
-        if self._faiss_index.ntotal == 0:
-            return []
+        with self._lock:
+            if self._faiss_index.ntotal == 0:
+                return []
 
-        vec = _normalize(np.asarray(query_vec, dtype=np.float32).reshape(1, -1))
-        k_search = min(k * 3, self._faiss_index.ntotal)  # over-fetch for rating filter
-        scores, indices = self._faiss_index.search(vec, k_search)
+            vec = _normalize(np.asarray(query_vec, dtype=np.float32).reshape(1, -1))
+            k_search = min(k * 3, self._faiss_index.ntotal)  # over-fetch for rating filter
+            scores, indices = self._faiss_index.search(vec, k_search)
 
-        results: list[tuple[CacheEntry, float]] = []
-        for score, idx in zip(scores[0], indices[0]):
-            if idx < 0 or idx >= len(self._entries):
-                continue
-            sim = float(score)
-            if sim < threshold:
-                continue
-            entry = self._entries[idx]
-            if min_rating is not None and (entry.rating is None or entry.rating < min_rating):
-                continue
-            results.append((entry, sim))
-            if len(results) >= k:
-                break
+            results: list[tuple[CacheEntry, float]] = []
+            for score, idx in zip(scores[0], indices[0]):
+                if idx < 0 or idx >= len(self._entries):
+                    continue
+                sim = float(score)
+                if sim < threshold:
+                    continue
+                entry = self._entries[idx]
+                if min_rating is not None and (entry.rating is None or entry.rating < min_rating):
+                    continue
+                results.append((entry, sim))
+                if len(results) >= k:
+                    break
 
         return results
 
@@ -175,17 +191,38 @@ class QueryCache:
         """
         Set rating on the entry matching run_id. Returns True if found.
         """
-        for entry in self._entries:
-            if entry.run_id == run_id:
-                entry.rating = rating
-                self._save()
-                log.debug("Cache: rated run_id=%s → %.1f", run_id, rating)
-                return True
+        with self._lock:
+            for entry in self._entries:
+                if entry.run_id == run_id:
+                    entry.rating = rating
+                    self._save()
+                    log.debug("Cache: rated run_id=%s → %.1f", run_id, rating)
+                    return True
         log.warning("Cache: run_id %s not found for rating", run_id)
         return False
 
     def __len__(self) -> int:
-        return len(self._entries)
+        with self._lock:
+            return len(self._entries)
+
+
+_INSTANCES: dict[Path, QueryCache] = {}
+_INSTANCES_LOCK = threading.Lock()
+
+
+def get_query_cache(index_dir: Path = INDEX_DIR) -> QueryCache:
+    """Process-wide shared ``QueryCache`` for ``index_dir``.
+
+    All sessions must share one instance per cache-file pair — separate instances
+    each hold their own in-memory snapshot and their full-file rewrites clobber
+    each other's entries and ratings (F4).
+    """
+    key = Path(index_dir).resolve()
+    with _INSTANCES_LOCK:
+        cache = _INSTANCES.get(key)
+        if cache is None:
+            cache = _INSTANCES[key] = QueryCache(index_dir)
+        return cache
 
 
 # ------------------------------------------------------------------

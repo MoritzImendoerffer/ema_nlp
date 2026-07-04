@@ -6,10 +6,8 @@ from dataclasses import dataclass, field
 from unittest.mock import MagicMock
 
 import numpy as np
-import pytest
 
 from harness.fewshot_inject import get_fewshot_context
-
 
 # ---------------------------------------------------------------------------
 # Minimal mock of QueryCache

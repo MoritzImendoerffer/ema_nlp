@@ -27,6 +27,7 @@ from llama_index.core.tools import FunctionTool
 
 from harness.retrieval.corrective import (
     MAX_CYCLES,
+    grade_key,
     grade_messages,
     grade_note,
     is_sufficient,
@@ -96,6 +97,10 @@ def build_corrective_search_tool(
         resp = grade_llm.chat(grade_messages(q, format_nodes(nodes)))
         per_doc, missing = parse_grade(resp.message.content or "")
 
+        # Best-so-far across cycles: a rewrite can retrieve WORSE than an earlier
+        # attempt, so track the highest-graded retrieval and return that one (F17).
+        # Ties prefer the later cycle (more targeted query).
+        best = (nodes, per_doc, missing)
         cycles = 0
         while not is_sufficient(per_doc, missing) and cycles < max_cycles:
             rw = grade_llm.chat(rewrite_messages(q, missing))
@@ -105,6 +110,9 @@ def build_corrective_search_tool(
             nodes = _retrieve(q)
             resp = grade_llm.chat(grade_messages(q, format_nodes(nodes)))
             per_doc, missing = parse_grade(resp.message.content or "")
+            if grade_key(per_doc, missing) >= grade_key(best[1], best[2]):
+                best = (nodes, per_doc, missing)
+        nodes, per_doc, missing = best
 
         # Feed the corrected nodes into the shared sink so the runner can rebuild
         # real node-derived citations (same mechanism as ema_search).

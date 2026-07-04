@@ -9,7 +9,7 @@ from llama_index.core.llms import MockLLM
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 
-from harness.agents import build_agent, load_agent_config, load_agent_prompt
+from harness.agents import AgentConfig, build_agent, load_agent_prompt
 from harness.schemas import RegulatoryAnswer
 
 
@@ -26,14 +26,6 @@ class _FakeRetriever(BaseRetriever):
         ]
 
 
-def test_load_regulatory_config():
-    cfg = load_agent_config("regulatory")
-    assert cfg.tools == ["ema_search", "resolve_substance"]
-    assert cfg.output_schema == "RegulatoryAnswer"
-    assert cfg.retrieval_profile == "neo4j_hier"
-    assert cfg.fewshot.get("source") == "mlflow_rated"
-
-
 def test_load_agent_prompt():
     prompt = load_agent_prompt("agent_regulatory.md")
     assert "ema_search" in prompt
@@ -42,8 +34,8 @@ def test_load_agent_prompt():
 
 def test_build_agent_wires_tools_prompt_and_schema():
     agent = build_agent(
-        "regulatory",
         llm=MockLLM(),
+        config=AgentConfig(name="regulatory", tools=["ema_search", "resolve_substance"]),
         retriever=_FakeRetriever(),
         fetcher=lambda _q: {},
     )

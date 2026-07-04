@@ -1,16 +1,17 @@
 """Assemble an agent from config: tools (registry) + prompt + output schema.
 
-``build_agent("regulatory", llm=..., retriever=..., fetcher=...)`` is the single
-entry point: it reads the YAML config, resolves the toolset via the tool registry,
-loads the system prompt, maps the output-schema name to a Pydantic class, and
-constructs the ``FunctionAgent``. Extra kwargs (``retriever=``, ``fetcher=``) are
-forwarded to the tool builders.
+``build_agent(llm=..., config=..., retriever=..., fetcher=...)`` is the single
+entry point: it takes an ``AgentConfig`` (derived from a recipe by
+``build_recipe``), resolves the toolset via the tool registry, loads the system
+prompt, maps the output-schema name to a Pydantic class, and constructs the
+``FunctionAgent``. Extra kwargs (``retriever=``, ``fetcher=``) are forwarded to
+the tool builders.
 """
 
 import logging
 from typing import Any
 
-from harness.agents.config import AgentConfig, load_agent_config
+from harness.agents.config import AgentConfig
 from harness.agents.regulatory import build_regulatory_agent, load_agent_prompt
 from harness.schemas import RegulatoryAnswer, Substance
 from harness.tools import build_tools
@@ -48,14 +49,13 @@ def get_output_schema(name: str) -> type:
 
 
 def build_agent(
-    name: str,
     *,
     llm: Any,
-    config: AgentConfig | None = None,
+    config: AgentConfig,
     **tool_kwargs: Any,
 ) -> Any:
-    """Build a configured ``FunctionAgent`` by name (or from a provided config)."""
-    cfg = config or load_agent_config(name)
+    """Build a ``FunctionAgent`` from an explicit ``AgentConfig`` (one path, F6)."""
+    cfg = config
     # Tool builders are NOT handed the agent LLM: a tool that needs its own model (e.g.
     # corrective_search's grader) builds the cheap, dedicated role from models.yaml itself
     # — keeping CRAG grading/rewriting off the expensive agent model. Tests inject a fake
@@ -64,12 +64,12 @@ def build_agent(
     system_prompt = load_agent_prompt(cfg.system_prompt)
     output_cls = get_output_schema(cfg.output_schema)
     log.info(
-        "building agent %r: tools=%s output_schema=%s", name, cfg.tools, cfg.output_schema
+        "building agent %r: tools=%s output_schema=%s", cfg.name, cfg.tools, cfg.output_schema
     )
     return build_regulatory_agent(
         llm=llm,
         tools=tools,
         system_prompt=system_prompt,
         output_cls=output_cls,
-        name=name,
+        name=cfg.name,
     )

@@ -25,10 +25,14 @@ log = logging.getLogger(__name__)
 
 MAX_CYCLES = 2  # max retrieve-rewrite iterations before accepting the best-so-far
 
+# Sentinel "missing fact" for an unparseable grade: keeps the loop going (fail-safe
+# toward another cycle) but must NOT be fed to the rewriter as if it were a real gap.
+PARSE_ERROR_FACT = "(parse error — treating as insufficient)"
+
 GRADE_SYSTEM = """\
 You are a relevance grader for EMA regulatory Q&A retrieval.
 
-Score each retrieved document on a 0–2 scale:
+The retrieved documents are numbered [1], [2], … in the input. Score each on a 0–2 scale:
   0 — not relevant; shares keywords but doesn't address the question
   1 — partially relevant; addresses the topic but misses key details
   2 — fully relevant; directly answers the question with specific information
@@ -38,7 +42,7 @@ Also list any facts the question requires that are absent from ALL retrieved doc
 Respond with ONLY valid JSON in this exact format:
 {
   "per_doc": [
-    {"qa_id": "<qa_id>", "score": <0|1|2>},
+    {"index": <document number, e.g. 1>, "score": <0|1|2>},
     ...
   ],
   "missing_facts": ["<description of missing fact>", ...]
@@ -78,13 +82,24 @@ def parse_grade(raw: str) -> tuple[list[dict], list[str]]:
         return per_doc, missing_facts
     except (json.JSONDecodeError, KeyError):
         log.warning("CRAG: could not parse grader JSON: %s", raw[:200])
-        return [], ["(parse error — treating as insufficient)"]
+        return [], [PARSE_ERROR_FACT]
 
 
 def is_sufficient(per_doc: list[dict], missing_facts: list[str]) -> bool:
     """Grade is sufficient when at least one doc scores 2 AND missing_facts is empty."""
     has_excellent = any(d.get("score", 0) == 2 for d in per_doc)
     return has_excellent and not missing_facts
+
+
+def grade_key(per_doc: list[dict], missing_facts: list[str]) -> tuple[int, int]:
+    """Orderable quality of one grade: higher best per-doc score, then fewer gaps.
+
+    Lets the corrective loop keep the *best-so-far* retrieval across cycles instead
+    of blindly returning the last one (a rewrite can retrieve worse, F17). A
+    sufficient grade (score 2, no gaps) is maximal, so it always wins.
+    """
+    best_score = max((d.get("score", 0) for d in per_doc), default=0)
+    return (best_score, -len(missing_facts))
 
 
 def grade_messages(question: str, context_str: str) -> list[ChatMessage]:
@@ -99,8 +114,17 @@ def grade_messages(question: str, context_str: str) -> list[ChatMessage]:
 
 
 def rewrite_messages(question: str, missing_facts: list[str]) -> list[ChatMessage]:
-    """Build the chat messages that ask the LLM to rewrite ``question`` toward the gaps."""
-    missing_str = "\n".join(f"- {f}" for f in missing_facts) or "(unspecified)"
+    """Build the chat messages that ask the LLM to rewrite ``question`` toward the gaps.
+
+    The parse-error sentinel is not a real gap — it is filtered out so the rewriter
+    is never told to target it as a fact (F17); with no real gaps left, a generic
+    rephrase instruction is used instead.
+    """
+    real_facts = [f for f in missing_facts if f != PARSE_ERROR_FACT]
+    missing_str = "\n".join(f"- {f}" for f in real_facts) or (
+        "(unspecified — the retrieval did not fully cover the question; rephrase it "
+        "using alternative EMA terminology)"
+    )
     return [
         ChatMessage(role=MessageRole.SYSTEM, content=REWRITE_SYSTEM),
         ChatMessage(

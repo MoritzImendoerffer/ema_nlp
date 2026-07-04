@@ -159,3 +159,77 @@ def test_nested_capture_scopes_share_outer_sink():
             tool.call(query="q")
         assert len(outer) == 1  # outer sees what the tool retrieved inside the inner scope
         assert outer[0].node.metadata["doc_id"] == "d1"
+
+
+def test_grade_prompt_keys_on_document_index_not_qa_id():
+    # The grader sees format_nodes output ("[1] source=… score=…"), which carries no
+    # qa_id — the prompt must ask for the bracketed document number instead (F17).
+    from harness.retrieval.corrective import GRADE_SYSTEM
+
+    assert "qa_id" not in GRADE_SYSTEM
+    assert '"index"' in GRADE_SYSTEM
+
+
+def test_rewrite_messages_filters_parse_error_sentinel():
+    from harness.retrieval.corrective import PARSE_ERROR_FACT
+
+    rm = rewrite_messages("Q", [PARSE_ERROR_FACT])
+    assert "parse error" not in rm[1].content  # sentinel never shown as a "fact" (F17)
+    assert "rephrase" in rm[1].content
+    rm2 = rewrite_messages("Q", [PARSE_ERROR_FACT, "the ng/day limit"])
+    assert "parse error" not in rm2[1].content
+    assert "the ng/day limit" in rm2[1].content
+
+
+def test_grade_key_orders_by_score_then_gaps():
+    from harness.retrieval.corrective import grade_key
+
+    assert grade_key([{"score": 2}], []) > grade_key([{"score": 1}], [])
+    assert grade_key([{"score": 1}], ["a"]) > grade_key([{"score": 1}], ["a", "b"])
+    assert grade_key([], ["x"]) < grade_key([{"score": 1}], ["x"])
+
+
+class _DegradingRetriever(BaseRetriever):
+    """Returns a distinguishable node per query so the returned passage is traceable."""
+
+    def __init__(self):
+        super().__init__()
+        self.queries: list[str] = []
+
+    def _retrieve(self, query_bundle: QueryBundle):
+        self.queries.append(query_bundle.query_str)
+        n = len(self.queries)
+        return [
+            NodeWithScore(
+                node=TextNode(
+                    text=f"passage {n}",
+                    metadata={"source_url": f"https://ema.europa.eu/{n}", "doc_id": f"d{n}"},
+                ),
+                score=0.9,
+            )
+        ]
+
+
+def test_corrective_search_returns_best_so_far_not_last():
+    # First retrieval grades 1 with one gap; the rewrite retrieves WORSE (score 0).
+    # The tool must return the first (best) retrieval, not the trailing one (F17).
+    first = '{"per_doc": [{"index": 1, "score": 1}], "missing_facts": ["the limit"]}'
+    worse = '{"per_doc": [{"index": 1, "score": 0}], "missing_facts": ["the limit", "the committee"]}'
+    r, llm = _DegradingRetriever(), _FakeLLM([first, worse])
+    tool = get_tool("corrective_search", retriever=r, llm=llm, max_cycles=1)
+    out = str(tool.call(query="q"))
+    assert len(r.queries) == 2
+    assert "passage 1" in out and "passage 2" not in out
+    assert "best relevance 1/2" in out
+
+
+def test_corrective_search_sink_gets_best_nodes():
+    from harness.tools.search import capture_search_nodes
+
+    first = '{"per_doc": [{"index": 1, "score": 1}], "missing_facts": ["the limit"]}'
+    worse = '{"per_doc": [{"index": 1, "score": 0}], "missing_facts": ["the limit", "x"]}'
+    r, llm = _DegradingRetriever(), _FakeLLM([first, worse])
+    tool = get_tool("corrective_search", retriever=r, llm=llm, max_cycles=1)
+    with capture_search_nodes() as sink:
+        tool.call(query="q")
+    assert [nws.node.metadata["doc_id"] for nws in sink] == ["d1"]

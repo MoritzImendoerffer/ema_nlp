@@ -27,6 +27,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import uuid
@@ -160,9 +161,9 @@ CREATE TABLE IF NOT EXISTS feedbacks (
 """
 
 # ── MLflow tracing setup ──────────────────────────────────────────────────────
-# autolog instruments every LlamaIndex call (the workflow stack AND the agent), so
-# each turn becomes one MLflow trace; WorkflowRunner adds an explicit root span that
-# carries the resolved ema.* config. Feedback (👍/👎) attaches to the trace below.
+# autolog instruments every LlamaIndex call, so each turn becomes one MLflow trace;
+# the AgentWorkflowAdapter adds an explicit turn span that carries the resolved
+# ema.* recipe config. Feedback (👍/👎) attaches to the trace below.
 if not TRACING_DISABLED:
     try:
         from harness.obs import setup_tracing
@@ -248,17 +249,16 @@ def _load_index_sync(profile_name: str) -> Any:
     """Open (no rebuild) the index for ``profile_name`` via the registry dispatch,
     so a non-property_graph profile loads its own store. ``open_index`` also sets
     ``Settings.embed_model`` (used by the semantic-cache query embedding). Keeps
-    ``EMA_INDEX_PROFILE`` in the env so invoke-time tracing
-    (``utils.retriever_attributes`` / ``WorkflowRunner._stamp_span``) reports the
-    live profile after a switch."""
+    ``EMA_INDEX_PROFILE`` in the env for code that resolves the default profile
+    from the environment."""
     from harness.indexing import load_index_profile, open_index
 
     profile = load_index_profile(profile_name)
     log.info("Loading index profile %s", profile.name)
     index = open_index(profile)
-    # Only after the open succeeds: keep invoke-time tracing
-    # (utils.retriever_attributes / WorkflowRunner._stamp_span read EMA_INDEX_PROFILE
-    # via os.getenv) in sync. On a FAILED switch the env stays on the old profile.
+    # Only after the open succeeds. On a FAILED switch the env stays on the old
+    # profile. (Turn spans stamp the SESSION's profile, not this process-global
+    # env — concurrent sessions must not mis-stamp each other, F13.)
     os.environ["EMA_INDEX_PROFILE"] = profile_name
     return index
 
@@ -273,7 +273,7 @@ def _embed_query_sync(query: str) -> np.ndarray | None:
         return None
 
 
-def _build_session_sync(
+def _build_pipeline_sync(
     index: Any,
     recipe_name: str,
     *,
@@ -328,7 +328,7 @@ def _make_chat_settings(current: dict) -> cl.ChatSettings:
 
 
 def _settings_to_kwargs(settings: dict) -> dict:
-    """Map raw widget values → _build_session_sync kwargs (recipe + live overrides)."""
+    """Map raw widget values → _build_pipeline_sync kwargs (recipe + live overrides)."""
     return {
         "recipe_name": _resolve_recipe_name(str(settings.get("recipe", ""))),
         "model":       str(settings.get("model", "claude_opus")),
@@ -358,8 +358,10 @@ def _seed_settings(recipe_name: str) -> dict:
 
 
 def _init_cache_sync():
-    from harness.query_cache import QueryCache
-    return QueryCache()
+    # Process-wide shared instance: separate per-session instances clobber each
+    # other's entries/ratings on save (F4).
+    from harness.query_cache import get_query_cache
+    return get_query_cache()
 
 
 # ── Chainlit lifecycle ────────────────────────────────────────────────────────
@@ -387,7 +389,7 @@ async def on_chat_start() -> None:
     log.info("Session started: %s", session_id)
 
     pipeline = await asyncio.to_thread(
-        _build_session_sync, index, recipe_name,
+        _build_pipeline_sync, index, recipe_name,
         model=seed["model"], temperature=float(seed["temperature"]),
         retrieval_k=int(seed["retrieval_k"]),
     )
@@ -413,11 +415,19 @@ async def on_chat_start() -> None:
 @cl.on_chat_resume
 async def on_chat_resume(thread: dict) -> None:
     # auto_tag_thread is disabled (it breaks thread persistence on the SQLite data layer —
-    # see .chainlit/config.toml), so resume falls back to the default recipe; the panel is
-    # the live source of truth thereafter.
+    # see .chainlit/config.toml), so the panel's recipe choice is not persisted per thread.
+    # Best effort (F19): restore the recipe from the thread's chat_profile metadata (the
+    # profile that seeded it); if none, fall back to the default — and SAY so either way,
+    # instead of silently reverting a non-default thread.
     from harness.recipes import get_recipe
 
-    recipe_name = _resolve_recipe_name(None)
+    meta = thread.get("metadata") or {}
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except Exception:
+            meta = {}
+    recipe_name = _resolve_recipe_name(meta.get("chat_profile") if isinstance(meta, dict) else None)
     recipe = get_recipe(recipe_name)
     seed = _seed_settings(recipe_name)
     log.info("Resuming thread %s — recipe=%s", thread.get("id"), recipe_name)
@@ -429,7 +439,7 @@ async def on_chat_resume(thread: dict) -> None:
         raise
 
     pipeline = await asyncio.to_thread(
-        _build_session_sync, index, recipe_name,
+        _build_pipeline_sync, index, recipe_name,
         model=seed["model"], temperature=float(seed["temperature"]),
         retrieval_k=int(seed["retrieval_k"]),
     )
@@ -449,6 +459,10 @@ async def on_chat_resume(thread: dict) -> None:
     cl.user_session.set("msg_counter", step_count)
 
     await _make_chat_settings(seed).send()
+    await cl.Message(
+        content=f"Resumed with recipe **{recipe.display_label}**. Mid-thread recipe changes "
+        "are not persisted — re-select in Settings if this thread used a different one."
+    ).send()
 
 
 # ── Settings update ───────────────────────────────────────────────────────────
@@ -475,29 +489,48 @@ async def on_settings_update(settings: dict) -> None:
         try:
             index = await asyncio.to_thread(_load_index_sync, new_profile)
         except Exception as exc:
-            await cl.Message(content=f"Profile switch failed: {exc}").send()
+            # Keep session state AND the panel consistent with what actually runs:
+            # snap the widgets back to the previous settings so the UI does not show
+            # a recipe/profile that failed to load (F19).
+            prev = cl.user_session.get("settings") or _seed_settings(
+                cl.user_session.get("recipe_name", _resolve_recipe_name(None))
+            )
+            await cl.Message(
+                content=f"Profile switch failed: {exc} — keeping `{old_profile}` and the "
+                "previous recipe."
+            ).send()
+            await _make_chat_settings(prev).send()
             return
         cl.user_session.set("index", index)
         cl.user_session.set("index_profile", new_profile)
 
     pipeline = await asyncio.to_thread(
-        _build_session_sync, index, kwargs["recipe_name"],
+        _build_pipeline_sync, index, kwargs["recipe_name"],
         model=kwargs["model"], temperature=kwargs["temperature"], retrieval_k=kwargs["retrieval_k"],
     )
+    prev_settings = cl.user_session.get("settings") or {}
     cl.user_session.set("pipeline", pipeline)
     cl.user_session.set("recipe", recipe)
     cl.user_session.set("recipe_name", kwargs["recipe_name"])
     cl.user_session.set("settings", settings)
 
-    cache_enabled = bool(settings.get("cache_enabled", True))
-    if not cache_enabled:
-        cl.user_session.set("cache", None)
-    elif cl.user_session.get("cache") is None:
+    # Cache toggle semantics (F19): OFF disables cache *reads* (reuse offers + few-shot
+    # injection) only — new answers and 👍/👎 ratings keep persisting so the learning
+    # signal never silently stops accruing. The gate is read from session settings in
+    # _run_pipeline; the cache instance itself stays available.
+    if cl.user_session.get("cache") is None:
         cache = await asyncio.to_thread(_init_cache_sync)
         cl.user_session.set("cache", cache)
+    cache_enabled = bool(settings.get("cache_enabled", True))
+    was_enabled = bool(prev_settings.get("cache_enabled", True))
+    if was_enabled and not cache_enabled:
+        await cl.Message(
+            content="Semantic cache reuse + few-shot injection **off** — new answers and "
+            "👍/👎 ratings are still recorded."
+        ).send()
 
 
-# ── Pipeline (one turn, stateless WorkflowRunner) ────────────────────────────
+# ── Pipeline (one turn, stateless AgentWorkflowAdapter.ainvoke) ──────────────
 
 async def _run_pipeline(query: str, msg_num: int) -> None:
     from harness.fewshot_inject import get_fewshot_context
@@ -506,6 +539,8 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
 
     pipeline: Any = cl.user_session.get("pipeline")
     cache: QueryCache | None = cl.user_session.get("cache")
+    # Cache toggle gates READS only (reuse offers + few-shot); writes always persist (F19).
+    cache_reads = bool((cl.user_session.get("settings") or {}).get("cache_enabled", True))
     run_id = str(uuid.uuid4())
     trace_id = ""
     result: dict = {}
@@ -519,7 +554,11 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
         attributes={
             "ema.run.id": run_id,
             "ema.run.source": "chainlit",
-            "ema.index.profile": os.getenv("EMA_INDEX_PROFILE", "neo4j_hier"),
+            # The SESSION's profile, not the process-global env — a concurrent
+            # session's profile switch must not mis-stamp this turn (F13).
+            "ema.index.profile": cl.user_session.get(
+                "index_profile", os.getenv("EMA_INDEX_PROFILE", "neo4j_hier")
+            ),
         },
     ) as turn_span:
         if turn_span is not None:
@@ -531,8 +570,14 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
         query_vec = await asyncio.to_thread(_embed_query_sync, query)
 
         # ── Cache lookup ──────────────────────────────────────────────────────
-        if cache is not None and query_vec is not None:
-            cache_hits = cache.get_similar(query_vec, k=3)
+        if cache is not None and cache_reads and query_vec is not None:
+            # Offer only entries not rated bad: 👎 (1.0) answers must not be
+            # recycled; unrated entries stay eligible (F19).
+            cache_hits = [
+                (entry, sim)
+                for entry, sim in cache.get_similar(query_vec, k=3)
+                if entry.rating is None or entry.rating >= 4.0
+            ]
             if cache_hits:
                 lines = ["Similar past questions found:\n"]
                 for i, (entry, sim) in enumerate(cache_hits):
@@ -589,9 +634,15 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
         recipe = cl.user_session.get("recipe")
         fewshot = getattr(recipe, "fewshot", None)
         few_shot_block = ""
-        if fewshot is not None and fewshot.enabled and query_vec is not None:
+        if fewshot is not None and fewshot.enabled and cache_reads and query_vec is not None:
             few_shot_block = (
-                get_fewshot_context(query_vec, cache, k=fewshot.k, min_rating=fewshot.min_rating)
+                get_fewshot_context(
+                    query_vec,
+                    cache,
+                    k=fewshot.k,
+                    min_rating=fewshot.min_rating,
+                    min_examples=fewshot.min_examples,
+                )
                 or ""
             )
 

@@ -87,9 +87,14 @@ Pass any question as the argument. The answer is a Pydantic `RegulatoryAnswer`
 
 ```python
 import config
-from harness.agents.session import build_session
-session = build_session(experiment="ema_nlp")        # add enable_tracing=True for autolog (task 2)
-answer = session.run("Which committee sets nitrosamine limits?", record=True)
+from harness.indexing import load_index_profile, open_index
+from harness.recipes import build_recipe, default_recipe_name, get_recipe
+
+recipe = get_recipe(default_recipe_name())            # or get_recipe("crag_agentic") etc.
+index = open_index(load_index_profile(recipe.index_profile))
+runner = build_recipe(recipe, index)                  # AgentWorkflowAdapter (invoke/ainvoke)
+result = runner.invoke({"question": "Which committee sets nitrosamine limits?"})
+answer = result["answer"]                             # RegulatoryAnswer
 print(answer.answer, [c.source_url for c in answer.citations])
 ```
 
@@ -107,7 +112,7 @@ reproducibility without `log_model`.
 MLFLOW_ALLOW_FILE_STORE=true mlflow ui --backend-store-uri ./mlruns   # → http://localhost:5000
 ```
 
-**Autolog (trace spans).** `build_session(enable_tracing=True)` (what the demo uses) enables
+**Autolog (trace spans).** `setup_tracing(default_experiment())` (what the demo script does) enables
 `mlflow.llama_index.autolog()` — every retrieval / tool call / LLM call becomes a span. Verified
 (T3): traces **complete** (`state=OK`); the mlflow#13352 "In Progress" hang does **not** occur on
 mlflow 3.14 + llama-index 0.14. View them in the **Traces** tab of the run. If autolog ever hangs
@@ -195,8 +200,13 @@ result = run_evaluation(data, predict_fn=predict_fn, scorers=judges, experiment=
 row (so it's slower: it loads the index + reranker and `evaluate` also does a validation pre-run):
 
 ```python
-from harness.agents.session import build_session
-predict_fn = build_predict_fn(build_session(experiment="ema_eval"))   # question -> {answer, citations, ...}
+from harness.indexing import load_index_profile, open_index
+from harness.recipes import build_recipe, get_recipe
+
+recipe = get_recipe("naive_rag")                       # the recipe under evaluation
+index = open_index(load_index_profile(recipe.index_profile))
+runner = build_recipe(recipe, index)
+predict_fn = build_predict_fn(runner)   # question -> {answer, citations, ..., context_passages}
 result = run_evaluation(data, predict_fn=predict_fn, scorers=judges, experiment="ema_eval")
 ```
 
@@ -250,7 +260,7 @@ Then walk [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md) T1→T6 for the l
 
 | Concern | File | Key knobs |
 |---|---|---|
-| Agent | `harness/configs/agent/regulatory.yaml` | `model_role`, `system_prompt`, `tools`, `output_schema`, `retrieval_profile`, `fewshot` |
+| Recipe (agent + retrieval + generation) | `harness/configs/recipes/*.yaml` | `system_prompt`, `tools`, `output_schema`, `index_profile`, `pipeline`, `model`, `fewshot`, `judge` |
 | Retrieval pipeline | `harness/configs/retrieval/native.yaml` | `query_transform` (none/acronym/llm_rewrite), `rerank` (cross_encoder/llm_sme), `k`, `rerank_top_n`, `graph_mode` |
 | Models & roles | `harness/configs/models.yaml` | `models:` defs + `roles:` (agent/grader/judge/reranker/…) |
 | Ontology schema | `harness/configs/ontology/ema.yaml` | `entities`, `relations` |

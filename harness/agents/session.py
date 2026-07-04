@@ -2,11 +2,10 @@
 
 ``assemble_agent`` is the pure wiring (testable offline): it builds the query
 transform + rerankers from a :class:`RetrievalPipelineConfig` and constructs the
-FunctionAgent with ``ema_search`` bound to that pipeline. ``build_session`` is the
-runtime entry point — it opens the Neo4j index, builds the base retriever via the
-existing ``harness.indexing`` pipeline, builds the LLM, and wires the agent
-(verified live on the GPU host). ``AgentSession.arun`` runs a query to a
-``RegulatoryAnswer`` and optionally records an MLflow run.
+FunctionAgent with ``ema_search`` bound to that pipeline. The runtime entry point
+is :func:`harness.recipes.build_recipe` — the single composition path (F6); it
+opens nothing here, the caller supplies the retriever + LLM. ``AgentSession.arun``
+runs a query to a ``RegulatoryAnswer`` and optionally records an MLflow run.
 """
 
 import asyncio
@@ -16,7 +15,7 @@ from typing import Any
 
 from harness.agents.registry import build_agent
 from harness.agents.runner import arun_agent
-from harness.retrieval import build_postprocessors, get_transform, load_pipeline_config
+from harness.retrieval import build_postprocessors, get_transform
 from harness.schemas import RegulatoryAnswer
 
 log = logging.getLogger(__name__)
@@ -26,8 +25,7 @@ def assemble_agent(
     *,
     base_retriever: Any,
     llm: Any,
-    agent_name: str = "regulatory",
-    agent_config: Any = None,
+    agent_config: Any,
     pipeline_config: Any = None,
     acronyms: dict[str, str] | None = None,
     fetcher: Any = None,
@@ -35,9 +33,9 @@ def assemble_agent(
     """Wire a FunctionAgent whose ``ema_search`` runs the config-driven pipeline.
 
     Pure assembly — no index/LLM is opened here. Pass ``pipeline_config=None`` for a
-    plain retrieve (no transform/rerank). ``agent_config`` (an ``AgentConfig``) lets a
-    caller supply the toolset/prompt/schema inline (e.g. from a recipe) instead of
-    loading ``configs/agent/<agent_name>.yaml``; when ``None`` the named YAML is used.
+    plain retrieve (no transform/rerank). ``agent_config`` (an ``AgentConfig``,
+    normally derived from a recipe by ``build_recipe``) supplies the
+    toolset/prompt/schema — there is no separate agent YAML (F6).
     """
     transform = None
     postprocessors: list = []
@@ -50,7 +48,6 @@ def assemble_agent(
             pipeline_config.rerank, top_n=pipeline_config.rerank_top_n, llm=llm
         )
     return build_agent(
-        agent_name,
         llm=llm,
         config=agent_config,
         retriever=base_retriever,
@@ -86,41 +83,3 @@ class AgentSession:
 
     def run(self, query: str, **kwargs: Any) -> RegulatoryAnswer:
         return asyncio.run(self.arun(query, **kwargs))
-
-
-def build_session(
-    *,
-    agent_name: str = "regulatory",
-    retrieval_profile: str | None = None,
-    pipeline_profile: str = "native",
-    model_name: str = "claude_opus",
-    temperature: float = 0.0,
-    experiment: str | None = None,
-    acronyms: dict[str, str] | None = None,
-    enable_tracing: bool = False,
-) -> AgentSession:
-    """Runtime entry point: open the index, build the retriever + LLM, wire the agent.
-
-    Needs Neo4j + model credentials (runtime; debugged on the GPU host).
-    """
-    from harness.indexing import build_retriever, load_index_profile, open_index
-    from harness.llms import get_llm_for_model
-
-    if enable_tracing:
-        from harness.obs import setup_tracing
-
-        setup_tracing(experiment or "ema_nlp")
-
-    profile = load_index_profile(retrieval_profile)
-    index = open_index(profile)
-    base_retriever = build_retriever(profile, index)
-    llm = get_llm_for_model(model_name, temperature_override=temperature)
-    pipeline_config = load_pipeline_config(pipeline_profile)
-    agent = assemble_agent(
-        base_retriever=base_retriever,
-        llm=llm,
-        agent_name=agent_name,
-        pipeline_config=pipeline_config,
-        acronyms=acronyms,
-    )
-    return AgentSession(agent=agent, pipeline_config=pipeline_config, experiment=experiment)

@@ -3,14 +3,13 @@ Export rated traces from MLflow to JSONL (migrated from Phoenix).
 
 Fetches traces in the MLflow experiment that carry a ``user_rating`` feedback
 assessment (written by the Chainlit 👍/👎 or a CLI), and serialises them as a
-reproducibility artifact for the labeling / bootstrap loop. The output schema is
-compatible with ``ablations/B_process_rewards/trajectory_labels.jsonl``.
+reproducibility artifact for the labeling / bootstrap loop.
 
 Usage::
 
     python3 -m harness.export_traces \\
         --min-rating 4 \\
-        --output ablations/B_process_rewards/trajectory_labels.jsonl
+        --output results/trajectory_labels.jsonl
 
     # Or call from Python:
     from harness.export_traces import export_rated_traces

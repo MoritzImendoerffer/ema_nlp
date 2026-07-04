@@ -31,6 +31,10 @@ class FewshotPolicy:
     source: str = "cache"  # rated query cache
     k: int = 3
     min_rating: float = 4.0
+    # Suppress injection below this many qualifying examples. Default 1: inject as
+    # soon as a single well-rated similar interaction exists (a hardcoded 3 made
+    # injection unreachable for k<3 recipes and untunable, F7).
+    min_examples: int = 1
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> FewshotPolicy:
@@ -40,6 +44,7 @@ class FewshotPolicy:
             source=str(d.get("source", "cache")),
             k=int(d.get("k", 3)),
             min_rating=float(d.get("min_rating", 4.0)),
+            min_examples=int(d.get("min_examples", 1)),
         )
 
 
@@ -120,7 +125,12 @@ class Recipe:
         fewshot: dict[str, Any] = {"enabled": self.fewshot.enabled}
         if self.fewshot.enabled:
             fewshot.update(
-                {"source": self.fewshot.source, "k": self.fewshot.k, "min_rating": self.fewshot.min_rating}
+                {
+                    "source": self.fewshot.source,
+                    "k": self.fewshot.k,
+                    "min_rating": self.fewshot.min_rating,
+                    "min_examples": self.fewshot.min_examples,
+                }
             )
         judge: dict[str, Any] = {"enabled": self.judge.enabled}
         if self.judge.enabled:

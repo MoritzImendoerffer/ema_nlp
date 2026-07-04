@@ -17,7 +17,7 @@ Usage::
 
     context = get_fewshot_context(query_vec, cache, k=3, min_rating=4)
     # context is None  → no injection (not enough rated examples)
-    # context is str   → pass as few_shot_context to WorkflowRunner.invoke()
+    # context is str   → pass as few_shot_context to AgentWorkflowAdapter.ainvoke()
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def get_fewshot_context(
     *,
     k: int = 3,
     min_rating: float = 4.0,
-    min_examples: int = 3,
+    min_examples: int = 1,
 ) -> str | None:
     """
     Build a few-shot prefix from top-k rated cache entries similar to query_vec.
@@ -58,7 +58,9 @@ def get_fewshot_context(
         cache:         QueryCache instance.
         k:             Maximum number of examples to include.
         min_rating:    Minimum rating threshold (default 4 out of 5).
-        min_examples:  Suppress injection if fewer than this many candidates exist.
+        min_examples:  Suppress injection if fewer than this many candidates exist
+                       (tunable per recipe via ``FewshotPolicy.min_examples``; must be
+                       ≤ k to be reachable — ``get_similar`` returns at most k hits).
 
     Returns:
         Formatted few-shot string or None if injection is suppressed.

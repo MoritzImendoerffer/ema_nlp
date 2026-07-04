@@ -50,6 +50,7 @@ recipe:
       enabled: false
       k: 3
       min_rating: 4
+      min_examples: 1                     # suppress injection below this many qualifying hits (≤ k)
 
   generation:
     model: claude_opus                    # models.yaml model name (live-overridable in the UI)

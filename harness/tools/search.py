@@ -59,6 +59,20 @@ def capture_search_nodes() -> Iterator[list]:
         _NODE_SINK.reset(token)
 
 
+def passages_from_nodes(nodes: list) -> list[str]:
+    """Full passage texts from captured ``NodeWithScore`` objects (empties dropped).
+
+    The shared extraction for everything that grades faithfulness against the real
+    retrieval: the workflow adapter's ``context_passages`` result key and the eval
+    ``predict_fn`` both use it, so the inline and offline judges see the same context.
+    """
+    return [
+        text
+        for nws in nodes
+        if (text := (getattr(getattr(nws, "node", nws), "text", "") or "").strip())
+    ]
+
+
 def format_nodes(nodes: list) -> str:
     """Render retrieved nodes as a numbered, source-tagged context string."""
     if not nodes:
