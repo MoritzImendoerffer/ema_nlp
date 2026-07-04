@@ -366,12 +366,12 @@ capture correct (nested scopes, `finally` resets); `recipe.default`, `judge.enab
 
 | Date | Question | Decision | Recorded in |
 |------|----------|----------|-------------|
-| — | R1-Q1 multi-agent sequences | *open* | |
-| — | R1-Q2 graph walk: tool vs retriever-internal | *open* | |
-| — | R1-Q3 reviewer: soft / hard / both | *open* | |
-| — | R2-Q1/Q2 subgraph purpose + attributes | *open* | |
-| — | R3-Q1 embed-model single source of truth | *open* | |
-| — | R4-Q1/Q2 external-tool policy + citation marking | *open* | |
-| — | R5-Q1 comparison unit (traces vs eval runs) | *open* | |
-| — | R6-Q1 system of record for results | *open* | |
-| — | R7-Q1 schema option A/B | *open* | |
+| — | R1-Q1 multi-agent sequences | *one agent with multiple tool calls is probably enough, look for literature on this topic, latest recommentations seem to recommend single agent versus multi agent orchestrations. Where would an option for multiple agents make sense?* | |
+| — | R1-Q2 graph walk: tool vs retriever-internal | *because the graph is so huge, I doubth the agent would be capable of doing that. So I guess a better way is to have specialized tools for that. Nevertheless, a tool could be another agent or LLM to handle e.g. complex ontologies or other complex topics. A simple recursive retriever or a single node topology algorithm might be better off than the main agent deciding which nodes to fetch. Let`s think together on a clear strategy* | |
+| — | R1-Q3 reviewer: soft / hard / both | *a recommendataion seems to be easier to implement. In the final answer, certainty of the statements should be visible.* | |
+| — | R2-Q1/Q2 subgraph purpose + attributes | *I do not have a clear strategy at the moment. It could be simple keywords to add, links from substance links or event an ontology. The purpose would be to improve the scope of the retrieval.* | |
+| — | R3-Q1 embed-model single source of truth | *I stick to your recommendations, yes. "the index profile should be the single source of truth for the embedding model"* | |
+| — | R4-Q1/Q2 external-tool policy + citation marking | *I stick to your recommendation, yes it should be clear where the context came from and it should be possible to define what is allowed* | |
+| — | R5-Q1 comparison unit (traces vs eval runs) | *i agree with your recommendations* | |
+| — | R6-Q1 system of record for results | *I would to for MLFlow to be the primary system of record for results.* | |
+| — | R7-Q1 schema option A/B | *I stick to the recommendations* | |
