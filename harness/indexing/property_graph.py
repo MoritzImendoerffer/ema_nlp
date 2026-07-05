@@ -66,12 +66,15 @@ def neo4j_store_from_env() -> Neo4jPropertyGraphStore:
     )
 
 
-def _embed_model() -> Any:
+def _embed_model(model_name: str | None = None) -> Any:
+    """Configure + return the embedder. Pass the PROFILE's ``embed_model`` so the
+    index profile is the single source of truth for the embedding space (F12/R3-Q1);
+    ``EMA_EMBED_MODEL`` remains the fallback only when no profile is in play."""
     from llama_index.core import Settings
 
     from harness.providers import configure_embed_model
 
-    configure_embed_model()
+    configure_embed_model(model_name)
     return Settings.embed_model
 
 
@@ -435,7 +438,7 @@ def build_property_graph_index(
     and vectors are untouched) — use it with ``links_only=True`` to re-extract the link
     graph after a links.py change without re-embedding.
     """
-    embed = embed_model or _embed_model()
+    embed = embed_model or _embed_model(profile.index.embed_model)
     store = neo4j_store_from_env()
     if reset:
         store.structured_query("MATCH (n) DETACH DELETE n")
@@ -476,7 +479,7 @@ def open_index(profile: IndexProfile | None = None) -> PropertyGraphIndex:
     """Open the existing Neo4j PropertyGraphIndex without rebuilding (no re-embed)."""
     return PropertyGraphIndex.from_existing(
         property_graph_store=neo4j_store_from_env(),
-        embed_model=_embed_model(),
+        embed_model=_embed_model(profile.index.embed_model if profile else None),
         llm=MockLLM(),
         kg_extractors=[],
         embed_kg_nodes=False,
@@ -540,7 +543,9 @@ def build_hierarchical_retriever(
 ) -> BaseRetriever:
     return HierarchicalPGRetriever(
         index.property_graph_store,
-        _embed_model(),  # configure + return BGE; index._embed_model is None after from_existing
+        # configure + return the profile's embedder; index._embed_model is None
+        # after from_existing
+        _embed_model(profile.index.embed_model),
         k=profile.retrieval.k,
         merge=profile.retrieval.merge,
     )

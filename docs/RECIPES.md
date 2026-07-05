@@ -59,7 +59,10 @@ recipe:
   judge:                                  # optional post-generation judge layer
     enabled: false
     judges: [faithfulness]                # gold-free judges run inline (correctness is eval-only)
-    model_role: judge
+    model_role: judge                     # models.yaml role (e.g. judge or reviewer)
+    threshold: null                       # 1-5; set to enable the soft reviewer gate (F18):
+    on_fail: annotate                     #   score < threshold → visible caution note (advisory,
+                                          #   never blocks); verdict stamped as ema.judge.passed
 ```
 
 ### Opt-in stages (off by default → GPU-light)
@@ -68,7 +71,9 @@ recipe:
 - **`retrieval.fewshot.enabled`** — inject the top-k rated past answers (👍=5/👎=1 in the
   semantic cache) as few-shot examples. Needs ≥ `min_examples` rated entries to fire.
 - **`judge.enabled`** — run gold-free judges (`faithfulness`) on each answer vs its context;
-  the score is shown in the chat and logged to MLflow as an LLM-judge assessment.
+  the score is shown in the chat and logged to MLflow as an LLM-judge assessment. Add
+  `judge.threshold` to turn the score into a *recommendation*: a below-threshold (or
+  unscorable) answer ships with a visible ⚠️ caution note — it is never blocked.
 
 ## Transparency (MLflow)
 

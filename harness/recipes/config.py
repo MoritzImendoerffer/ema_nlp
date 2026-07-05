@@ -39,9 +39,17 @@ class FewshotPolicy:
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> FewshotPolicy:
         d = d or {}
+        source = str(d.get("source", "cache"))
+        # Only the rated query cache exists as a few-shot source. A recipe naming
+        # a source that doesn't exist must fail loudly, not run the cache while
+        # the trace stamps something else (F10, honest stamping).
+        if source != "cache":
+            raise ValueError(
+                f"fewshot.source {source!r} is not implemented (only 'cache' exists)"
+            )
         return cls(
             enabled=bool(d.get("enabled", False)),
-            source=str(d.get("source", "cache")),
+            source=source,
             k=int(d.get("k", 3)),
             min_rating=float(d.get("min_rating", 4.0)),
             min_examples=int(d.get("min_examples", 1)),
@@ -50,19 +58,36 @@ class FewshotPolicy:
 
 @dataclass
 class JudgePolicy:
-    """Optional post-generation judge layer (wired in Phase 3)."""
+    """Optional post-generation judge layer, with a soft reviewer gate (F18).
+
+    ``threshold`` (1–5 judge scale) turns the score into a *recommendation*
+    (R1-Q3, owner decision): a below-threshold answer is delivered with a visible
+    caution note — never blocked or retried (``on_fail: annotate`` is the only
+    implemented mode; naming an unimplemented one is a config error).
+    ``model_role`` binds the judging model (models.yaml role, e.g. ``reviewer``).
+    """
 
     enabled: bool = False
     judges: list[str] = field(default_factory=list)  # e.g. ["faithfulness", "correctness"]
     model_role: str = "judge"
+    threshold: float | None = None  # None = score-only, no verdict
+    on_fail: str = "annotate"
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> JudgePolicy:
         d = d or {}
+        raw_threshold = d.get("threshold")
+        on_fail = str(d.get("on_fail", "annotate"))
+        if on_fail != "annotate":
+            raise ValueError(
+                f"judge.on_fail {on_fail!r} is not implemented (only 'annotate' exists)"
+            )
         return cls(
             enabled=bool(d.get("enabled", False)),
             judges=list(d.get("judges", [])),
             model_role=str(d.get("model_role", "judge")),
+            threshold=float(raw_threshold) if raw_threshold is not None else None,
+            on_fail=on_fail,
         )
 
 
@@ -135,6 +160,8 @@ class Recipe:
         judge: dict[str, Any] = {"enabled": self.judge.enabled}
         if self.judge.enabled:
             judge.update({"judges": self.judge.judges, "model_role": self.judge.model_role})
+            if self.judge.threshold is not None:
+                judge.update({"threshold": self.judge.threshold, "on_fail": self.judge.on_fail})
 
         retrieval: dict[str, Any] = {
             "index_profile": self.index_profile,

@@ -63,12 +63,12 @@ def _parse_score(text: str) -> JudgeScore:
 
 
 class Judge:
-    """LLM judge backed by the model assigned to the 'judge' role in models.yaml."""
+    """LLM judge backed by a models.yaml role (default: the 'judge' role)."""
 
-    def __init__(self, llm: Any = None) -> None:
+    def __init__(self, llm: Any = None, *, model_role: str = "judge") -> None:
         if llm is None:
             from harness.llms import get_llm
-            llm = get_llm("judge")
+            llm = get_llm(model_role)
         self._llm = llm
         self._faithfulness_tmpl = _load_prompt("faithfulness")
         self._correctness_tmpl = _load_prompt("correctness")

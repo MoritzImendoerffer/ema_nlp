@@ -14,10 +14,12 @@ index:
   chunking:
     parser: hierarchical            # multi-level; parent/child kept (R4/FR6)
     chunk_sizes: [2048, 512, 128]   # big -> small, for small-to-big retrieval
-  scope:                            # subset-first (R3): cap ingestion for fast iteration
+  scope:                            # subset selector applied during ingestion
     committee: []                   # [] = all committees
     topic_prefix: ""                # "" = no topic filter
-    limit: 50                       # cap on documents ingested (raise/remove for full corpus)
+    limit: null                     # null = FULL corpus (matches the live 79,882-doc graph).
+                                    # Set a small number (e.g. 50) only in a $EMA_CONFIG_DIR
+                                    # override profile for CPU iteration — never here (F11).
 
 retrieval:
   strategy: hierarchical            # small-to-big merge + links-to traversal (v1)

@@ -10,9 +10,20 @@ See ``docs/TARGET_ARCHITECTURE.md`` §4.6. The reward signal is an *aligned* jud
 DSPy is the optimizer; the agent few-shot is the policy.
 """
 
-from harness.eval.bootstrap import Exemplar, compile_fewshot, generate_exemplars, judge_filter
+from harness.eval.bootstrap import (
+    Exemplar,
+    compile_fewshot,
+    faithfulness_judge,
+    generate_exemplars,
+    judge_filter,
+)
 from harness.eval.evaluate import run_evaluation
-from harness.eval.inline_judge import JudgeResult, run_inline_judges, runtime_judges
+from harness.eval.inline_judge import (
+    JudgeResult,
+    review_verdict,
+    run_inline_judges,
+    runtime_judges,
+)
 from harness.eval.judges import (
     align_judge,
     build_judge,
@@ -31,11 +42,13 @@ __all__ = [
     "build_predict_fn",
     "compile_fewshot",
     "ema_judges",
+    "faithfulness_judge",
     "generate_exemplars",
     "judge_filter",
     "judge_model_uri",
     "load_benchmark",
     "load_judge_instructions",
+    "review_verdict",
     "run_evaluation",
     "run_inline_judges",
     "run_recipe_benchmark",

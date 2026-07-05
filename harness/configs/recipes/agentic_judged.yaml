@@ -19,3 +19,5 @@ recipe:
     enabled: true
     judges: [faithfulness]
     model_role: judge
+    threshold: 3        # soft reviewer gate (F18): score < 3 adds a visible caution
+    on_fail: annotate   # advisory only — the answer always ships (owner decision R1-Q3)

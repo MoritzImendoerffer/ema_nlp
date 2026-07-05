@@ -262,7 +262,7 @@ Then walk [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md) T1→T6 for the l
 | Concern | File | Key knobs |
 |---|---|---|
 | Recipe (agent + retrieval + generation) | `harness/configs/recipes/*.yaml` | `system_prompt`, `tools`, `output_schema`, `index_profile`, `pipeline`, `model`, `fewshot`, `judge` |
-| Retrieval pipeline | `harness/configs/retrieval/native.yaml` | `query_transform` (none/acronym/llm_rewrite), `rerank` (cross_encoder/llm_sme), `k`, `rerank_top_n`, `graph_mode` |
+| Retrieval pipeline | `harness/configs/retrieval/native.yaml` | `query_transform` (none/acronym/llm_rewrite), `rerank` (cross_encoder/llm_sme), `rerank_top_n` — retrieval `k` lives in the index profile |
 | Models & roles | `harness/configs/models.yaml` | `models:` defs + `roles:` (agent/grader/judge/reranker/…) |
 | Ontology schema | `harness/configs/ontology/ema.yaml` | `entities`, `relations` |
 | Index profile | `harness/configs/index/neo4j_hier.yaml` | `embed_model`, `chunking`, `scope` (ingest cap), `retrieval` |

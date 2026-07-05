@@ -33,7 +33,10 @@ def test_default_profile_parses():
     assert p.index.store.graph == "neo4j"
     assert p.index.chunking.parser == "hierarchical"
     assert p.index.chunking.chunk_sizes == [2048, 512, 128]
-    assert p.index.scope.limit == 50
+    # The SHIPPED default must be the full corpus — a checked-in cap silently
+    # shrinks a rebuild to a toy graph (F11). CPU-iteration caps belong in an
+    # $EMA_CONFIG_DIR override profile.
+    assert p.index.scope.limit is None
     assert p.retrieval.strategy == "hierarchical"
     assert p.retrieval.merge is True
     assert p.retrieval.graph.edge_types == ["links_to"]
@@ -168,3 +171,36 @@ def test_unregistered_index_kind_raises():
 def test_unregistered_retriever_raises():
     with pytest.raises(NotImplementedError, match="bm25"):
         build_retriever(_minimal_profile(strategy="bm25"), index=None)
+
+
+# ── $EMA_CONFIG_DIR override (F9) ────────────────────────────────────────────
+
+def test_load_index_profile_honors_ema_config_dir(tmp_path, monkeypatch):
+    external = tmp_path / "index"
+    external.mkdir()
+    (external / "neo4j_hier.yaml").write_text(
+        textwrap.dedent(
+            """
+            index:
+              kind: property_graph
+              scope: {limit: 7}
+            retrieval:
+              strategy: hierarchical
+              k: 4
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EMA_CONFIG_DIR", str(tmp_path))
+    p = load_index_profile("neo4j_hier")  # external shadows the built-in
+    assert p.index.scope.limit == 7
+    assert p.retrieval.k == 4
+
+    monkeypatch.delenv("EMA_CONFIG_DIR")
+    assert load_index_profile("neo4j_hier").index.scope.limit is None  # built-in again
+
+
+def test_load_index_profile_unknown_lists_available(monkeypatch):
+    monkeypatch.delenv("EMA_CONFIG_DIR", raising=False)
+    with pytest.raises(FileNotFoundError, match="neo4j_hier"):
+        load_index_profile("does_not_exist")

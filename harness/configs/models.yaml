@@ -46,4 +46,4 @@ roles:
   rewriter: claude_haiku   # CRAG query rewriter
   reranker: claude_haiku   # A3/A4 LLM reranker
   judge:    claude_opus    # faithfulness + correctness judge (opus for reliability)
-  reviewer: claude_opus    # post-generation answer reviewer
+  reviewer: claude_opus    # post-generation answer reviewer — bind via a recipe's judge.model_role: reviewer

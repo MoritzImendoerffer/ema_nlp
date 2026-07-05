@@ -186,14 +186,28 @@ def resolve_profile_name(name: str | None = None) -> str:
 
 
 def load_index_profile(name: str | None = None, *, profile_dir: Path | None = None) -> IndexProfile:
-    """Load and parse the named profile (or the env-selected / default one)."""
+    """Load and parse the named profile (or the env-selected / default one).
+
+    Profiles follow the same search path as recipes/prompts (F9): an explicit
+    ``profile_dir`` (tests) wins, else ``$EMA_CONFIG_DIR/index/`` shadows the
+    built-in ``harness/configs/index/``.
+    """
+    from harness.config_paths import find_config, list_config_stems
+
     name = resolve_profile_name(name)
-    profile_dir = profile_dir or PROFILE_DIR
-    path = profile_dir / f"{name}.yaml"
-    if not path.exists():
-        available = sorted(p.stem for p in profile_dir.glob("*.yaml")) if profile_dir.exists() else []
-        raise FileNotFoundError(
-            f"index profile {name!r} not found at {path}. Available: {available}"
-        )
+    if profile_dir is not None:
+        path = profile_dir / f"{name}.yaml"
+        if not path.exists():
+            available = sorted(p.stem for p in profile_dir.glob("*.yaml")) if profile_dir.exists() else []
+            raise FileNotFoundError(
+                f"index profile {name!r} not found at {path}. Available: {available}"
+            )
+    else:
+        path = find_config("index", f"{name}.yaml")
+        if path is None:
+            raise FileNotFoundError(
+                f"index profile {name!r} not found (searched $EMA_CONFIG_DIR/index and the "
+                f"built-in index/). Available: {list_config_stems('index')}"
+            )
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return IndexProfile.from_dict(name, data)

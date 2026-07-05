@@ -1,6 +1,9 @@
 """Unit tests for harness.eval.bootstrap + judges (pure parts)."""
 
+import pytest
+
 from harness.eval import Exemplar, generate_exemplars, judge_filter
+from harness.eval.bootstrap import faithfulness_judge
 from harness.eval.judges import align_judge, load_judge_instructions
 from harness.schemas import RegulatoryAnswer
 
@@ -26,9 +29,33 @@ def test_generate_exemplars_with_fake_teacher_and_judge():
     assert kept[0].question == "good q"
 
 
-def test_generate_exemplars_without_judge_scores_zero():
+def test_generate_exemplars_without_judge_marks_unjudged_and_filter_refuses():
+    # F16: a missing judge used to yield all-0.0 scores that judge_filter silently
+    # discarded, emptying the trainset. Now unjudged = score None, and filtering
+    # unjudged exemplars is a loud error.
     exemplars = generate_exemplars(["q"], teacher=lambda _q: RegulatoryAnswer(answer="a"))
-    assert exemplars[0].score == 0.0
+    assert exemplars[0].score is None
+    with pytest.raises(ValueError, match="unjudged"):
+        judge_filter(exemplars)
+
+
+def test_faithfulness_judge_composes_with_predict_output(monkeypatch):
+    # The adapter judge reads the prediction dict build_predict_fn produces
+    # (answer + context_passages) and returns a float — the expected signature.
+    import harness.judge as judge_mod
+
+    class _FakeJudge:
+        def __init__(self, llm=None, *, model_role="judge"):
+            pass
+
+        def faithfulness(self, question, answer, context):
+            assert context == ["passage"]
+            return {"score": 4, "reason": "grounded"}
+
+    monkeypatch.setattr(judge_mod, "Judge", _FakeJudge)
+    score_fn = faithfulness_judge()
+    score = score_fn("q", {"answer": "a", "context_passages": ["passage"]})
+    assert score == 4.0
 
 
 def test_load_judge_instructions_missing_raises():

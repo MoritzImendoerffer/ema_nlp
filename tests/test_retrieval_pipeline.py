@@ -145,10 +145,13 @@ def test_load_native_pipeline_config():
     cfg = load_pipeline_config("native")
     assert isinstance(cfg, RetrievalPipelineConfig)
     assert cfg.query_transform == "acronym"
-    assert cfg.graph_mode == "links"
-    assert cfg.k == 20
     assert cfg.rerank == ["cross_encoder"]
-    assert "cypher_template" in cfg.sub_retrievers
+    assert cfg.rerank_top_n == 8
+    # The dead sub_retrievers/graph_mode/k fields were removed outright (F8):
+    # the config holds exactly what assemble_agent wires, nothing declared-only.
+    assert not hasattr(cfg, "sub_retrievers")
+    assert not hasattr(cfg, "graph_mode")
+    assert not hasattr(cfg, "k")
 
 
 def test_resolved_attributes_only_stamps_active_stages():
@@ -156,8 +159,8 @@ def test_resolved_attributes_only_stamps_active_stages():
     attrs = cfg.resolved_attributes()
     assert attrs["ema.retrieval.query_transform"] == "acronym"
     assert attrs["ema.retrieval.rerank"] == "cross_encoder"
-    # sub_retrievers / graph_mode / k are declared config but NOT wired -> not stamped as
-    # active, so the trace never advertises a retrieval stage that didn't run.
+    # The trace never advertises a retrieval stage that didn't run (F8: the
+    # formerly-declared-but-unwired knobs no longer exist at all).
     assert "ema.retrieval.graph_mode" not in attrs
     assert "ema.retrieval.sub_retrievers" not in attrs
     assert "ema.retrieval.k" not in attrs

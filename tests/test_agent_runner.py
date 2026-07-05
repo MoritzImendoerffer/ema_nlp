@@ -162,7 +162,7 @@ def test_run_agent_sync_wrapper():
 
 
 def test_arun_agent_stamps_config_without_recording_span():
-    cfg = RetrievalPipelineConfig(profile="x", graph_mode="links")
+    cfg = RetrievalPipelineConfig(profile="x", query_transform="acronym")
     agent = _FakeAgent(_FakeAgentOutput(response=_FakeChatMsg("z")))
     # stamping is best-effort and no-ops without an active recording span
     out = asyncio.run(arun_agent(agent, "q", pipeline_config=cfg))

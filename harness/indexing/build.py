@@ -62,9 +62,12 @@ def main() -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
-    configure_embed_model(device=args.embed_device, embed_batch_size=args.embed_batch)
-
     profile = load_index_profile(args.profile)
+    # The profile's embed_model is the single source of truth for the embedding
+    # space (F12/R3-Q1) — device/batch stay CLI/runtime concerns.
+    configure_embed_model(
+        profile.index.embed_model, device=args.embed_device, embed_batch_size=args.embed_batch
+    )
     if args.full:
         profile.index.scope.limit = None
     elif args.limit is not None:

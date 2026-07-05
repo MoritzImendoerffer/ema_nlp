@@ -7,7 +7,14 @@ the main corpus index, so cosine distances are directly comparable.
 
 Persistence layout (paths relative to INDEX_DIR from config.py):
     query_cache.faiss  — FAISS flat-IP index (inner product ≈ cosine on unit vecs)
-    query_cache.json   — sidecar: list of entry dicts, position == FAISS vector id
+    query_cache.json   — sidecar: ``{"embed_model": <name>, "entries": [...]}``;
+                         entry position == FAISS vector id. (A bare legacy list is
+                         still accepted; provenance is stamped on the next save.)
+
+Embedding-model provenance (F12): the sidecar records which embedding model
+produced the vectors. On a model switch the old cache files are moved aside
+(``*.bak-<model-slug>``) and the cache starts fresh instead of silently mixing
+embedding spaces.
 
 Usage:
     cache = get_query_cache()     # process-wide shared instance (loads or starts empty)
@@ -27,6 +34,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -64,10 +72,13 @@ class CacheEntry:
 class QueryCache:
     """FAISS-backed semantic cache for past query–answer interactions."""
 
-    def __init__(self, index_dir: Path = INDEX_DIR) -> None:
+    def __init__(self, index_dir: Path = INDEX_DIR, *, embed_model: str | None = None) -> None:
         self._faiss_path = index_dir / _FAISS_FILE
         self._json_path = index_dir / _JSON_FILE
         self._index_dir = index_dir
+        # The embedding model producing this cache's query vectors (provenance,
+        # F12). None = unknown/legacy: no mismatch check, stamped on next save.
+        self._embed_model = embed_model
         self._entries: list[CacheEntry] = []
         self._faiss_index: faiss.IndexFlatIP = faiss.IndexFlatIP(EMBED_DIM)
         # Guards _entries + _faiss_index across sessions/threads (app writes happen
@@ -80,13 +91,38 @@ class QueryCache:
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        if self._faiss_path.exists() and self._json_path.exists():
-            self._faiss_index = faiss.read_index(str(self._faiss_path))
-            raw = json.loads(self._json_path.read_text(encoding="utf-8"))
-            self._entries = [CacheEntry.from_dict(e) for e in raw]
-            log.info("Query cache loaded: %d entries", len(self._entries))
-        else:
+        if not (self._faiss_path.exists() and self._json_path.exists()):
             log.info("Query cache empty — starting fresh")
+            return
+        raw = json.loads(self._json_path.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):  # provenance format
+            stored_model = raw.get("embed_model")
+            entries = raw.get("entries", [])
+        else:  # legacy bare list — adopt the current model on next save
+            stored_model, entries = None, raw
+        if (
+            self._embed_model is not None
+            and stored_model is not None
+            and stored_model != self._embed_model
+        ):
+            # Different embedding space: similarities against these vectors would be
+            # garbage. Keep the old cache (ratings included) as .bak files and start
+            # fresh rather than silently mixing spaces (F12).
+            self._backup_mismatched(stored_model)
+            log.warning(
+                "Query cache was built with embed model %r but the active model is %r — "
+                "old cache moved aside, starting fresh",
+                stored_model, self._embed_model,
+            )
+            return
+        self._faiss_index = faiss.read_index(str(self._faiss_path))
+        self._entries = [CacheEntry.from_dict(e) for e in entries]
+        log.info("Query cache loaded: %d entries", len(self._entries))
+
+    def _backup_mismatched(self, stored_model: str) -> None:
+        slug = re.sub(r"[^A-Za-z0-9._-]+", "-", stored_model)
+        for path in (self._faiss_path, self._json_path):
+            os.replace(path, path.with_name(path.name + f".bak-{slug}"))
 
     def _save(self) -> None:
         """Persist atomically (tmp + rename) so a crash mid-write never truncates."""
@@ -94,9 +130,12 @@ class QueryCache:
         faiss_tmp = self._faiss_path.with_suffix(".faiss.tmp")
         json_tmp = self._json_path.with_suffix(".json.tmp")
         faiss.write_index(self._faiss_index, str(faiss_tmp))
+        payload = {
+            "embed_model": self._embed_model,
+            "entries": [e.to_dict() for e in self._entries],
+        }
         json_tmp.write_text(
-            json.dumps([e.to_dict() for e in self._entries], ensure_ascii=False, indent=2),
-            encoding="utf-8",
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         os.replace(faiss_tmp, self._faiss_path)
         os.replace(json_tmp, self._json_path)
@@ -210,18 +249,25 @@ _INSTANCES: dict[Path, QueryCache] = {}
 _INSTANCES_LOCK = threading.Lock()
 
 
-def get_query_cache(index_dir: Path = INDEX_DIR) -> QueryCache:
+def get_query_cache(index_dir: Path = INDEX_DIR, *, embed_model: str | None = None) -> QueryCache:
     """Process-wide shared ``QueryCache`` for ``index_dir``.
 
     All sessions must share one instance per cache-file pair — separate instances
     each hold their own in-memory snapshot and their full-file rewrites clobber
-    each other's entries and ratings (F4).
+    each other's entries and ratings (F4). ``embed_model`` records vector
+    provenance (F12); it only takes effect when the instance is first created.
     """
     key = Path(index_dir).resolve()
     with _INSTANCES_LOCK:
         cache = _INSTANCES.get(key)
         if cache is None:
-            cache = _INSTANCES[key] = QueryCache(index_dir)
+            cache = _INSTANCES[key] = QueryCache(index_dir, embed_model=embed_model)
+        elif embed_model is not None and cache._embed_model not in (None, embed_model):
+            log.warning(
+                "get_query_cache: shared cache for %s was created with embed model %r; "
+                "ignoring differing %r (restart to switch spaces)",
+                key, cache._embed_model, embed_model,
+            )
         return cache
 
 

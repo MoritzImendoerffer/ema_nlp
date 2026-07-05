@@ -63,20 +63,20 @@ purely by configuration, without knowing in advance which will win:
   expansion (index profile `neo4j_hier`), but there is **no graph-navigation tool** the
   agent can call (`follow_links` is named in TARGET_ARCHITECTURE §5 as an example but was
   never built). The agent cannot deliberately walk the topology.
-- (d) ⚠️ Scaffolded but dead. `configs/retrieval/native.yaml` declares
-  `sub_retrievers: [chunk_vector, cypher_template]` / `graph_mode` / `k`, but **no code
-  consumes these fields** (finding F8); `native_pg.py` composes retriever *objects*, and no
-  name→builder registry exists. Only one index profile (`neo4j_hier`) exists, and
-  `load_index_profile` ignores `$EMA_CONFIG_DIR` (F9), unlike recipes/prompts.
-- (e) ❌ Regressed. The deleted Workflow engine had a post-generation faithfulness review
-  with a threshold + `passed` verdict (`CRAGReviewWorkflow`, `review_threshold: 0.6`). The
-  recipe engine kept only the **scorer**: `JudgePolicy` = `{enabled, judges, model_role}`
-  — no threshold, no gate, no retry; a low score changes nothing.
-  `docs/TARGET_ARCHITECTURE.md:113` explicitly downgraded this ("'review' becomes a
-  judge/scorer pass"); `models.yaml`'s `reviewer` role is dead config (F10).
+- (d) ⚠️ Object-level only (by choice). The dead `sub_retrievers`/`graph_mode`/`k` config
+  fields were **deleted 2026-07-05** (F8 — per the "delete or build, not half-way" rule);
+  `native_pg.py` remains the object-composition seam until a config surface is justified.
+  Only one index profile (`neo4j_hier`) exists, but profiles now honor `$EMA_CONFIG_DIR`
+  (F9 fixed), so external profiles can be added without touching the source.
+- (e) ✅ Restored as a *soft* reviewer (F18, fixed 2026-07-05 per owner R1-Q3):
+  `JudgePolicy.{threshold, on_fail: annotate}` — a below-threshold (or unscorable) answer
+  ships with a visible ⚠️ recommendation note, the verdict is stamped
+  (`ema.judge.passed`), and model confidence is shown in the final message. Hard
+  block/retry remains deferred (an unimplemented `on_fail` is a config error). The
+  `reviewer` role is bindable via `judge.model_role` (F10 fixed).
 
-**Gaps:** multi-agent sequences (b), graph-navigation tools (c), a working
-sub-retriever/profile selection story (d), reviewer-in-the-loop (e).
+**Gaps:** multi-agent sequences (b), graph-navigation tools (c) — both awaiting the
+R1-Q1/R1-Q2 strategy decisions.
 
 **Open questions (owner):**
 - **R1-Q1 (the big one):** Do you need true *multi-agent sequences* (agent → agent
@@ -145,15 +145,15 @@ flows through the `PropertyGraphIndex` (79,882 docs / 5.82M leaf embeddings / 99
 `LINKS_TO` edges); `ema_search` and `corrective_search` are bound to the profile-built
 retriever; `corpus.jsonl` is benchmark-only, as designed.
 
-**Caveats (from the audit):** `neo4j_hier.yaml` ships `scope.limit: 50` — a rebuild
-footgun (F11); the `embed_model:` field in the profile is decorative — the embedder comes
-from env/defaults only (F12), and the few-shot query cache stores vectors with **no
-embedding-model provenance** (silent cross-model mixing if `EMA_EMBED_MODEL` changes);
-`app.py` mutates process-global `EMA_INDEX_PROFILE` (F13).
+**Caveats (from the audit) — all resolved:** ~~`scope.limit: 50` footgun (F11); decorative
+`embed_model` + no cache provenance (F12); process-global `EMA_INDEX_PROFILE` mis-stamping
+(F13)~~ — fixed 2026-07-04/05, see §9.
 
-**Open question — R3-Q1:** should the index profile be the *single source of truth* for
-the embedding model (wire `embed_model` through, stamp it into the cache sidecar), so R3
-stays true under model changes? (Recommended: yes.)
+**Open question — R3-Q1: ✅ decided (owner, 2026-07-02) and implemented (2026-07-05):**
+the index profile is the single source of truth for the embedding model —
+`profile.index.embed_model` drives `configure_embed_model` on the build/open/retriever
+paths (`EMA_EMBED_MODEL` is fallback only), and the query-cache sidecar records the
+embed model, backing the cache up and starting fresh on a model switch.
 
 ---
 
@@ -316,17 +316,17 @@ Stable IDs referenced above. Severity: 🔴 bug, 🟠 wiring gap / dishonest con
 | F5 | 🔴 → ✅ fixed 2026-07-04 | Eval cannot consume recipes: `build_predict_fn` needs `.run`/callable; adapter has neither; only recipe-bypassing `build_session` works. *Fix: `build_predict_fn` now prefers the adapter's `invoke` contract; recipe × benchmark runner exists (`harness/eval/runner.py`, `scripts/run_eval.py`).* | `harness/eval/predict.py`, `harness/eval/runner.py` |
 | F6 | 🟠 → ✅ fixed 2026-07-04 | Two divergent composition paths: `build_session` (agent YAML, pipeline=`native` hardcoded) vs `build_recipe` (recipes, pipeline per recipe). *Fix: `build_session` + `load_agent_config` + `configs/agent/*.yaml` deleted; `build_recipe` is the single composition path; `AgentConfig` is derived from the recipe.* | `harness/agents/session.py`, `harness/recipes/build.py` |
 | F7 | 🔴 → ✅ fixed 2026-07-04 | Few-shot injection near-unreachable: `min_examples` default 3 never overridden; `k<3` recipes can never inject; not tunable from `FewshotPolicy`. *Fix: `FewshotPolicy.min_examples` (default 1), passed through by `app.py`, stamped on traces.* | `harness/recipes/config.py`, `harness/fewshot_inject.py`, `app.py` |
-| F8 | 🟡 | Dead retrieval config: `sub_retrievers`/`graph_mode`/`k` in `native.yaml` have no consumer (three `k`s exist; one is live) | `harness/retrieval/config.py:41-43,68-70` |
-| F9 | 🟡 | `load_index_profile` ignores `$EMA_CONFIG_DIR` (recipes/prompts honor it) | `harness/indexing/profiles.py:188` |
-| F10 | 🟡 | Dead knobs stamped as effective: `judge.model_role` (judge role hardcoded), `fewshot.source`, `models.yaml` `reviewer` role unconsumed | `harness/eval/inline_judge.py:59`, `harness/recipes/config.py:31` |
-| F11 | 🟡 | Checked-in default index profile ships `scope.limit: 50` — rebuild would ingest 50 docs | `harness/configs/index/neo4j_hier.yaml:20` |
-| F12 | 🟡 | Profile `embed_model` decorative; query cache has no embedding-model provenance (silent space-mixing on model switch) | `harness/indexing/property_graph.py:69-75`, `harness/query_cache.py:34` |
+| F8 | 🟡 → ✅ fixed 2026-07-05 | Dead retrieval config: `sub_retrievers`/`graph_mode`/`k` in `native.yaml` have no consumer (three `k`s exist; one is live). *Fix: fields deleted outright (per R1(d): delete or build, not half-way); the pipeline config holds exactly what `assemble_agent` wires; retrieval `k` lives in the index profile.* | `harness/retrieval/config.py`, `harness/configs/retrieval/native.yaml` |
+| F9 | 🟡 → ✅ fixed 2026-07-05 | `load_index_profile` ignores `$EMA_CONFIG_DIR` (recipes/prompts honor it). *Fix: profiles use the same `find_config` search path; external `index/` shadows built-ins.* | `harness/indexing/profiles.py` |
+| F10 | 🟡 → ✅ fixed 2026-07-05 | Dead knobs stamped as effective: `judge.model_role` (judge role hardcoded), `fewshot.source`, `models.yaml` `reviewer` role unconsumed. *Fix: `run_inline_judges`/`Judge` honor `model_role` (a recipe can bind `reviewer`); unknown `fewshot.source` is a hard config error.* | `harness/eval/inline_judge.py`, `harness/judge.py`, `harness/recipes/config.py` |
+| F11 | 🟡 → ✅ fixed 2026-07-05 | Checked-in default index profile ships `scope.limit: 50` — rebuild would ingest 50 docs. *Fix: shipped default is `limit: null` (full corpus, matching the live graph); caps belong in `$EMA_CONFIG_DIR` override profiles; regression test added.* | `harness/configs/index/neo4j_hier.yaml` |
+| F12 | 🟡 → ✅ fixed 2026-07-05 | Profile `embed_model` decorative; query cache has no embedding-model provenance (silent space-mixing on model switch). *Fix (R3-Q1 yes): the profile's `embed_model` is passed to `configure_embed_model` on build/open/retriever paths (env is fallback only); the cache sidecar records the embed model and on mismatch backs the old files up (`*.bak-<model>`) and starts fresh.* | `harness/indexing/property_graph.py`, `harness/indexing/build.py`, `harness/query_cache.py` |
 | F13 | 🟡 → ✅ fixed 2026-07-04 | Process-global `EMA_INDEX_PROFILE` mutation can mis-stamp concurrent sessions' traces (self-contradicting trace). *Fix: adapter stamps the recipe's resolved profile; the app's turn span stamps the SESSION's profile.* | `harness/agents/workflow_adapter.py`, `app.py` |
 | F14 | 🟡 → ✅ fixed 2026-07-04 | `ema.recipe` stamped on child span, not trace root → recipe-level trace filtering needs drilling. *Fix: `tag_current_trace()` stamps `ema.recipe` as a trace-level tag (searchable via `mlflow.search_traces`).* | `harness/obs/tracing.py` |
 | F15 | 🟡 → ✅ fixed 2026-07-04 | Experiment-name drift: app honors `EMA_MLFLOW_EXPERIMENT`; demo/eval hardcode `ema_nlp` → assessments split across experiments. *Fix: shared `default_experiment()` resolver used by app / demo / eval / `AgentSession`.* | `harness/obs/runs.py` |
-| F16 | 🟡 | `bootstrap.py` pieces don't compose (judge=None → all-0.0 scores → `min_score=4.0` filter empties trainset; judge signature mismatch) | `harness/eval/bootstrap.py:27-50` |
+| F16 | 🟡 → ✅ fixed 2026-07-05 | `bootstrap.py` pieces don't compose (judge=None → all-0.0 scores → `min_score=4.0` filter empties trainset; judge signature mismatch). *Fix: unjudged exemplars carry `score=None` and `judge_filter` refuses them loudly; `faithfulness_judge()` provides a compatible `(question, prediction)->float` judge that grades against the prediction's `context_passages` (composes with F3).* | `harness/eval/bootstrap.py` |
 | F17 | 🟡 → ✅ fixed 2026-07-04 | `corrective_search` returns the *last* retrieval, not best-so-far (comment claims otherwise); grader prompt demands `qa_id`s absent from its context; parse-error pseudo-fact fed to rewriter. *Fix: `grade_key` tracks best-so-far across cycles (ties→later); grader keys on the `[i]` document index; the parse-error sentinel is filtered out of rewrite prompts.* | `harness/retrieval/corrective.py`, `harness/tools/corrective_search.py` |
-| F18 | 🟡 | Reviewer-in-the-loop regressed: old engine had threshold+`passed` gate (`CRAGReviewWorkflow`); recipes have score-only `JudgePolicy` — no gate/retry seam | `harness/recipes/config.py:47-61` (cf. deleted `harness/workflows/review.py`) |
+| F18 | 🟡 → ✅ fixed 2026-07-05 | Reviewer-in-the-loop regressed: old engine had threshold+`passed` gate (`CRAGReviewWorkflow`); recipes have score-only `JudgePolicy` — no gate/retry seam. *Fix (per owner R1-Q3: soft/recommendation): `JudgePolicy.{threshold,on_fail=annotate}` + `review_verdict()` — below-threshold or unscorable answers ship with a visible ⚠️ caution; verdict stamped as `ema.judge.passed`; model confidence shown in the final message; `agentic_judged` recipe sets `threshold: 3`. Hard block/retry deferred (unimplemented `on_fail` = config error). Recorded in DECISIONS.md.* | `harness/recipes/config.py`, `harness/eval/inline_judge.py`, `app.py` |
 | F19 | 🟡 → ✅ fixed 2026-07-04 | UI: cache toggle off silently kills few-shot + rating persistence; 👎-rated entries offered for reuse; `on_chat_resume` reverts to default recipe; failed profile switch leaves UI/pipeline disagreeing. *Fix: toggle now disables cache READS only (writes/ratings always persist, with a UI notice); reuse offers filter out rating<4; resume restores the thread's `chat_profile` recipe and says which recipe is active; failed switch snaps the settings panel back.* | `app.py` |
 | F20 | 🟡 → ✅ fixed 2026-07-04 | Dead artifacts/deps: `scripts/generate_comparison_report.py` (consumes deleted engine's outputs), issue-generator scripts with pre-refactor plans, `ablations/a1_query_expansion.py` orphaned, empty `main.py`, unused deps (`llama-index-vector-stores-faiss`, `llama-index-retrievers-bm25`, `rank-bm25`), empty `harness/{workflows,pg,hitl}/` dirs (mask import errors as namespace pkgs), ~10 stale `WorkflowRunner` comments, `HARNESS_REFACTORS.md` is a Phoenix-era spec. *Fix: all deleted/cleaned; `uv.lock` committed; the `__pycache__`-only dirs `harness/{workflows,pg,hitl,ablations}` physically removed 2026-07-05.* | various |
 
@@ -361,9 +361,9 @@ capture correct (nested scopes, `finally` resets); `recipe.default`, `judge.enab
 |------|----------|----------|-------------|
 | — | R1-Q1 multi-agent sequences | *one agent with multiple tool calls is probably enough, look for literature on this topic, latest recommentations seem to recommend single agent versus multi agent orchestrations. Where would an option for multiple agents make sense?* | |
 | — | R1-Q2 graph walk: tool vs retriever-internal | *because the graph is so huge, I doubth the agent would be capable of doing that. So I guess a better way is to have specialized tools for that. Nevertheless, a tool could be another agent or LLM to handle e.g. complex ontologies or other complex topics. A simple recursive retriever or a single node topology algorithm might be better off than the main agent deciding which nodes to fetch. Let`s think together on a clear strategy* | |
-| — | R1-Q3 reviewer: soft / hard / both | *a recommendataion seems to be easier to implement. In the final answer, certainty of the statements should be visible.* | |
+| — | R1-Q3 reviewer: soft / hard / both | *a recommendataion seems to be easier to implement. In the final answer, certainty of the statements should be visible.* | DECISIONS.md "Reviewer-in-the-loop: soft recommendation" (implemented as F18, 2026-07-05) |
 | — | R2-Q1/Q2 subgraph purpose + attributes | *I do not have a clear strategy at the moment. It could be simple keywords to add, links from substance links or event an ontology. The purpose would be to improve the scope of the retrieval.* | |
-| — | R3-Q1 embed-model single source of truth | *I stick to your recommendations, yes. "the index profile should be the single source of truth for the embedding model"* | |
+| — | R3-Q1 embed-model single source of truth | *I stick to your recommendations, yes. "the index profile should be the single source of truth for the embedding model"* | implemented as F12 (2026-07-05) |
 | — | R4-Q1/Q2 external-tool policy + citation marking | *I stick to your recommendation, yes it should be clear where the context came from and it should be possible to define what is allowed* | |
 | — | R5-Q1 comparison unit (traces vs eval runs) | *i agree with your recommendations* | |
 | — | R6-Q1 system of record for results | *I would to for MLFlow to be the primary system of record for results.* | |

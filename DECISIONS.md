@@ -112,6 +112,13 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Still LlamaIndex:** the `FunctionAgent`, retriever, and tools are all LlamaIndex — only the bespoke `Workflow` *engine* was retired, not the framework.  
 **Ref:** [`docs/RECIPES.md`](docs/RECIPES.md), [`docs/RAG_TECHNIQUES.md`](docs/RAG_TECHNIQUES.md). Supersedes "LlamaIndex Workflows for all orchestration" + "Native ReAct workflow" above and "Workflow registry collapsed: prompt_strategy as YAML field" below.
 
+### Reviewer-in-the-loop: soft recommendation, never a hard gate (R1-Q3)
+**Decided:** 2026-07-05 (owner answer to REQUIREMENTS_REVIEW R1-Q3, 2026-07-02; implemented as F18)  
+**What:** The post-generation reviewer is **advisory**: `JudgePolicy` gained `threshold` (1–5 judge scale) and `on_fail: annotate`. When the inline judge scores below the threshold — or cannot produce a score — the answer still ships, with a visible ⚠️ caution note appended and the verdict stamped on the turn trace (`ema.judge.threshold` / `ema.judge.passed`). The agent's structured `confidence` is also shown in the final message ("certainty of the statements should be visible"). The judging model is bound per recipe via `judge.model_role` (e.g. the `reviewer` role in models.yaml).  
+**Why:** The owner picked the recommendation flavor over a hard block/retry gate ("a recommendation seems to be easier to implement; in the final answer, certainty of the statements should be visible"). A hard `on_fail: retry|block` seam can be added later behind the same config surface — naming it today raises a config error rather than silently doing nothing.  
+**Not chosen (for now):** hard gating (block/retry below threshold) — deferred until a benchmark failure demands it; a `review_answer` *tool* — a tool cannot intercept the agent's final output, so the adapter-level seam is the one that can actually gate.  
+**Ref:** [`docs/RECIPES.md`](docs/RECIPES.md), `harness/eval/inline_judge.py:review_verdict`, [`docs/REQUIREMENTS_REVIEW.md`](docs/REQUIREMENTS_REVIEW.md) (F18/R1-Q3)
+
 ### Role/model separation in models.yaml
 **Decided:** 2026-05-23  
 **What:** `harness/configs/models.yaml` is restructured into two top-level sections:

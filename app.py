@@ -359,9 +359,16 @@ def _seed_settings(recipe_name: str) -> dict:
 
 def _init_cache_sync():
     # Process-wide shared instance: separate per-session instances clobber each
-    # other's entries/ratings on save (F4).
+    # other's entries/ratings on save (F4). The LIVE embedder's model name is
+    # recorded as vector provenance — on a model switch the cache starts fresh
+    # instead of silently mixing embedding spaces (F12). Settings.embed_model is
+    # configured by open_index (from the index profile) before this runs.
+    from llama_index.core import Settings
+
     from harness.query_cache import get_query_cache
-    return get_query_cache()
+
+    embed_model = getattr(getattr(Settings, "embed_model", None), "model_name", None)
+    return get_query_cache(embed_model=embed_model)
 
 
 # ── Chainlit lifecycle ────────────────────────────────────────────────────────
@@ -670,7 +677,7 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
         judge_results: list = []
         judge_policy = getattr(recipe, "judge", None)
         if judge_policy is not None and judge_policy.enabled and answer_text and docs:
-            from harness.eval import run_inline_judges
+            from harness.eval import review_verdict, run_inline_judges
 
             context_passages = result.get("context_passages") or [
                 d.text for d in docs if getattr(d, "text", "")
@@ -681,11 +688,32 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
                 question=query,
                 answer=answer_text,
                 context_passages=context_passages,
+                model_role=judge_policy.model_role,
             )
             if judge_results:
                 judge_note = "\n\n_Judge: " + ", ".join(
                     f"{r.name} {r.score}/5" for r in judge_results
                 ) + "_"
+            # Soft reviewer gate (F18, advisory): a below-threshold (or unscorable)
+            # answer ships WITH a visible caution note — never blocked. The verdict
+            # is stamped on the turn span so traces are filterable by outcome.
+            if judge_policy.threshold is not None:
+                passed, review_note = review_verdict(judge_results, judge_policy.threshold)
+                judge_note += review_note
+                if turn_span is not None:
+                    try:
+                        turn_span.set_attributes({
+                            "ema.judge.threshold": judge_policy.threshold,
+                            "ema.judge.passed": passed,
+                        })
+                    except Exception:
+                        pass
+
+        # Certainty of the answer, visible in the final message (R1-Q3): the agent's
+        # structured self-assessed confidence, when present.
+        confidence = getattr(result.get("answer"), "confidence", None)
+        if isinstance(confidence, (int, float)) and confidence > 0:
+            judge_note += f"\n\n_Model confidence: {confidence:.2f}_"
 
     # Trace id of the turn just traced (read after the span closes).
     if not TRACING_DISABLED:

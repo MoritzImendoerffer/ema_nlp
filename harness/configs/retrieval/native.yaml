@@ -4,11 +4,8 @@
 # index-profile loader.
 retrieval:
   query_transform: acronym        # none | acronym | llm_rewrite | (agent, future)
-  sub_retrievers:                 # composed via index.as_retriever(sub_retrievers=[...]) at runtime
-    - chunk_vector                # the justified custom CustomPGRetriever (LIR-007)
-    - cypher_template             # native, ontology mode
-  graph_mode: links               # none | links | ontology | entity_seeded (explicit; no silent default)
-  k: 20
   rerank:                         # ordered node_postprocessors
     - cross_encoder               # cross_encoder | llm_sme
   rerank_top_n: 8
+  # (retrieval k lives in the index profile; the former sub_retrievers/graph_mode/k
+  #  keys here were dead config with no consumer and were removed — F8, 2026-07-05)

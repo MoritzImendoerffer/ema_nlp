@@ -24,24 +24,22 @@ CONFIG_DIR = Path(__file__).parent.parent / "configs" / "retrieval"
 
 @dataclass
 class RetrievalPipelineConfig:
-    """Resolved retrieval pipeline: transform -> sub-retrievers -> rerank."""
+    """Resolved retrieval pipeline: query transform -> rerank.
+
+    Holds exactly the stages ``assemble_agent`` wires — no more. The former
+    ``sub_retrievers``/``graph_mode``/``k`` fields were declared-but-unconsumed
+    (F8) and were removed 2026-07-05; native sub-retriever composition remains an
+    *object-level* seam (``native_pg.py``) until a config surface is actually
+    needed. Retrieval ``k`` lives in the index profile (the one live ``k``).
+    """
 
     profile: str
     query_transform: str = "none"
-    sub_retrievers: list[str] = field(default_factory=lambda: ["chunk_vector"])
-    graph_mode: str = "none"  # none | links | ontology | entity_seeded (explicit)
-    k: int = 10
     rerank: list[str] = field(default_factory=list)
     rerank_top_n: int = 8
 
     def resolved_attributes(self) -> dict[str, Any]:
-        """Flatten the *active* pipeline stages to ``ema.retrieval.*`` (honest stamping).
-
-        Only what ``assemble_agent`` actually wires — the query transform and the rerank
-        postprocessors — is stamped. ``sub_retrievers``/``graph_mode``/``k`` are declared
-        config for the not-yet-wired native composition (see ``native_pg.py``) and are NOT
-        stamped as active, so a trace never advertises a retrieval stage that did not run.
-        """
+        """Flatten the *active* pipeline stages to ``ema.retrieval.*`` (honest stamping)."""
         return resolved_config_attributes(
             {
                 "retrieval": {
@@ -65,9 +63,6 @@ def load_pipeline_config(profile: str, *, config_dir: Path | None = None) -> Ret
     return RetrievalPipelineConfig(
         profile=profile,
         query_transform=section.get("query_transform", "none"),
-        sub_retrievers=list(section.get("sub_retrievers", ["chunk_vector"])),
-        graph_mode=section.get("graph_mode", "none"),
-        k=int(section.get("k", 10)),
         rerank=list(section.get("rerank", [])),
         rerank_top_n=int(section.get("rerank_top_n", 8)),
     )

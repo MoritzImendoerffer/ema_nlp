@@ -183,3 +183,37 @@ def test_concurrent_adds_and_ratings_all_persist(tmp_path):
     assert all(ratings[f"run-{i}"] == 5.0 for i in range(n))
     # No stray tmp files left behind by the atomic writes.
     assert not list(tmp_path.glob("*.tmp"))
+
+
+# ---------------------------------------------------------------------------
+# F12: embedding-model provenance
+# ---------------------------------------------------------------------------
+
+def test_sidecar_records_embed_model_and_legacy_list_still_loads(tmp_path):
+    import json
+
+    cache = QueryCache(index_dir=tmp_path, embed_model="BAAI/bge-large-en-v1.5")
+    cache.add_entry("run-p", "Q", "A", [], query_vec=_vec(1))
+    sidecar = json.loads((tmp_path / "query_cache.json").read_text())
+    assert sidecar["embed_model"] == "BAAI/bge-large-en-v1.5"
+    assert len(sidecar["entries"]) == 1
+
+    # Legacy bare-list sidecar is still accepted (provenance adopted on next save).
+    (tmp_path / "query_cache.json").write_text(json.dumps(sidecar["entries"]))
+    legacy = QueryCache(index_dir=tmp_path, embed_model="BAAI/bge-large-en-v1.5")
+    assert len(legacy) == 1
+
+
+def test_embed_model_mismatch_backs_up_and_starts_fresh(tmp_path):
+    cache = QueryCache(index_dir=tmp_path, embed_model="model-A")
+    cache.add_entry("run-a", "Q", "A", [], query_vec=_vec(2))
+
+    switched = QueryCache(index_dir=tmp_path, embed_model="model-B")
+    assert len(switched) == 0  # never mixes embedding spaces (F12)
+    backups = sorted(p.name for p in tmp_path.glob("*.bak-*"))
+    assert backups == ["query_cache.faiss.bak-model-A", "query_cache.json.bak-model-A"]
+
+    # The fresh cache persists under the new model without touching the backup.
+    switched.add_entry("run-b", "Q2", "A2", [], query_vec=_vec(3))
+    reloaded = QueryCache(index_dir=tmp_path, embed_model="model-B")
+    assert [e.run_id for e in reloaded._entries] == ["run-b"]

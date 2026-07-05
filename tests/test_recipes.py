@@ -7,6 +7,7 @@ retriever, so no Neo4j / real model. The cross-encoder (pipeline) path is live-o
 import textwrap
 from types import SimpleNamespace
 
+import pytest
 from llama_index.core.llms import MockLLM
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
@@ -183,3 +184,9 @@ def test_fewshot_min_examples_tunable_and_stamped():
     r = get_recipe("regulatory_fewshot")
     assert r.fewshot.min_examples == 1
     assert r.resolved_attributes()["ema.fewshot.min_examples"] == 1
+
+
+def test_fewshot_unknown_source_rejected():
+    # Only the rated cache exists; a recipe must not claim a source that doesn't (F10).
+    with pytest.raises(ValueError, match="fewshot.source"):
+        FewshotPolicy.from_dict({"source": "mlflow_rated"})
