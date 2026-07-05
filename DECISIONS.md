@@ -45,6 +45,8 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 
 ### LlamaIndex as the RAG framework
 **Decided:** 2026-05-15  
+> *Detail drift (2026-07-05): the core decision stands. Of the named backends, only `faiss-cpu` remains a direct dep (semantic query cache); `rank-bm25` was dropped 2026-07-04, and OpenInference went with Phoenix (MLflow autolog now traces at the LlamaIndex level).*
+
 **What:** LlamaIndex is the retrieval and agent framework. Raw FAISS, sentence-transformers, and rank-bm25 are used as backends via LlamaIndex wrappers — they stay in `pyproject.toml` as direct deps.  
 **Why:** `DocumentSummaryIndex` directly implements the document-tree-with-summaries approach (PageIndex model) — each EMA source document gets a cheap summary node; Q&A pairs are leaf nodes. `NodeRelationship` models `cross_refs` without a graph DB. `ReActAgent` is the agent architecture for Ablation B. OpenInference instrumentation works at the LlamaIndex level so tracing is model-agnostic.  
 **Not chosen as the retrieval engine:** LangChain/LangGraph — better for prompt-chain-centric work; LlamaIndex is the superior choice for structured document retrieval and docstore indexing. LangChain/LangGraph were trialled for the orchestration layer and subsequently removed in favour of LlamaIndex Workflows (see decision below).  
@@ -83,7 +85,7 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 - *Keeping FAISS and grafting BM25/links on top* — would have duplicated state across three stores and broken transactional re-ingest.
 
 **Open follow-ups:** none load-bearing. Reranker (A3) and query-expansion (A1) wrappers still sit outside the retriever and apply to both backends via `build_retrieve_fn{,_pg}`.  
-**Ref:** `docs/RETRIEVAL.md` (was `docs/RETRIEVAL_PG.md`, removed), [`.claude/work/2026-05-25_16_pgvector-narrative-corpus/`](.claude/work/2026-05-25_16_pgvector-narrative-corpus/) (28-task work unit), [`corpus/pg_schema.sql`](corpus/pg_schema.sql), [`harness/retrieve_pg.py`](harness/retrieve_pg.py)
+**Ref:** `docs/RETRIEVAL.md` (was `docs/RETRIEVAL_PG.md`, removed), [`.claude/work/2026-05-25_16_pgvector-narrative-corpus/`](.claude/work/2026-05-25_16_pgvector-narrative-corpus/) (28-task work unit), `corpus/pg_schema.sql`, `harness/retrieve_pg.py` (both deleted in LIR-012)
 
 ### BGE-large-en as the embedding model (v1)
 **Decided:** project start  
@@ -133,6 +135,8 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 
 ### `orchestration:` block as the answer-generation schema in eval configs
 **Decided:** 2026-05-23  
+> **Superseded 2026-06-25** by the single-engine recipe model: `get_workflow()` / `harness/workflows/registry.py` were deleted with the Workflow engine; orchestration is now a recipe (`harness/configs/recipes/*.yaml`), and eval runs recipes via `harness/eval/runner.py`.
+
 **What:** Eval YAML configs use a top-level `orchestration:` block (with `strategy` and `tier_id` sub-keys) to specify which workflow strategy generates answers. The old `answer_generation:` block (with `enabled`, `strategy`, `tier_id`) is removed.  
 **Schema:**
 ```yaml
@@ -186,8 +190,8 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 ### Runtime few-shot injection from rated trajectories (no model training)
 **Decided:** 2026-05-15; wired 2026-05-24 (HITL-007)  
 **What:** At query time, the top-k highest-rated past trajectories (rating ≥ 4/5) for similar questions are fetched from the query cache and injected into the agent's planning prompt as few-shot examples. No weights updated. All learning is in-context.  
-**Why:** Standard few-shot prompting. Every injected example is traceable (its `run_id` links to a Phoenix trace), satisfying the reproducibility requirement.  
-**Implementation:** `harness/fewshot_inject.py:get_fewshot_context(query_vec, cache, k=3, min_rating=4)` — injected via `app.py` (always, when ≥ 3 rated entries exist) and `run_eval.py` (opt-in via `cache_inject: true` in YAML). Suppresses injection when fewer than `min_examples` (default 3) rated entries exist — fails closed.
+**Why:** Standard few-shot prompting. Every injected example is traceable (its `run_id` links to an MLflow trace — originally Phoenix), satisfying the reproducibility requirement.  
+**Implementation (updated 2026-07-04):** `harness/fewshot_inject.py:get_fewshot_context(query_vec, cache, k, min_rating, min_examples)` — gated per recipe by `FewshotPolicy` (`enabled`, `k`, `min_rating`, `min_examples`, default `min_examples=1`) and injected via `app.py` when the recipe enables it. Suppresses injection when fewer than `min_examples` qualifying entries exist — fails closed.
 
 ### DSPy deferred until ≥ 50 rated examples exist
 **Decided:** 2026-05-15  
@@ -266,19 +270,23 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 **Decided:** 2026-05-25  
 **What:** The three `simple_rag_zero/few/cot` registry entries were removed and replaced with a single `simple_rag` entry. The prompt variant is now driven by `orchestration.prompt_strategy: zero_shot|few_shot|cot_self` in the YAML config rather than by the registry key. All workflow constructors renamed their `strategy` parameter to `prompt_strategy` to disambiguate it from `orchestration.strategy` (the registry key). No backward-compatibility aliases.  
 **Why:** Adding a fourth prompt variant previously required three new registry entries, three builder functions, and equivalent expansion for every other strategy that supports prompts. The coupling between "orchestration shape" and "prompt variant" was artificial. Separating them means a new prompt file + one `_PROMPT_FILES` entry + a YAML change suffices.  
-**Ref:** [`HARNESS_REFACTORS.md`](HARNESS_REFACTORS.md) Change 3
+**Ref:** `HARNESS_REFACTORS.md` (deleted) Change 3
 
 ### Phoenix span attribute stamping via config_attributes() (Change 1 of harness refactoring)
 **Decided:** 2026-05-25  
+> **Superseded**: Phoenix was replaced by MLflow (2026-06-22) and `WorkflowRunner` deleted with the Workflow engine (2026-06-25). The *idea* survives: the resolved recipe is stamped as `ema.*` attributes on the MLflow turn span by `AgentWorkflowAdapter`, plus `ema.recipe` as a trace-level tag. (`HARNESS_REFACTORS.md` and `tests/test_span_attributes.py` referenced below are deleted.)
+
 **What:** `WorkflowRunner.ainvoke` now stamps the active configuration onto the current OTel root span before delegating to the underlying workflow. Each workflow class exposes a `config_attributes() → dict[str, ...]` method. The `ema.*` namespace is used for all project-specific keys (e.g. `ema.orchestration.strategy`, `ema.retrieval.reranker`). `run_id` and `source` are passed through the inputs dict and stamped as `ema.run.id` / `ema.run.source`. Stamping is a silent no-op when Phoenix is disabled (non-recording span) or when a workflow lacks `config_attributes()` (warning once, then continues).  
 **Why:** Without configuration on spans, Phoenix could not answer "show me all CRAG + reranker=sme runs below 0.6 faithfulness". For a project whose central purpose is comparing configurations, this was a blocker.  
-**Ref:** [`HARNESS_REFACTORS.md`](HARNESS_REFACTORS.md) Change 1, [`tests/test_span_attributes.py`](tests/test_span_attributes.py)
+**Ref:** `HARNESS_REFACTORS.md` (deleted) Change 1, `tests/test_span_attributes.py` (deleted)
 
 ### Shared retrieval factory build_retrieve_fn (Change 2 of harness refactoring)
 **Decided:** 2026-05-25  
+> **Superseded**: `build_retrieve_fn` / `harness/retrieve.py` / `AblationConfig` were deleted in the LlamaIndex retrieval refactor. The *idea* survives as the config-driven retrieval pipeline (`harness/retrieval/` transforms + rerankers, selected per recipe) shared by the app, demo, and eval paths. (`HARNESS_REFACTORS.md` referenced below is deleted.)
+
 **What:** The inline `retrieve_fn` closure that was built inside `run_eval.py` (applying A1→base→A2→A3/A4 in order) was extracted into `build_retrieve_fn(ret_config, abl_config, index)` in `harness/retrieve.py`. A new `AblationConfig` dataclass carries query expansion, topic filter, and reranker settings parsed from the `ablation:` YAML section. All workflows accept an optional `retrieve_fn` parameter; when provided they call it instead of `retrieve_with_config()`. The factory attaches `.ablation_config` to the callable so `config_attributes()` can report the active ablation flags on the span.  
 **Why:** The reranker (A3) could not compose with CRAG or ReAct because the ablation closure was only applied in `run_eval.py`'s retrieval eval loop, not in workflow execution. This is a real architectural limit. The factory also eliminates the drift between `app.py` and `run_eval.py` retrieval paths.  
-**Ref:** [`HARNESS_REFACTORS.md`](HARNESS_REFACTORS.md) Change 2, `docs/RETRIEVAL.md` (was `docs/RETRIEVAL_PIPELINE.md`, removed)
+**Ref:** `HARNESS_REFACTORS.md` (deleted) Change 2, `docs/RETRIEVAL.md` (was `docs/RETRIEVAL_PIPELINE.md`, removed)
 
 ### Three-layer separation: parsers → Mongo (parsed_documents) → PG (canonical)
 > ⚠ **SUPERSEDED 2026-05-30.** The PG layer is removed; the flow is now parsers → Mongo `parsed_documents` → `harness.indexing` → Neo4j. Parser layer + `parsed_documents` survive; the PG sink does not. Retained for history.
@@ -332,4 +340,4 @@ The four key choices and what they replaced:
 - *Selective scan inside the sync layer* — putting the BeautifulSoup walk in `harness/embed_pg.py`. Rejected — sync should stay thin; data preparation belongs in `corpus/`. Also makes per-URL re-extraction harder.
 - *Promote `link_type` to a PG `ENUM` type* — would tighten typing but force a DDL migration every time a new value lands. Deferred to a follow-up if schema drift becomes an issue.
 
-**Ref:** `docs/RETRIEVAL.md` (was `docs/RETRIEVAL_PG.md`, removed) §14, [`.claude/work/2026-05-27_18_scraper-link-extraction-audit/`](.claude/work/2026-05-27_18_scraper-link-extraction-audit/), [`.claude/work/2026-05-26_17_mongo-pg-data-architecture/implementation-plan-link-graph.md`](.claude/work/2026-05-26_17_mongo-pg-data-architecture/implementation-plan-link-graph.md), MIGR-018..025.
+**Ref:** `docs/RETRIEVAL.md` (was `docs/RETRIEVAL_PG.md`, removed) §14, `.claude/work/2026-05-27_18_scraper-link-extraction-audit/` and `.claude/work/2026-05-26_17_mongo-pg-data-architecture/implementation-plan-link-graph.md` (work-unit artifacts, since pruned), MIGR-018..025.

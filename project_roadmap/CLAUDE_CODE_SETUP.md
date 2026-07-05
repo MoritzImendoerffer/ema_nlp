@@ -138,14 +138,14 @@ We are currently in **Phase X** (update this line as we progress). Phase definit
 - Run tests: `pytest`
 - Lint: `ruff check .`
 - Format: `ruff format .`
-- List strategies / launch UI: `python -m harness.workflows.registry --list` · `bash run_ui.sh`  *(the eval runner `run_eval.py` is archived off-branch — to be rebuilt on the Neo4j API)*
+- List recipes / launch UI: `ls harness/configs/recipes/` · `bash run_ui.sh` · eval: `python scripts/run_eval.py --recipe <name>`
 
 ## Conventions
 - All data files are JSONL, one record per line
 - Schema changes require updating both `corpus/SCHEMA.md` and the corresponding dataclass
 - LLM prompts live in files, not as string literals in code — makes them diffable
 - Every ablation config gets its own YAML under `harness/configs/`
-- Results go under `results/<run_id>/` with the full config dumped alongside
+- Results are recorded as MLflow runs (the system of record); the resolved config is stamped on every run/trace
 - Never commit anything under `data/raw/` — those are large scraped artifacts
 
 ## Important constraints (read before making changes)

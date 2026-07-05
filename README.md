@@ -8,7 +8,7 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 > The retrieval layer was rebuilt **LlamaIndex-first**: a hierarchical
 > `PropertyGraphIndex` on **Neo4j** replaced the former Postgres + pgvector and FAISS
 > paths, which are now deleted. The full graph is built (79,882 docs) and the
-> workflows + chat UI consume the retriever.
+> recipe engine + chat UI consume the retriever.
 > See **[docs/RETRIEVAL.md](docs/RETRIEVAL.md)** and the work unit
 > [`2026-05-30_20_llamaindex-retrieval-refactor`](.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json).
 > Pre-refactor state is preserved on `main` and `archive/pre-llamaindex-refactor`.
@@ -41,8 +41,8 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 
 **Retrieval refactor (complete).** Retrieval is LlamaIndex-first on Neo4j:
 - ✅ `harness/indexing/` — config profiles + registry, hierarchical chunker, link extractor, Mongo→IR ingestion, Neo4j PropertyGraphIndex build + `HierarchicalPGRetriever` (small-to-big + `links_to`). 36 unit tests; built live over the full corpus (79,882 docs).
-- ✅ Workflows + chat UI consume the retriever (LIR-009/010); the old pgvector/FAISS stack is deleted (LIR-012).
-- The **benchmark/eval suite** (`run_eval.py`, ablations) was removed from this branch and preserved on `archive/pre-llamaindex-refactor`; it will be rebuilt on the clean retrieval API.
+- ✅ The recipe engine + chat UI consume the retriever (LIR-009/010, workflows since retired); the old pgvector/FAISS stack is deleted (LIR-012).
+- ✅ The **eval suite is rebuilt** (2026-07-04): `harness/eval/runner.py` + `scripts/run_eval.py` run a recipe over `benchmark/benchmark.jsonl` — one MLflow run per question type (T1–T4) with `mlflow.genai` judges. *(The pre-refactor suite remains archived on `archive/pre-llamaindex-refactor`; ablations + the lift metric are still TODO.)*
 
 **Recipe engine — single-engine agentic RAG (branch `claude/agentic-rag-foundation`).** There is **one engine**: a LlamaIndex `FunctionAgent`. The UI/eval select a **recipe** (`harness/configs/recipes/*.yaml` + `$EMA_CONFIG_DIR`) = orchestration (system prompt + tools + output schema) + retrieval (index profile + optional pipeline + few-shot) + generation + an optional inline judge. RAG *techniques are tools + instructions* — Naive RAG → `ema_search`; **CRAG → `corrective_search`** (a bounded grade/rewrite loop); ReAct → the agent's tool loop. Structured `RegulatoryAnswer` output, MLflow autolog + `mlflow.genai` judges, and typed ontology enrichment live under `harness/{schemas,tools,agents,retrieval,recipes,obs,ontology,eval}/`. A single Chainlit **recipe dropdown** drives it; the resolved recipe is stamped honestly on every MLflow trace (Arize Phoenix was fully removed in the 2026-06-22 migration). **The legacy `harness/workflows/*` Workflow engine was retired (2026-06-25).** Start here: **[docs/RECIPES.md](docs/RECIPES.md)** + **[docs/RAG_TECHNIQUES.md](docs/RAG_TECHNIQUES.md)**; design in **[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md)**.
 

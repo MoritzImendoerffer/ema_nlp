@@ -24,11 +24,10 @@ License · Python version · Last update · arXiv preprint · DOI (Zenodo)
 ```bash
 pip install -e ".[dev]"
 scripts/start_services.sh                     # MongoDB + Neo4j
-python -m harness.workflows.registry --list   # available RAG / agent strategies
+ls harness/configs/recipes/                   # available RAG / agent recipes
+python scripts/run_eval.py --recipe naive_rag # recipe × benchmark → per-type MLflow runs
 bash run_ui.sh                                # Chainlit chat UI (MLflow tracing)
 ```
-*(The MIRAGE-style eval runner `run_eval.py` is archived on `archive/pre-llamaindex-refactor`
-and will be rebuilt on the Neo4j retriever API.)*
 
 ## Why this benchmark exists
 
@@ -75,7 +74,7 @@ Results are reported per question type, not just aggregate. The interesting find
 - Not a clinical benchmark. Do not use for clinical decision support.
 
 ## How to contribute
-- Add a new ablation: see `ablations/README.md` for the config contract.
+- Add a new ablation: express it as a recipe/config under `harness/configs/` (see `docs/RECIPES.md` for the contract).
 - Propose additional question types: open an issue with the test hypothesis.
 - Translate the benchmark: multilingual extension is planned for v2; early collaborators welcome.
 

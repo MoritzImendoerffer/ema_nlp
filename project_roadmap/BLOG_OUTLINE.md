@@ -64,7 +64,7 @@ Testing whether SME-authored acronym/synonym dictionaries and topic-aware retrie
 Testing whether a ReAct agent with SME-labeled plan steps beats single-pass retrieval on T3/T4. Prior-art anchor: RAG-Gym's +19 F1 on HotpotQA. Expected result: the agent should use cross-refs where flat retrieval fails.
 
 **C. SME few-shot vs self-generated CoT vs zero-shot, across model tiers.**
-2×3 grid: mid-tier model × reasoning model × three prompting strategies. The counterargument test. Expected result based on Medprompt → o1: few-shot lift shrinks on reasoning models — *for clinical MCQA*. Open question in regulatory domain.
+3×3 grid: mid-tier × reasoning × open-weight (OLMo) model × three prompting strategies. The counterargument test. Expected result based on Medprompt → o1: few-shot lift shrinks on reasoning models — *for clinical MCQA*. Open question in regulatory domain.
 
 Each ablation gets a chart: metric on y-axis, condition on x-axis, faceted by question type. Faceting matters — aggregates hide where the action is.
 
@@ -88,8 +88,8 @@ The deliverables:
 All three are independently useful. The corpus is shareable even if nobody agrees with my benchmark design.
 
 What I'm deliberately not doing in v1:
-- EPARs, variations, scientific advice
-- Ontology/graph infrastructure
+- EPARs, variations, scientific advice *in the benchmark* (EPARs did enter the retrieval corpus in 2026-06)
+- Entity-level ontology infrastructure (the retrieval store did become a Neo4j document/chunk graph)
 - Biomedical/clinical reasoning
 - Multilingual
 

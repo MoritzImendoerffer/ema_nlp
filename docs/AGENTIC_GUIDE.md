@@ -10,13 +10,14 @@
 A practical, task-by-task guide to the **agentic layer** on branch
 `claude/agentic-rag-foundation`: a LlamaIndex `FunctionAgent` + tool registry that returns a
 structured, cited `RegulatoryAnswer`, plus its MLflow run-recording/tracing, `mlflow.genai`
-judges, and typed ontology enrichment. It is **additive** — the existing LlamaIndex workflows
-are untouched; the agent is one more selectable strategy. The live Chainlit app is traced by
+judges, and typed ontology enrichment. The agent is the **single engine** — the old LlamaIndex
+Workflow strategies were retired 2026-06-25; a **recipe** (`harness/configs/recipes/*.yaml`)
+configures which tools/prompt/schema the agent runs with. The live Chainlit app is traced by
 **MLflow** (autolog), the same as everything else.
 
 - **Design / rationale:** [`TARGET_ARCHITECTURE.md`](TARGET_ARCHITECTURE.md)
 - **Verification runbook + results (T1–T6):** [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md)
-- **Workflow strategies (the agent is the `agent` strategy):** [`WORKFLOWS.md`](WORKFLOWS.md)
+- **Recipes (the config surface):** [`RECIPES.md`](RECIPES.md) · techniques: [`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md)
 - **Retrieval store:** [`RETRIEVAL.md`](RETRIEVAL.md)
 
 Everything below was run on the GPU host (`marvin-gpu`) on 2026-06-22.
@@ -224,15 +225,15 @@ result = run_evaluation(data, predict_fn=predict_fn, scorers=judges, experiment=
 bash run_ui.sh                 # MLflow server + Chainlit; open the printed localhost URL, log in
 ```
 
-Select the agent in either place:
+Select the recipe in either place:
 
-- **At session start:** pick the **"Agentic RAG (FunctionAgent)"** chat profile, or
-- **Live, any time:** open the right-hand settings panel and set **Workflow → "Agentic RAG"**
+- **At session start:** pick a chat profile (one per recipe), or
+- **Live, any time:** open the right-hand settings panel and pick from the **Recipe** dropdown
   (the panel is the live source of truth; switching rebuilds the pipeline in place).
 
 The agent runs **MLflow-traced** (the "View traces →" link points at the MLflow UI experiment's
 Traces tab on :5000), shows its citations in the source sidebar, and supports 👍/👎 feedback
-(written as MLflow trace assessments) like the other strategies. In-app the agent uses a
+(written as MLflow trace assessments). In-app the agent uses a
 plain retrieve (GPU-light); the full query-expansion + rerank pipeline is on the CLI demo / eval
 paths (task 1/4).
 

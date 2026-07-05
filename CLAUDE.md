@@ -5,22 +5,25 @@
 > Retrieval is LlamaIndex-first: a **hierarchical `PropertyGraphIndex` on Neo4j**
 > (79,882 docs / 5.82M leaf embeddings / 99,520 main-content-scoped `LINKS_TO` edges, work unit 24)
 > replaced Postgres + pgvector, FAISS, and the hand-rolled SQL retrieval — **all now deleted**
-> (LIR-012, 2026-06-03). Workflows + the Chainlit UI consume the retriever (LIR-009/010, 2026-06-02),
-> with live MLflow tracing/feedback wired in `app.py`. The benchmark suite was removed from
-> this branch (archived on `archive/pre-llamaindex-refactor`). Pre-refactor state: `main` @ `5c3c8a8`.
+> (LIR-012, 2026-06-03). The recipe engine + Chainlit UI consume the retriever (LIR-009/010,
+> 2026-06-02, originally via the since-retired workflows), with live MLflow tracing/feedback
+> wired in `app.py`. Pre-refactor state: `main` @ `5c3c8a8`. *(The pre-refactor eval suite was
+> archived on `archive/pre-llamaindex-refactor`; a recipe-based eval runner has since been
+> rebuilt — see the recipe-engine banner.)*
 > *See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) for the full retrieval picture.*
 
-> 🧪 **Agentic layer — runtime-verified** (branch `claude/agentic-rag-foundation`, **additive**).
+> 🧪 **Agentic layer — runtime-verified** (branch `claude/agentic-rag-foundation`).
 > A LlamaIndex `FunctionAgent` + tool-registry orchestration with Pydantic structured output
 > (`RegulatoryAnswer`), a config-driven retrieval pipeline (query-expansion + rerank), MLflow
 > run-recording + autolog + `mlflow.genai` judges, and typed ontology enrichment live under
 > `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/`. **Verified end-to-end on the
 > GPU host (2026-06-22, T1–T6):** offline tests, the agent demo, MLflow autolog (traces
 > complete — the mlflow#13352 hang did not occur), ontology enrichment into Neo4j, and
-> judges/eval all run. It is **wired into `app.py` as a selectable "Agentic RAG" workflow mode**
-> (additive — the existing workflows are untouched; the live app **and** the agent are now
-> **MLflow-traced** with 👍/👎 logged as MLflow trace assessments — Arize Phoenix was fully
-> removed in the 2026-06-22 migration; `run_ui.sh` starts the MLflow server on :5000). *How-to:
+> judges/eval all run. It started as an additive "Agentic RAG" mode in `app.py`; the agent is
+> now the **only** engine (see the recipe banner below — the old workflows are deleted). The
+> live app **and** the agent are **MLflow-traced** with 👍/👎 logged as MLflow trace
+> assessments — Arize Phoenix was fully removed in the 2026-06-22 migration; `run_ui.sh`
+> starts the MLflow server on :5000. *How-to:
 > [`docs/AGENTIC_GUIDE.md`](docs/AGENTIC_GUIDE.md). Design: [`docs/TARGET_ARCHITECTURE.md`](docs/TARGET_ARCHITECTURE.md).
 > Verification runbook + results: [`docs/RUNTIME_VERIFICATION.md`](docs/RUNTIME_VERIFICATION.md).*
 
@@ -36,9 +39,13 @@
 > trace; 👍/👎 also feeds the rated-trajectory few-shot cache. *How-to:
 > [`docs/RECIPES.md`](docs/RECIPES.md); techniques + citations: [`docs/RAG_TECHNIQUES.md`](docs/RAG_TECHNIQUES.md).*
 > **The legacy `harness/workflows/*` Workflow engine was deleted (2026-06-25) — fully retired
-> in favour of recipes.** *(Docs still referencing `harness/workflows/*`, `WorkflowRunner`,
-> `get_workflow`, or `prompt_strategy` — e.g. `docs/WORKFLOWS.md`, `ONBOARDING.md`, `DECISIONS.md`,
-> `ARCHITECTURE.md` — predate the retirement and are stale pending a sweep.)*
+> in favour of recipes.** Recipes are the **single composition path**: `build_recipe` →
+> `AgentWorkflowAdapter` (`build_session` + `configs/agent/*.yaml` were absorbed, 2026-07-04).
+> **Eval vehicle:** `scripts/run_eval.py` runs a recipe over `benchmark/benchmark.jsonl`
+> (45 items) — one MLflow run per question type with `mlflow.genai` judges; MLflow is the
+> system of record for results. *(Doc sweeps 2026-06-25 + 2026-07-05 brought the docs in
+> line; `docs/WORKFLOWS.md` + `docs/RETRIEVAL_TRACKS.md` are intentionally-preserved history
+> behind SUPERSEDED banners.)*
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -67,14 +74,15 @@ Open decisions not yet made are in `OPEN_QUESTIONS.md`.
 
 ## Current project phase
 
-**Phase 1 — corpus extraction complete.** `corpus/corpus.jsonl` has 26,251 Q&A records (17,505 HTML + 8,746 PDF).
+**Phase 1 — corpus extraction complete.** `corpus/corpus.jsonl` has 26,251 Q&A records (17,505 HTML + 8,746 PDF). Completed: TASK-001 through TASK-007 + PDF-001–PDF-004 (65k docs in `parsed_pdfs`).
 
-Completed: TASK-001 through TASK-007 (Phase 0 scoping, Phase 1 extractors, corpus writer, MongoDB adaptor) + PDF-001–PDF-004 (parsed PDF ingest pipeline; 65k docs in `parsed_pdfs` collection).
+**Phase 2 — benchmark drafted.** `benchmark/benchmark.jsonl`: 45 items (20 T1 / 10 T2 / 10 T3 / 5 T4). The Phase 2.5 contamination screen (closed-book runs, `zero_shot_known` tagging) is still TODO.
 
-Next phase: **Phase 2 — benchmark construction** (curate 30–50 evaluation questions, T1–T4 types).  
-Full task list and status: `.claude/work/2026-05-10_02_implementation-plan/state.json`
+**Phase 3 — partial.** Retrieval + the recipe engine are live; the recipe × benchmark eval runner exists (`scripts/run_eval.py`, per-type MLflow runs). Missing: runtime verification of the runner, closed-book baselines, the lift metric.
 
-**Retrieval refactor — complete** (branch `refactor/llamaindex-retrieval-pipeline`): retrieval is LlamaIndex-first on Neo4j (`harness/indexing/`, hierarchical `PropertyGraphIndex`), built over the full corpus (79,882 docs / 5.82M leaf embeddings / 99,520 `LINKS_TO` edges). Workflows + chat UI consume the retriever (LIR-009/010); the old pgvector/FAISS stack is deleted (LIR-012); link extraction is main-content-scoped + typed (work unit 24, 2026-06-04). The benchmark/eval suite was removed from this branch (archived on `archive/pre-llamaindex-refactor`). See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) and `.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/`.
+Full phase sequence and status table: `project_roadmap/ROADMAP.md` (reconciliation banner).
+
+**Retrieval refactor — complete** (branch `refactor/llamaindex-retrieval-pipeline`): retrieval is LlamaIndex-first on Neo4j (`harness/indexing/`, hierarchical `PropertyGraphIndex`), built over the full corpus (79,882 docs / 5.82M leaf embeddings / 99,520 `LINKS_TO` edges). The recipe engine + chat UI consume the retriever (LIR-009/010); the old pgvector/FAISS stack is deleted (LIR-012); link extraction is main-content-scoped + typed (work unit 24, 2026-06-04). See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) and `.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/`.
 
 ## Data sources
 
@@ -104,7 +112,7 @@ mypy .                        # type check
 
 ## Project phase
 
-Currently in **Phase 1 (corpus extraction)**. Do not introduce work from later phases without asking. The full phase sequence and success criteria per phase are in `project_roadmap/ROADMAP.md`.
+See **"Current project phase"** above (Phase 1 done, Phase 2 drafted, Phase 3 partial). Do not introduce work from later phases without asking. The full phase sequence and success criteria per phase are in `project_roadmap/ROADMAP.md`.
 
 ## V1 scope locks
 

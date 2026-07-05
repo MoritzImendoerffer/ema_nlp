@@ -88,6 +88,7 @@ never advertises a stage that did not run.
 | `regulatory_agent` | ema_search, resolve_substance | none | the full agent |
 | `agentic_reranked` | ema_search, resolve_substance | native | + query-expansion + rerank (GPU) |
 | `agentic_judged` | ema_search, resolve_substance | none | + inline faithfulness judge |
+| `regulatory_fewshot` | ema_search, resolve_substance | none | + rated-trajectory few-shot injection (👍-rated past answers) |
 
 ## Add your own
 

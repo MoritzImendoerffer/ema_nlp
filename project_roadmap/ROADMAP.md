@@ -4,17 +4,19 @@
 > PropertyGraphIndex** — this revises the original "No Neo4j" v1 non-goal below (graph
 > structure became the chosen retrieval signal). See `DECISIONS.md` and
 > [`docs/RETRIEVAL.md`](../docs/RETRIEVAL.md). The corpus + benchmark methodology (phases,
-> T1–T4 types, lift, ablations) still stands; the eval-suite *code* was archived off the
-> refactor branch (`archive/pre-llamaindex-refactor`), to be rebuilt on the new retrieval API.
+> T1–T4 types, lift, ablations) still stands. *(The eval-suite code was archived off the
+> refactor branch in 2026-05; a new recipe-based runner has since been rebuilt on this
+> branch — see the status table below.)*
 
-> 🧭 **Current state (2026-06-22) — reconcile the plan below with what's actually built.**
-> This roadmap was written **benchmark-first**. Since then the project also grew an **additive
-> agentic RAG pipeline** — a LlamaIndex `FunctionAgent` + tool registry with Pydantic structured
-> output (`RegulatoryAnswer`), config-driven retrieval, and MLflow run-recording/judges under
-> `harness/{schemas,tools,agents,retrieval,obs,ontology,eval}/`. It is runtime-verified on the GPU
-> host and wired into the Chainlit UI as a selectable **"Agentic RAG"** mode (additive — the
-> existing workflows are untouched; the live app is traced by **MLflow**). See
-> [`docs/AGENTIC_GUIDE.md`](../docs/AGENTIC_GUIDE.md) and
+> 🧭 **Current state (2026-07-04) — reconcile the plan below with what's actually built.**
+> This roadmap was written **benchmark-first**. Since then the project's runtime became a
+> **single-engine agentic RAG**: one LlamaIndex `FunctionAgent` configured by **recipes**
+> (`harness/configs/recipes/*.yaml` — system prompt + tools + output schema + retrieval +
+> few-shot/judge policy) with Pydantic structured output (`RegulatoryAnswer`), config-driven
+> retrieval, and MLflow tracing/judges under
+> `harness/{schemas,tools,agents,recipes,retrieval,obs,ontology,eval}/`. The old 7-workflow
+> engine was **deleted 2026-06-25**; the Chainlit UI selects a recipe from a dropdown. See
+> [`docs/RECIPES.md`](../docs/RECIPES.md), [`docs/AGENTIC_GUIDE.md`](../docs/AGENTIC_GUIDE.md) and
 > [`docs/TARGET_ARCHITECTURE.md`](../docs/TARGET_ARCHITECTURE.md). **The benchmark goal below is
 > still on** — phase status against today's code:
 >
@@ -25,12 +27,13 @@
 > | 1.5 Leakage verification | ◻ planned | methodology in [`LEAKAGE.md`](LEAKAGE.md) |
 > | 1.7 Narrative corpus | ✅ done (re-platformed) | now the Neo4j `PropertyGraphIndex`, not pgvector |
 > | 2 Benchmark | 🟡 drafted | `benchmark/benchmark.jsonl` — 45 items (20 T1 / 10 T2 / 10 T3 / 5 T4); contamination screen still TODO |
-> | 3 Baseline RAG + eval harness | 🟡 partial | retrieval + 7 workflows + the agent are live; the **scoring harness** (`run_eval.py`, judges, lift) was archived off this branch and must be **rebuilt** on the Neo4j API — its partial new home is `harness/eval/` (`mlflow.genai` judges/scorers) |
-> | 4 Ablations | ◻ planned | A/B/C methodology unchanged; **Ablation B's agent already exists** (`harness/agents/`) — it becomes "test SME process-rewards on the agent", not "build the agent" |
+> | 3 Baseline RAG + eval harness | 🟡 partial | retrieval + the recipe-configured agent are live; a **recipe × benchmark eval runner** is rebuilt on this branch (`harness/eval/runner.py`, `scripts/run_eval.py` — one MLflow run per question type, `mlflow.genai` judges); runtime verification + closed-book/lift scoring still TODO |
+> | 4 Ablations | ◻ planned | A/B/C methodology unchanged; **Ablation B's agent already exists** (`harness/agents/`) — it becomes "test SME process-rewards on the agent", not "build the agent"; A1's acronym dictionary is built (`harness/configs/retrieval/acronyms.yaml`) |
 > | 5 Writeup | ◻ planned | |
 >
 > Bottom line: the **methodology** (T1–T4, lift, contamination, the three ablations) is unchanged and
-> still the plan; the **eval/scoring harness** is the main missing piece to resume benchmark work.
+> still the plan; the eval vehicle exists again — closed-book baselines and the lift metric are the
+> next missing pieces for benchmark work.
 
 **Project goal.** Build a shareable Q&A benchmark from EMA human-regulatory content, plus reference RAG implementations of increasing sophistication, to test where subject-matter expert (SME) effort actually pays off in agentic RAG.
 
@@ -133,7 +136,7 @@ Define and document:
 ### Why this matters
 If EMA content is absent from Dolma 3, OLMo 3 becomes a genuinely clean reference for that content — rare and valuable. If present, you still benefit from OLMo 3 being *verifiably-measured* rather than contamination-opaque, but you'd weight its scores the same as the closed frontier models.
 
-See `docs/LEAKAGE.md` section 7.5 for the full rationale.
+See `LEAKAGE.md` section 7.5 for the full rationale.
 
 ---
 
@@ -145,7 +148,7 @@ The original Phase 1.7 built the narrative corpus on **Postgres + pgvector** (NA
 
 ## Phase 2 — Benchmark construction (≈ 1 week)
 
-> **Status (2026-06-04).** `benchmark/benchmark.jsonl` exists (45 items: 20 T1 / 10 T2 / 10 T3 / 5 T4). The benchmark-runner, LLM-judge, and eval-suite *code* was archived off the refactor branch (`archive/pre-llamaindex-refactor`); it must be rebuilt on the new Neo4j retrieval API before Phase 2.5 / Phase 3 scoring can run. The methodology below stands.
+> **Status (2026-07-04).** `benchmark/benchmark.jsonl` exists (45 items: 20 T1 / 10 T2 / 10 T3 / 5 T4). The eval runner is **rebuilt on this branch**: `harness/eval/runner.py` + `scripts/run_eval.py` run a recipe over the benchmark with one MLflow run per question type and `mlflow.genai` judges. The Phase 2.5 contamination screen (closed-book runs, `zero_shot_known` tagging) is still TODO. The methodology below stands.
 
 **Purpose.** Build 30–50 evaluation questions from mined Q&A, stratified to discriminate between retrieval strategies.
 
@@ -191,7 +194,7 @@ EMA Q&As are old, public, and almost certainly in modern LLMs' training data. Be
 - Prefer questions whose answers depend on specific quantitative details, recent revisions, or cross-reference traversal — these are more robust to memorization.
 - Include ≥5 "composite" or post-cutoff items: T4 questions you author yourself that combine published Q&As in ways the documents don't, or items from Q&A revisions published after the evaluated model's knowledge cutoff.
 
-See `docs/LEAKAGE.md` for the full treatment: why this matters, what's at risk, what mitigations cost, and how to report results honestly in the face of residual contamination.
+See `LEAKAGE.md` for the full treatment: why this matters, what's at risk, what mitigations cost, and how to report results honestly in the face of residual contamination.
 
 **Deliverable 2 (shareable).** `benchmark.jsonl` + stratification report + contamination screen results per model.
 
@@ -199,7 +202,7 @@ See `docs/LEAKAGE.md` for the full treatment: why this matters, what's at risk, 
 
 ## Phase 3 — Baseline RAG and evaluation harness (≈ 1 week)
 
-> **Status (2026-06-04).** The eval harness (`run_eval.py`, LLM judges, metrics, lift reporting) was archived to `archive/pre-llamaindex-refactor` during the retrieval refactor and is **not on this branch** — it must be rebuilt against the Neo4j `PropertyGraphIndex` retrieval API. The retrieval side it will sit on is live: the 7 registered workflows (`harness/workflows/registry.py`) over the hierarchical retriever. See [`docs/RETRIEVAL.md`](../docs/RETRIEVAL.md) and [`docs/WORKFLOWS.md`](../docs/WORKFLOWS.md). Section 3.1's "flat retrieval / FAISS / Qdrant" description is the original v1 plan, superseded by the Neo4j store.
+> **Status (2026-07-04).** A recipe-based eval harness is **rebuilt on this branch**: `harness/eval/runner.py` + `scripts/run_eval.py` (recipe × benchmark → per-type MLflow runs; `mlflow.genai` faithfulness/correctness judges; MLflow is the system of record for results). The retrieval side it sits on is live: **recipes** (`harness/configs/recipes/*.yaml`, one `FunctionAgent` engine — the former 7-workflow registry was deleted 2026-06-25) over the hierarchical Neo4j retriever. Still TODO for the full Phase 3 protocol: closed-book baselines and lift reporting. See [`docs/RETRIEVAL.md`](../docs/RETRIEVAL.md) and [`docs/RECIPES.md`](../docs/RECIPES.md). Section 3.1's "flat retrieval / FAISS / Qdrant" description is the original v1 plan, superseded by the Neo4j store.
 
 **Purpose.** The control arm. Everything else is measured against this.
 
@@ -228,7 +231,7 @@ For each model, report two numbers side by side:
 - **Closed-book**: question only, no retrieval. Measures memorization.
 - **Open-book**: question + retrieval. Measures the full RAG system.
 
-The **lift** (open-book − closed-book) is the headline number, not absolute Correctness. A system scoring 95% means something very different depending on whether closed-book was 40% or 92%. This framing also makes results more robust to EMA-content training-data leakage. See `docs/LEAKAGE.md`.
+The **lift** (open-book − closed-book) is the headline number, not absolute Correctness. A system scoring 95% means something very different depending on whether closed-book was 40% or 92%. This framing also makes results more robust to EMA-content training-data leakage. See `LEAKAGE.md`.
 
 ### 3.5 Config-as-code
 Each run produces a config dict + results dict, both logged. This makes ablations trivial — flip a flag, rerun.
@@ -241,7 +244,7 @@ Each run produces a config dict + results dict, both logged. This makes ablation
 
 **Purpose.** Test specific SME interventions that the literature says should matter most. Each is a single flag-flip against the Phase 3 baseline.
 
-**See `docs/ABLATIONS.md` for the full design of each ablation** — variants, SME artifacts, expected per-type effects, risks, cost budgets. The summary below is just the headline claim for each.
+**See `ABLATIONS.md` for the full design of each ablation** — variants, SME artifacts, expected per-type effects, risks, cost budgets. The summary below is just the headline claim for each.
 
 ### 4.1 Ablation A — SME-curated evidence filtering + query reformulation
 Retrieval-layer interventions (acronym dictionary, topic-aware filtering, SME-rubric reranker) beat vanilla dense retrieval. Prior art: MIRAGE +18pts from corpus changes; recent expert eval +12/+8.2 from query reformulation + filtering. Expected biggest gain on T2/T3.
@@ -253,7 +256,7 @@ A ReAct agent with SME-labeled plan-step rewards beats single-pass retrieval, es
 The counterargument test. **3×3 grid**: mid-tier closed × frontier reasoning × fully-open (OLMo 3) × three prompting strategies. Tests whether frontier reasoning models erode the value of SME-written few-shot exemplars in the regulatory domain (as Medprompt→o1 showed for medical QA). The fully-open tier serves as a contamination-measurable reference — if gain patterns match across all three rows, observed effects are likely real retrieval behavior rather than memorization artifacts.
 
 ### 4.4 Optional bonus — citation granularity × trust calibration
-Small human study on trust calibration. See `docs/ABLATIONS.md` for full design.
+Small human study on trust calibration. See `ABLATIONS.md` for full design.
 
 ---
 
@@ -273,19 +276,18 @@ ema-rag-benchmark/
 │   ├── TAXONOMY.md
 │   └── curation_notes.md
 ├── harness/
-│   ├── eval/                 # scoring harness — to be rebuilt on the Neo4j API (mlflow.genai judges live here)
+│   ├── eval/                 # scoring harness (mlflow.genai judges + recipe×benchmark runner)
 │   ├── indexing/             # Neo4j PropertyGraphIndex build + retriever
-│   ├── workflows/            # RAG/agent strategies
-│   └── configs/
-├── ablations/
-│   ├── A_evidence_filter/
-│   ├── B_process_rewards/
-│   └── C_prompting_matrix/
-├── results/
+│   ├── agents/               # the single FunctionAgent engine (+ tools/, recipes/)
+│   └── configs/              # recipes/, retrieval/ (incl. acronyms.yaml), index/, models.yaml
+├── results/                  # MLflow is the system of record; exportable summaries here
 │   └── results.md
 └── docs/
     └── methodology.md
 ```
+*(Ablation variants are expressed as recipes/configs under `harness/configs/`, not a separate
+`ablations/` tree — that directory was retired; A1's acronym dictionary now ships at
+`harness/configs/retrieval/acronyms.yaml`.)*
 
 ### 5.2 Blog post (audience: ML + pharma tech)
 Outline:
@@ -330,7 +332,7 @@ Outline:
 | Risk | Mitigation |
 |---|---|
 | Too few extractable Q&As | Phase 0 go/no-go; fallback scope is structured guidance-document Q&A sections. |
-| **Training-data contamination of benchmark items** | **Phase 2.5 contamination screen; closed-book-vs-open-book reporting; prefer post-cutoff and composite items. See `docs/LEAKAGE.md`.** |
+| **Training-data contamination of benchmark items** | **Phase 2.5 contamination screen; closed-book-vs-open-book reporting; prefer post-cutoff and composite items. See `LEAKAGE.md`.** |
 | Benchmark too small to detect differences | Bootstrap confidence intervals; report effect sizes, not just point estimates; aim for ≥ 30 items. |
 | LLM judge is unreliable | Use two different judges; report agreement; hand-grade a 20% sample. |
 | Results look like noise | Pre-register expected directions per ablation; stay honest if null results arise — null results are still a contribution. |

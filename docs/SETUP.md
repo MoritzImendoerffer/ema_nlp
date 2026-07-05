@@ -256,8 +256,8 @@ Transfer the `ema_scraper.archive` file between machines however is convenient
 MLflow is the trace store and HITL/feedback surface. Every LLM call and
 retrieval step is captured as a trace (via `mlflow.llama_index.autolog()` plus an
 explicit per-turn span from `harness.obs.tracing.traced`), which the SME uses to
-inspect answer quality and individual tool-call quality. Both the workflow stack
-and the agent are traced by the same autolog.
+inspect answer quality and individual tool-call quality. Every turn of the
+recipe-configured agent is traced by the same autolog.
 
 ### MLflow hosting
 
@@ -315,13 +315,16 @@ rated trace.
 
 ## 7. Eval results directory
 
-> **The eval / LLM-judge / benchmark-runner suite (`run_eval.py`, the lift
-> metric, `harness/eval*`, `metrics*`) is not on this branch** — it was archived
-> to `archive/pre-llamaindex-refactor` pending a rebuild on the Neo4j retrieval
-> API. The results/symlink machinery below applies only to that archived suite;
-> nothing on `refactor/llamaindex-retrieval-pipeline` writes eval results yet.
+> **Updated 2026-07-04:** the benchmark runner is rebuilt on this branch
+> (`claude/agentic-rag-foundation`): `python scripts/run_eval.py --recipe <name>`
+> runs a recipe over `benchmark/benchmark.jsonl` and records **one MLflow run per
+> question type** — **MLflow (`mlflow.db` / the :5000 server) is the system of
+> record for eval results**, not a results directory. The lift metric and the
+> ablation grid remain archived on `archive/pre-llamaindex-refactor`. The
+> results/symlink machinery below applies only to that archived suite and to
+> large exported artifacts.
 
-When the eval suite is rebuilt, results are **not stored in the repo** — they live
+For the archived suite (and any bulk exports), results are **not stored in the repo** — they live
 in Nextcloud and are accessed via a symlink:
 
 ```

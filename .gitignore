@@ -231,3 +231,4 @@ mlflow.db-journal
 mlflow.db-wal
 mlartifacts/
 .mlflow.log
+.files/

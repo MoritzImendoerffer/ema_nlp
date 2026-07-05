@@ -29,8 +29,8 @@ The Chainlit app selects recipes from a dropdown; MLflow autolog + a per-turn sp
 every run; 👍/👎 lands as MLflow trace assessments and rates the FAISS few-shot cache.
 Retrieval is exclusively the Neo4j `PropertyGraphIndex` (79,882 docs). The old Workflow
 engine, Phoenix tracing, and the pgvector/FAISS retrieval stack are **deleted** — no
-executable code references them (verified). Offline tests: **413 passed / 2 skipped**;
-only `tests/test_mongo_source.py` fails (needs the live MongoDB container).
+executable code references them (verified). Offline tests: **432 passed / 2 skipped**
+(as of 2026-07-04); only `tests/test_mongo_source.py` fails (needs the live MongoDB container).
 
 Key docs: `docs/RECIPES.md` (current), `docs/RAG_TECHNIQUES.md` (current),
 `docs/TARGET_ARCHITECTURE.md` (mostly current, but see R1/R-review divergence),
@@ -198,28 +198,23 @@ setups and improve instructions/orchestrations.
   calls and LLM steps appear as nested spans; the **effective** (override-applied) recipe
   config is stamped on the turn span; 👍/👎 + inline judge scores attach to the trace as
   assessments; `align_judge` scaffolding exists to calibrate judges against human feedback.
-- ⚠️ But four audit findings undermine "honest inspection":
-  - **F1** — the advertised acronym query-expansion is a silent no-op in *every* path,
-    while traces stamp `query_transform=acronym` (dishonest stamping, empirically confirmed).
-  - **F3** — the **offline** `mlflow.genai` faithfulness judge never receives the retrieved
-    context (`_VAR_MAP` maps both `question` and `context` → `inputs`); its scores are
-    meaningless. (The **inline** judge is fine — it gets real `context_passages`.)
-  - **F14** — `ema.recipe` lands on a *child* span, not the trace root → trace-level
-    filtering by recipe (the stated purpose) needs span drilling.
-  - **F15** — experiment-name drift: the app honors `EMA_MLFLOW_EXPERIMENT`, the demo
-    script/eval hardcode `ema_nlp` → human and judge assessments can land in different
-    experiments, breaking `align_judge`'s premise.
-- ❌ The "use judges to find better orchestrations" *loop* has no vehicle: there is no eval
-  runner that takes a recipe (F5/R6), and `bootstrap.py`'s pieces don't compose (default
-  judge scores 0.0 → `judge_filter(min_score=4.0)` discards everything, F16).
+- ✅ **The four "honest inspection" findings are fixed (2026-07-04):** F1 (acronym expansion
+  live + honest stamping), F3 (offline faithfulness judge now receives `context_passages`
+  from every predict path), F14 (`ema.recipe` is a searchable trace-level tag), F15 (shared
+  `default_experiment()` resolver — no experiment split). See §9 for the fix details.
+- ✅ The "use judges to find better orchestrations" loop has its vehicle: the recipe-driven
+  eval runner exists (F5/R6 fixed — `harness/eval/runner.py`, `scripts/run_eval.py`).
+  Remaining: `bootstrap.py`'s pieces still don't compose (default judge scores 0.0 →
+  `judge_filter(min_score=4.0)` discards everything, F16 — open).
 
 **Open question — R5-Q1:** what is the unit of comparison you want in MLflow — per-turn
 traces filtered by `ema.recipe` (interactive exploration), or named eval *runs* (recipe ×
 benchmark → metrics table)? Both are intended; the second doesn't exist yet (→ R6).
 
-**Proposed direction:** fix F1/F3/F14/F15 (small diffs, they're all "make the stamp match
-reality"), then build the recipe-driven eval runner (R6) — inspection is already good;
-*comparison* is what's missing.
+**Proposed direction:** ~~fix F1/F3/F14/F15 (small diffs, they're all "make the stamp match
+reality"), then build the recipe-driven eval runner (R6)~~ — **done 2026-07-04**; what MLflow
+shows is what ran, and per-recipe comparison runs exist. Next for R5: accumulate rated
+traces and run `align_judge`.
 
 ---
 
@@ -233,30 +228,29 @@ result can be traced back to the exact config that produced it.
 - ✅ The *inputs* are version-controllable: recipes, prompts, index profiles, model roles,
   judge prompts are all files in git; the effective config is stamped on traces;
   `record_answer_run` dumps resolved params per recorded run.
-- ❌ The *experiment vehicle* is missing/broken:
-  - **F5 (top finding):** `build_predict_fn` cannot consume what `build_recipe` produces
-    (`AgentWorkflowAdapter` has no `.run` and is not callable → `TypeError`). The only
-    eval-compatible entry (`build_session`) **bypasses recipes** and hardcodes divergent
-    defaults (pipeline `native`, `configs/agent/regulatory.yaml`). So "run recipe X on
-    benchmark Y" is currently *impossible* — the core of R6.
-  - The benchmark suite itself was removed from this branch (archived on
-    `archive/pre-llamaindex-refactor`); the `results/<run_id>/` + config-dump convention
-    (CLAUDE.md) has no current implementation.
+- ✅ **The experiment vehicle exists (2026-07-04):**
+  - **F5 fixed:** `build_predict_fn` consumes the `AgentWorkflowAdapter` `invoke` contract
+    (and still accepts `.run`/callables); "run recipe X on benchmark Y" is
+    `python scripts/run_eval.py --recipe X` — one MLflow run per question type, tagged
+    `ema.recipe`/`ema.benchmark`/`ema.question_type` (`harness/eval/runner.py`).
+    Runtime verification on the GPU host is still pending.
+  - `benchmark/benchmark.jsonl` is on this branch (45 items); per R6-Q1, **MLflow is the
+    system of record** for results (no `results/<run_id>/` file convention).
   - `$EMA_CONFIG_DIR` recipes live *outside* the repo — reproducibility of external
     recipes is the owner's responsibility (worth a documented convention: a separate
     config repo, or "external is for scratch only; promoted recipes move into the repo").
-  - `uv.lock` is currently untracked (git status `??`) — commit it for env reproducibility.
-- ⚠️ Two composition paths (`build_recipe` vs `build_session`, F6) mean "the same" agent
-  can be materially different depending on entry point — a direct reproducibility hazard.
+  - `uv.lock` is committed (2026-07-04).
+- ✅ **F6 fixed:** `build_session` + `configs/agent/*.yaml` deleted — `build_recipe` is the
+  single composition path, so entry point can no longer change what "the same" agent means.
 
 **Open question — R6-Q1:** is MLflow the system of record for results (runs + artifacts),
 or do you also want the file-based `results/<run_id>/` convention from CLAUDE.md? Pick one
 primary to avoid a third half-implemented store.
 
-**Proposed direction:** make `AgentWorkflowAdapter` satisfy the eval contract (or teach
-`build_predict_fn` the `invoke` contract), delete/absorb `build_session` +
-`configs/agent/*.yaml` so **one** composition path exists, resurrect a minimal benchmark
-runner (`recipe × benchmark.jsonl → MLflow run with per-type metrics`), and commit `uv.lock`.
+**Proposed direction:** ~~make `AgentWorkflowAdapter` satisfy the eval contract, delete/absorb
+`build_session` + `configs/agent/*.yaml`, resurrect a minimal benchmark runner, commit
+`uv.lock`~~ — **all done 2026-07-04**. Next for R6: runtime-verify `scripts/run_eval.py` on
+the GPU host, then closed-book baselines + the lift metric.
 
 ---
 
@@ -265,18 +259,17 @@ runner (`recipe × benchmark.jsonl → MLflow run with per-type metrics`), and c
 **Statement (draft):** the desired output structure of a setup is defined by a Pydantic
 model and selected (and ideally *defined*) via config files.
 
-**Current state: ❌ aligned in name only** (the audit's biggest goal gap):
-- `recipe.orchestration.output_schema` exists and is plumbed to the agent's `output_cls` —
-  but the registry (`harness/agents/registry.py:21` `_OUTPUT_SCHEMAS`) contains **exactly
-  one** entry (`RegulatoryAnswer`); `Substance` exists in `harness/schemas/` but is not
-  registered.
-- Unknown schema names **silently fall back** to `RegulatoryAnswer` while the trace stamps
-  the raw YAML string → a typo runs one schema and stamps another (F2, dishonest stamping).
-- Even a registered second schema would not survive the run: `coerce_answer`/`_to_answer`,
-  `AgentSession.arun`, the adapter, citation rebuilding, and the judges all hardcode
-  `RegulatoryAnswer`; a foreign structured result gets flattened to
-  `RegulatoryAnswer(answer=str(...))`.
-- There is no mechanism to *define* a schema in a config file at all.
+**Current state: ⚠️ partially fixed (2026-07-04)** (was the audit's biggest goal gap):
+- ✅ **F2 fixed:** the registry is strict and extensible — `get_output_schema` raises
+  `KeyError` on unknown names (no silent fallback; the stamp can't lie), and
+  `register_output_schema`/`list_output_schemas` exist; **`Substance` is registered** as
+  the second schema.
+- ❌ Still open: a registered second schema would not fully survive the run —
+  `coerce_answer`/`_to_answer`, `AgentSession.arun`, the adapter, citation rebuilding, and
+  the judges still assume `RegulatoryAnswer`; a foreign structured result gets flattened to
+  `RegulatoryAnswer(answer=str(...))`. Generalizing that plumbing to a small `BaseModel`
+  protocol is the remaining R7-Option-A work (see R7-Q2).
+- ❌ There is still no mechanism to *define* a schema in a config file (Option B, deferred).
 
 **Open questions (owner):**
 - **R7-Q1 (design fork):**
@@ -316,8 +309,8 @@ Stable IDs referenced above. Severity: 🔴 bug, 🟠 wiring gap / dishonest con
 
 | ID | Sev | Finding | Where |
 |----|-----|---------|-------|
-| F1 | 🔴 | Acronym query-expansion silently dead in all paths (dict-parse of list-shaped YAML swallowed; `build_recipe` never passes acronyms; CWD-relative path) while traces stamp `query_transform=acronym` | `harness/agents/session.py:25-39`, `harness/recipes/build.py:66` |
-| F2 | 🟠 | `output_schema` silent fallback to `RegulatoryAnswer` + downstream hardcoding; only one schema registered | `harness/agents/registry.py:21,41`, `harness/agents/runner.py:35-49` |
+| F1 | 🔴 → ✅ fixed 2026-07-04 | Acronym query-expansion silently dead in all paths (dict-parse of list-shaped YAML swallowed; `build_recipe` never passes acronyms; CWD-relative path) while traces stamp `query_transform=acronym`. *Fix: `harness/retrieval/acronyms.py` (`QueryExpander`, context-aware) + shipped `harness/configs/retrieval/acronyms.yaml`; the default transform loads it and raises if missing.* | `harness/retrieval/acronyms.py`, `harness/retrieval/transforms.py` |
+| F2 | 🟠 → ✅ fixed 2026-07-04 | `output_schema` silent fallback to `RegulatoryAnswer` + downstream hardcoding; only one schema registered. *Fix: strict registry (`get/register/list_output_schemas`, unknown = `KeyError`); `Substance` registered as the second schema. Downstream `BaseModel`-generalization remains R7 work.* | `harness/agents/registry.py` |
 | F3 | 🔴 → ✅ fixed 2026-07-04 | Offline `mlflow.genai` faithfulness judge never sees context (`{{context}}`→`inputs`; predict_fn returns no passages) — scores meaningless; inline path OK. *Fix: `_VAR_MAP` context→outputs + `predict_fn` returns `context_passages` on every branch (adapter passthrough / `capture_search_nodes` around `.run`).* | `harness/eval/judges.py`, `harness/eval/predict.py` |
 | F4 | 🔴 → ✅ fixed 2026-07-04 | Rated-trajectory cache: per-session `QueryCache()` + full-file rewrite on save → cross-session lost updates of entries and ratings (the few-shot learning signal). *Fix: process-wide `get_query_cache()` + `RLock` around mutations + atomic tmp/rename writes. Multi-process stays last-writer-wins (documented; app is single-process).* | `harness/query_cache.py`, `app.py` |
 | F5 | 🔴 → ✅ fixed 2026-07-04 | Eval cannot consume recipes: `build_predict_fn` needs `.run`/callable; adapter has neither; only recipe-bypassing `build_session` works. *Fix: `build_predict_fn` now prefers the adapter's `invoke` contract; recipe × benchmark runner exists (`harness/eval/runner.py`, `scripts/run_eval.py`).* | `harness/eval/predict.py`, `harness/eval/runner.py` |
@@ -328,14 +321,14 @@ Stable IDs referenced above. Severity: 🔴 bug, 🟠 wiring gap / dishonest con
 | F10 | 🟡 | Dead knobs stamped as effective: `judge.model_role` (judge role hardcoded), `fewshot.source`, `models.yaml` `reviewer` role unconsumed | `harness/eval/inline_judge.py:59`, `harness/recipes/config.py:31` |
 | F11 | 🟡 | Checked-in default index profile ships `scope.limit: 50` — rebuild would ingest 50 docs | `harness/configs/index/neo4j_hier.yaml:20` |
 | F12 | 🟡 | Profile `embed_model` decorative; query cache has no embedding-model provenance (silent space-mixing on model switch) | `harness/indexing/property_graph.py:69-75`, `harness/query_cache.py:34` |
-| F13 | 🟡 | Process-global `EMA_INDEX_PROFILE` mutation can mis-stamp concurrent sessions' traces (self-contradicting trace) | `app.py:260`, `harness/agents/workflow_adapter.py:59` |
-| F14 | 🟡 | `ema.recipe` stamped on child span, not trace root → recipe-level trace filtering needs drilling | `app.py:516-521`, `harness/recipes/build.py:84-87` |
-| F15 | 🟡 | Experiment-name drift: app honors `EMA_MLFLOW_EXPERIMENT`; demo/eval hardcode `ema_nlp` → assessments split across experiments | `app.py:46`, `scripts/run_agent_demo.py:33`, `harness/eval/evaluate.py:19` |
+| F13 | 🟡 → ✅ fixed 2026-07-04 | Process-global `EMA_INDEX_PROFILE` mutation can mis-stamp concurrent sessions' traces (self-contradicting trace). *Fix: adapter stamps the recipe's resolved profile; the app's turn span stamps the SESSION's profile.* | `harness/agents/workflow_adapter.py`, `app.py` |
+| F14 | 🟡 → ✅ fixed 2026-07-04 | `ema.recipe` stamped on child span, not trace root → recipe-level trace filtering needs drilling. *Fix: `tag_current_trace()` stamps `ema.recipe` as a trace-level tag (searchable via `mlflow.search_traces`).* | `harness/obs/tracing.py` |
+| F15 | 🟡 → ✅ fixed 2026-07-04 | Experiment-name drift: app honors `EMA_MLFLOW_EXPERIMENT`; demo/eval hardcode `ema_nlp` → assessments split across experiments. *Fix: shared `default_experiment()` resolver used by app / demo / eval / `AgentSession`.* | `harness/obs/runs.py` |
 | F16 | 🟡 | `bootstrap.py` pieces don't compose (judge=None → all-0.0 scores → `min_score=4.0` filter empties trainset; judge signature mismatch) | `harness/eval/bootstrap.py:27-50` |
 | F17 | 🟡 → ✅ fixed 2026-07-04 | `corrective_search` returns the *last* retrieval, not best-so-far (comment claims otherwise); grader prompt demands `qa_id`s absent from its context; parse-error pseudo-fact fed to rewriter. *Fix: `grade_key` tracks best-so-far across cycles (ties→later); grader keys on the `[i]` document index; the parse-error sentinel is filtered out of rewrite prompts.* | `harness/retrieval/corrective.py`, `harness/tools/corrective_search.py` |
 | F18 | 🟡 | Reviewer-in-the-loop regressed: old engine had threshold+`passed` gate (`CRAGReviewWorkflow`); recipes have score-only `JudgePolicy` — no gate/retry seam | `harness/recipes/config.py:47-61` (cf. deleted `harness/workflows/review.py`) |
 | F19 | 🟡 → ✅ fixed 2026-07-04 | UI: cache toggle off silently kills few-shot + rating persistence; 👎-rated entries offered for reuse; `on_chat_resume` reverts to default recipe; failed profile switch leaves UI/pipeline disagreeing. *Fix: toggle now disables cache READS only (writes/ratings always persist, with a UI notice); reuse offers filter out rating<4; resume restores the thread's `chat_profile` recipe and says which recipe is active; failed switch snaps the settings panel back.* | `app.py` |
-| F20 | 🟡 → ✅ fixed 2026-07-04 | Dead artifacts/deps: `scripts/generate_comparison_report.py` (consumes deleted engine's outputs), issue-generator scripts with pre-refactor plans, `ablations/a1_query_expansion.py` orphaned, empty `main.py`, unused deps (`llama-index-vector-stores-faiss`, `llama-index-retrievers-bm25`, `rank-bm25`), empty `harness/{workflows,pg,hitl}/` dirs (mask import errors as namespace pkgs), ~10 stale `WorkflowRunner` comments, `HARNESS_REFACTORS.md` is a Phoenix-era spec. *Fix: all deleted/cleaned; `uv.lock` committed. (The `__pycache__`-only dirs still need a manual `rm -rf harness/{workflows,pg,hitl,ablations}` — shell delete was declined during the session.)* | various |
+| F20 | 🟡 → ✅ fixed 2026-07-04 | Dead artifacts/deps: `scripts/generate_comparison_report.py` (consumes deleted engine's outputs), issue-generator scripts with pre-refactor plans, `ablations/a1_query_expansion.py` orphaned, empty `main.py`, unused deps (`llama-index-vector-stores-faiss`, `llama-index-retrievers-bm25`, `rank-bm25`), empty `harness/{workflows,pg,hitl}/` dirs (mask import errors as namespace pkgs), ~10 stale `WorkflowRunner` comments, `HARNESS_REFACTORS.md` is a Phoenix-era spec. *Fix: all deleted/cleaned; `uv.lock` committed; the `__pycache__`-only dirs `harness/{workflows,pg,hitl,ablations}` physically removed 2026-07-05.* | various |
 
 **Verified-solid (for calibration):** offline test suite green and accurate; recipe/tool/
 prompt/model-role cross-references all resolve; CRAG logic single-sourced; contextvar node

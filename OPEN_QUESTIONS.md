@@ -2,7 +2,7 @@
 
 Decisions not yet made. Each entry has enough context to make the decision without re-reading the full exploration. Once a question is resolved, move it to `DECISIONS.md` and remove it here.
 
-> **Note (2026-06-04):** The feedback/caching, benchmark-construction, and agent-design questions below — rating UI granularity, benchmark `cache: false` convention, LLM judge model, T3 count, and Ablation B go/no-go — depend on the eval + LLM-judge + benchmark-runner + ablations suite, which was **archived to branch `archive/pre-llamaindex-refactor`** during the LlamaIndex retrieval refactor. They are deferred until that suite is rebuilt on the Neo4j retrieval API. Likewise, the TASK numbers referenced in these entries (TASK-016 index build, TASK-019 judge, TASK-027/028/029) predate the refactor.
+> **Note (updated 2026-07-05):** The benchmark-runner + LLM-judge suite these questions depend on is **rebuilt on this branch** (`harness/eval/runner.py` + `scripts/run_eval.py` + `mlflow.genai` judges; the pre-refactor suite stays archived on `archive/pre-llamaindex-refactor`). Still missing: the ablations grid, closed-book baselines, and the lift metric — Ablation-B questions stay deferred on those. The TASK numbers referenced in these entries (TASK-016 index build, TASK-019 judge, TASK-027/028/029) predate the refactor.
 
 ---
 
@@ -47,10 +47,9 @@ Decisions not yet made. Each entry has enough context to make the decision witho
 
 ## Benchmark construction
 
-### T3 multi-hop question count: is 43.6% chain completeness enough?
+### T3 multi-hop question count: is 43.6% chain completeness enough? — RESOLVED in practice
 **Context:** Phase 0 found 43.6% chain completeness — 43.6% of cross-referenced Q&As are present in the corpus. The roadmap targets 10 T3 questions. T3 questions require traversing a cross-reference chain that is fully in-corpus.  
-**Risk:** If most complete chains are in one topic cluster (nitrosamines), the T3 questions will lack diversity.  
-**When to decide:** When TASK-008 (corpus manifest) is complete and exact chain counts are known. If complete chains are insufficient, T3 target drops from 10 to whatever the data supports.
+**Resolution (2026-05-20):** `benchmark/benchmark.jsonl` ships exactly 10 T3 items (chains identified semantically across the source documents — see `benchmark/candidates/t3_chain_map.md`). Diversity across topic clusters was the residual risk; revisit only if T3 scores prove degenerate.
 
 ### LLM judge model choice
 **Context:** The evaluation harness (TASK-019) needs a judge model for Faithfulness and Correctness scoring. The judge should differ from the generator model to avoid self-preference bias.  
@@ -64,7 +63,7 @@ Decisions not yet made. Each entry has enough context to make the decision witho
 ### Ablation B go/no-go: will B3 (SME step labeling) happen?
 **Context:** TASK-028 is a sanity check on B1 (basic ReAct agent) — 5 questions reviewed by the SME. If the agent produces incoherent trajectories, TASK-029 (step labeling) is skipped and only B4 (SME tool descriptions) runs.  
 **What to watch for in B1:** coherent thought steps, no infinite loops, appropriate tool selection order, `follow_cross_refs` actually used on T3 questions.  
-**When to decide:** During TASK-028. The decision is documented in `ablations/B_process_rewards/SANITY_CHECK.md`.
+**When to decide:** During TASK-028. Document the decision in `DECISIONS.md` (the former `ablations/B_process_rewards/` tree was deleted with the ablations machinery).
 
 ### Max agent steps
 **Context:** The ReActAgent needs a `max_steps` limit to prevent runaway loops. Too low and it fails on T4 (synthesis); too high and it burns tokens on simple T1 questions.  

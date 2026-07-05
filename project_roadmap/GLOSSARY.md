@@ -57,7 +57,7 @@ The company that holds the MA and is legally responsible for the medicine on the
 The formal submission to EMA seeking an MA. Contains the full dossier of quality, safety, and efficacy data.
 
 **EPAR — European Public Assessment Report.**
-A public summary document published after EMA approves (or refuses) a medicine. Describes the scientific assessment. Each approved medicine has one. Out of scope for v1 of this project but relevant for v2.
+A public summary document published after EMA approves (or refuses) a medicine. Describes the scientific assessment. Each approved medicine has one. In scope for the *retrieval* corpus since 2026-06-02 (~18k EPAR assessment reports are indexed into Neo4j); still out of scope for benchmark Q&A curation.
 
 **SmPC — Summary of Product Characteristics.**
 The legally-binding document that describes how a medicine should be used — indications, dosing, contraindications, side effects. Product-specific.
@@ -141,7 +141,7 @@ A single-pass RAG system: one retrieval, one generation, no loops. The baseline 
 A RAG system where an agent (an LLM orchestrating tool calls in a loop) decides when to retrieve, reformulates queries, plans multi-step reasoning, and critiques its own answers. The control loop replaces the straight pipeline. CLADD and PaperQA2 are examples.
 
 **Graph RAG / Knowledge-Graph RAG.**
-A RAG variant where the corpus is (or is augmented by) a structured knowledge graph — nodes for entities, edges for relationships. Enables queries like "all products containing Polysorbate from EU manufacturers" that flat retrieval can't express cleanly. Deferred to v2 in this project.
+A RAG variant where the corpus is (or is augmented by) a structured knowledge graph — nodes for entities, edges for relationships. Enables queries like "all products containing Polysorbate from EU manufacturers" that flat retrieval can't express cleanly. In this project: the retrieval store *is* a Neo4j property graph since 2026-05-30, but of `:Document`/`:Chunk` nodes (site structure), not entities — entity-level Graph RAG (the `harness/ontology/` Layer-2 schema) remains deferred.
 
 **Embedding.**
 A numerical vector representation of text. Similar texts have similar vectors. The math behind "semantic search."

@@ -6,10 +6,10 @@
 > (T1–T6, see [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md)): the agent demo
 > (structured `RegulatoryAnswer` + citations), MLflow run-recording **and autolog (traces
 > complete — the mlflow#13352 hang did not occur)**, ontology extraction into Neo4j, and
-> `mlflow.genai` judges + `evaluate`. The agent is **wired into `app.py` as a selectable
-> "Agentic RAG" workflow strategy** (additive — the existing workflows are untouched; the live
-> app **and** the agent are now **MLflow-traced**, the Phoenix→MLflow migration having completed
-> 2026-06-22 — see §4.7). **Still deferred** (by design, not blocked): the DSPy bootstrap loop and judge
+> `mlflow.genai` judges + `evaluate`. The agent is now **the single engine behind `app.py`** —
+> recipes (§4.1) select its tools/prompt/schema; the old workflows were retired 2026-06-25; the
+> live app **and** the agent are **MLflow-traced**, the Phoenix→MLflow migration having completed
+> 2026-06-22 — see §4.7. **Still deferred** (by design, not blocked): the DSPy bootstrap loop and judge
 > *alignment* (need ≥10–100 paired labels, §8) and full-corpus ontology scaling (§4.5). This is
 > the agreed target for evolving `ema_nlp` from a *RAG-strategy-comparison harness* into a
 > *flexible, self-improving agentic RAG framework* over the EMA corpus.
@@ -48,7 +48,7 @@ see §4.6). The retrieval store stays **Neo4j** (`PropertyGraphIndex`).
 |---|---|---|
 | Observability + eval + feedback | **MLflow** (live everywhere — Arize Phoenix removed 2026-06-22; see §4.7) | Judge **alignment** (reward signal) has no Phoenix equivalent; one tool for traces + eval + judges |
 | Model logging (`log_model`) | **Not used** | Workflows hold injected, non-serializable deps (Neo4j retriever, API LLMs) + state lives in Neo4j; reproducibility comes from MLflow runs/params/artifacts |
-| Orchestration | **`FunctionAgent` + `FunctionTool`** (config-driven) | Aim 3; *target* replacement for the hand-rolled per-step ReAct (~500 lines: `react_native.py`+`events.py`), which today still ships as the `react` strategy |
+| Orchestration | **`FunctionAgent` + `FunctionTool`** (config-driven) | Aim 3; replaced the hand-rolled per-step ReAct (`react_native.py`+`events.py`, ~500 lines — deleted with the Workflow engine 2026-06-25; ReAct is now the agent's native tool loop, recipe `react_agentic`) |
 | Output | **Pydantic** answer schema (claims + citations) | Aim 2; also makes the LLM judge far more reliable |
 | Retrieval | **Native-first** LlamaIndex (`kg_extractors` / `sub_retrievers` / `node_postprocessors`) | Don't re-hand-roll what the framework/graph store does (the pgvector recursive-CTE regret) |
 | Knowledge graph | **Two layers**: structural (built) + semantic ontology (enrich later via an easy button) | Links on now, ontology incrementally |
@@ -253,8 +253,8 @@ Entities: `Substance` (incl. impurities; normalized via Tier-1 tools), `Product`
 a scope and lights up the `ontology` retrieval mode):
 
 ```bash
-python -m harness.indexing.enrich_ontology --schema ema --scope nitrosamines   # slice first
-python -m harness.indexing.enrich_ontology --schema ema --scope all            # when ready
+python -m harness.ontology.enrich --schema ema --scope nitrosamines   # slice first
+python -m harness.ontology.enrich --schema ema --scope all            # when ready
 ```
 
 ### 4.6 Feedback → reward → optimize (MLflow + DSPy) — aim 1
@@ -302,16 +302,20 @@ flowchart LR
 
 ```
 harness/configs/
-  agent/<name>.yaml          # toolset + prompt + output_schema + retrieval_profile
-  index/<profile>.yaml       # query_transform + sub_retrievers + node_postprocessors + build.kg_extractors
+  recipes/<name>.yaml        # toolset + prompt + output_schema + retrieval + fewshot/judge policy
+                             #   (the former agent/<name>.yaml layer was absorbed into recipes, F6)
+  index/<profile>.yaml       # index build + retrieval knobs
+  retrieval/<name>.yaml      # query_transform + rerank pipeline (+ acronyms.yaml dictionary)
   ontology/ema.yaml          # entity + relation schema (SchemaLLMPathExtractor)
-  models.yaml                # roles: agent/grader/expander/reranker/judge/reviewer
+  models.yaml                # roles: agent/grader/rewriter/reranker/judge/reviewer
 harness/
-  agents/                    # FunctionAgent builders + registry  (target: replaces workflows/; additive today)
-  tools/                     # FunctionTool registry (resolve_substance, follow_links, ...)
+  agents/                    # FunctionAgent builders + registry (THE engine; workflows/ retired)
+  recipes/                   # Recipe dataclass + build_recipe (the single composition path)
+  tools/                     # FunctionTool registry (ema_search, corrective_search, resolve_substance)
   schemas/                   # Pydantic output models
-  indexing/                  # kg_extractors (+ idmp_linking), CustomPGRetriever, enrich_ontology
-  eval/                      # mlflow.genai judges/scorers + alignment + dspy bootstrap
+  indexing/                  # ingest + PropertyGraphIndex build + HierarchicalPGRetriever
+  ontology/                  # schema + enrich (Layer-2 extraction)
+  eval/                      # mlflow.genai judges/scorers + recipe×benchmark runner + dspy bootstrap
 ```
 
 ---

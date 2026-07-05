@@ -30,7 +30,7 @@ flowchart TD
     NEO -->|build_retriever| WF["harness/recipes + agents — FunctionAgent"]
     WF --> APP["app.py — Chainlit chat UI"]
     APP --> PHX[MLflow traces + 👍/👎 feedback]
-    CJ -.benchmark.-> BM["benchmark/benchmark.jsonl<br/>(eval suite archived off-branch)"]
+    CJ -.benchmark.-> BM["benchmark/benchmark.jsonl<br/>(45 Qs; scripts/run_eval.py → MLflow)"]
 ```
 
 Connections: `MONGO_URI` (default `mongodb://localhost:27017/`, db `ema_scraper`);
@@ -109,7 +109,7 @@ not separate engines. (LangChain/LangGraph are not in the stack.)
 | Package | Role |
 |---------|------|
 | `harness/recipes/` | `Recipe` dataclass + loader + registry; `build_recipe(recipe, index)` → the composition path (one `FunctionAgent`, wrapped in `AgentWorkflowAdapter`) |
-| `harness/agents/` | `build_agent` / `assemble_agent` / `build_session` → `FunctionAgent`; `AgentWorkflowAdapter` exposes the `invoke`/`ainvoke` contract |
+| `harness/agents/` | `build_agent` / `assemble_agent` → `FunctionAgent` (config always derived from a recipe — `build_session` was absorbed 2026-07-04); `AgentWorkflowAdapter` exposes the `invoke`/`ainvoke` contract |
 | `harness/tools/` | `FunctionTool` registry — `ema_search` (naive RAG), `corrective_search` (CRAG grade/rewrite loop), `resolve_substance` |
 | `harness/schemas/` | Pydantic structured output (`RegulatoryAnswer` + `Claim`/`Citation`) |
 | `harness/retrieval/` | config-driven pipeline (query transform + rerank) + the shared CRAG primitives (`corrective.py`) |
@@ -150,14 +150,19 @@ autolog + `harness.obs.tracing.traced`) and the feedback stack (`query_cache.py`
 
 ---
 
-## 6. Evaluation harness — archived
+## 6. Evaluation harness — rebuilt (2026-07-04)
 
-The benchmark/eval suite (`run_eval.py`, `eval_retrieval.py`, ablations, eval configs) was
-**removed from this branch** and preserved on `archive/pre-llamaindex-refactor`. It will be
-rebuilt on the clean retrieval API in a later work unit. The methodology (T1–T4 types, lift,
-contamination handling) is documented in `project_roadmap/{ROADMAP,ABLATIONS,LEAKAGE}.md`.
-The chat-time faithfulness `Judge` (`harness/judge.py`) is **kept** (used by the recipe
-engine's optional inline judge layer, `harness/eval/inline_judge.py`).
+The recipe × benchmark eval vehicle lives at `harness/eval/runner.py` + `scripts/run_eval.py`:
+it builds a recipe (the same `build_recipe` path the app uses), wraps it as an `mlflow.genai`
+`predict_fn` (which carries the retrieved passages as `context_passages` for the faithfulness
+judge), and evaluates it over `benchmark/benchmark.jsonl` — **one MLflow run per question type
+(T1–T4)**, tagged `ema.recipe` / `ema.benchmark` / `ema.question_type`. MLflow is the system
+of record for results. Still missing: closed-book baselines, the lift metric, and the ablation
+grid (the pre-refactor suite remains archived on `archive/pre-llamaindex-refactor`). The
+methodology (T1–T4 types, lift, contamination handling) is documented in
+`project_roadmap/{ROADMAP,ABLATIONS,LEAKAGE}.md`. The chat-time faithfulness `Judge`
+(`harness/judge.py`) is used by the recipe engine's optional inline judge layer
+(`harness/eval/inline_judge.py`).
 
 ---
 

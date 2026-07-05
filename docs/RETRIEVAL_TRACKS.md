@@ -13,7 +13,7 @@
 
 Spec for **three new retrieval tracks** plus the **comparison harness** that grades them, all
 registered through the existing `INDEX_REGISTRY` / `RETRIEVER_REGISTRY` + `EMA_INDEX_PROFILE`
-seam (`harness/indexing/`). Style follows [`HARNESS_REFACTORS.md`](../HARNESS_REFACTORS.md):
+seam (`harness/indexing/`). Style follows `HARNESS_REFACTORS.md` (since deleted):
 per-change Problem / Approach / Files / Profile-schema / Decision points (with a recommendation) /
 Test plan / Acceptance / Effort / Open questions.
 

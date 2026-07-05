@@ -64,5 +64,6 @@ no single EMA Q&A document covers this combination).
   Benchmark v2 should sample from the full corpus for wider topic coverage.
 - No cross_ref chains were present in the mini corpus; T3 chains were identified
   semantically across the 7 source documents.
-- zero_shot_known field populated to {} — run `harness/contamination_screen.py` to
-  populate after benchmark finalisation.
+- zero_shot_known field populated to {} — populate after benchmark finalisation via
+  closed-book runs through the eval runner (`scripts/run_eval.py`; the Phase 2.5
+  contamination screen is still TODO).
