@@ -232,3 +232,4 @@ mlflow.db-wal
 mlartifacts/
 .mlflow.log
 .files/
+public/elements/

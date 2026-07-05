@@ -217,10 +217,67 @@ def auth_callback(username: str, password: str) -> cl.User | None:
     return None
 
 
+class _LocalStorageClient:
+    """Element persistence on the local filesystem (BaseStorageClient contract).
+
+    Without a storage client, ``SQLAlchemyDataLayer.create_element`` silently
+    drops every element — so the source cards vanished from resumed threads and
+    their references could not be opened again. Files land under
+    ``public/elements/`` which Chainlit serves at ``/public/...`` (gitignored).
+    """
+
+    def __init__(self, base_dir: Path) -> None:
+        self._base = base_dir.resolve()
+        self._base.mkdir(parents=True, exist_ok=True)
+
+    def _path_for(self, object_key: str) -> Path:
+        path = (self._base / object_key).resolve()
+        if not path.is_relative_to(self._base):  # no escaping the elements dir
+            raise ValueError(f"invalid element object key: {object_key!r}")
+        return path
+
+    async def upload_file(
+        self,
+        object_key: str,
+        data: bytes | str,
+        mime: str = "application/octet-stream",
+        overwrite: bool = True,
+        content_disposition: str | None = None,
+    ) -> dict:
+        path = self._path_for(object_key)
+        if path.exists() and not overwrite:
+            return {"object_key": object_key, "url": await self.get_read_url(object_key)}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = data.encode("utf-8") if isinstance(data, str) else data
+        await asyncio.to_thread(path.write_bytes, payload)
+        return {"object_key": object_key, "url": await self.get_read_url(object_key)}
+
+    async def delete_file(self, object_key: str) -> bool:
+        try:
+            self._path_for(object_key).unlink(missing_ok=True)
+            return True
+        except Exception:
+            return False
+
+    async def get_read_url(self, object_key: str) -> str:
+        from urllib.parse import quote
+
+        return "/public/elements/" + quote(object_key)
+
+    async def close(self) -> None:
+        return None
+
+
 @cl.data_layer
 def get_data_layer():
     from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
-    return SQLAlchemyDataLayer("sqlite+aiosqlite:///chat_history.db")
+
+    return SQLAlchemyDataLayer(
+        "sqlite+aiosqlite:///chat_history.db",
+        # Persist message elements (the per-answer source cards) so they survive
+        # a chat resume; see _LocalStorageClient.
+        storage_provider=_LocalStorageClient(Path("public") / "elements"),
+    )
 
 
 # ── Chat profiles (recipe selector) ───────────────────────────────────────────
@@ -754,11 +811,20 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
         source_elements.append(cl.Text(name=f"Q{msg_num} · Src {i}", content=card, display="side"))
 
     # ── Final message ─────────────────────────────────────────────────────────
+    # The element NAMES must appear in the message content: Chainlit renders each
+    # occurrence as a clickable reference that (re)opens the element side panel.
+    # Without them the panel only auto-opens once per new element set — after
+    # closing it (or resuming a thread) there is nothing to click.
+    sources_line = ""
+    if source_elements:
+        sources_line = "\n\n**Sources:** " + " | ".join(e.name for e in source_elements)
     footer = ""
     if not TRACING_DISABLED:
         traces_link = await asyncio.to_thread(_traces_url)
         footer = f"\n\n[View traces →]({traces_link})"
-    await cl.Message(content=answer_text + judge_note + footer, elements=source_elements).send()
+    await cl.Message(
+        content=answer_text + judge_note + sources_line + footer, elements=source_elements
+    ).send()
 
     # ── Store in cache ────────────────────────────────────────────────────────
     if cache is not None and query_vec is not None and answer_text:

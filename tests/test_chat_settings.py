@@ -74,3 +74,39 @@ def test_seed_settings_uses_recipe_defaults():
     assert seed["model"] == "claude_opus"  # the recipe's model
     assert seed["temperature"] == 0.0
     assert seed["cache_enabled"] is True
+
+
+# ── source-reference persistence + re-openability (side-panel bug fix) ────────
+
+def test_local_storage_client_roundtrip(tmp_path):
+    """Elements persist to disk under a /public URL (without a storage client the
+    SQLAlchemy data layer silently drops elements → sources vanish on resume)."""
+    import asyncio
+
+    import app as app_mod
+
+    client = app_mod._LocalStorageClient(tmp_path / "elements")
+    out = asyncio.run(client.upload_file("user/el-1/Q1 · Src 1", "card", "text/plain"))
+    assert out["object_key"] == "user/el-1/Q1 · Src 1"
+    assert out["url"].startswith("/public/elements/user/el-1/Q1")
+    assert (tmp_path / "elements" / "user" / "el-1" / "Q1 · Src 1").read_text() == "card"
+    assert asyncio.run(client.delete_file("user/el-1/Q1 · Src 1")) is True
+
+
+def test_local_storage_client_blocks_path_escape(tmp_path):
+    import asyncio
+
+    import pytest
+
+    import app as app_mod
+
+    client = app_mod._LocalStorageClient(tmp_path / "elements")
+    with pytest.raises(ValueError, match="object key"):
+        asyncio.run(client.upload_file("../outside", "x"))
+
+
+def test_data_layer_has_storage_provider():
+    import app as app_mod
+
+    layer = app_mod.get_data_layer()
+    assert layer.storage_provider is not None  # else create_element drops every element
