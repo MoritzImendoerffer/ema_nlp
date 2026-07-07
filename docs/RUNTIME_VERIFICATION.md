@@ -219,3 +219,30 @@ Done = all five green, committed, pushed (from a credentialed machine). After th
 the natural next build steps are the **closed-book baseline + lift metric** (the missing
 benchmark headline — see [`ONBOARDING.md`](ONBOARDING.md) §9), then Phase 2.5's
 contamination screen.
+
+### Results — first attempt, 2026-07-07 (GPU host)
+
+| Step | Result |
+|---|---|
+| Baseline | ✅ services healthy; 492 passed / 2 skipped |
+| **W1** | ✅ live retriever returns `title`/`source_type`/real `chunk_id`/derived `category` (committee/reference_number empty where the source document has none — expected) |
+| **W2** | ⛔ **blocked by LLM-gateway infrastructure** (below) — eval harness also crashed downstream (`eval_item.trace is None` in mlflow's `_get_new_expectations`); re-test after the gateway fix |
+| **W3** | ⛔ same blocker: the agent runs **tool-less** and answers "I don't have access to the `ema_search` tool". The degradation path behaved as designed (plain answer, zero fabricated references, no crash) |
+| **W4** | ✅ retrieval side live: `doc_type_priority` reorders (epar > other for a mixed result set), stable within category. Trace-stamping half pending W3 |
+| **W5** | ⏳ pending a real turn — the live sidecar is still the legacy list (26 entries); provenance is adopted on the next save |
+
+**Root cause of the W2/W3 blocker (verified with raw `anthropic` SDK probes):** the
+`ANTHROPIC_BASE_URL` gateway (`gw.claudeapi.com`) **strips client-supplied `tools` and
+injects its own** — a raw `messages.create` with one custom tool came back with a
+`tool_use` for an injected `WebSearch` tool. This breaks the agent loop (no `ema_search`
+definitions ever reach the model) *and* native structured output ("Expected at least one
+tool call, but got 0"). The configured API key is gateway-issued (401 against
+`api.anthropic.com`), so the fix is infrastructure, not code: either configure the
+gateway to pass client tools through unmodified, or set a direct Anthropic key and unset
+`ANTHROPIC_BASE_URL`. The 2026-06-22 T1–T6 verification predates this gateway behavior.
+
+**Follow-up once unblocked:** re-run W2/W3/W5; also investigate the (non-fatal in direct
+runs) span-close warning `Failed to end span …: 'MockValSer' object is not an instance of
+'SchemaSerializer'` — one autolog span fails to serialize; the trace still completes
+(state OK) outside the eval harness, but it may be implicated in the harness's
+`trace=None` crash.
