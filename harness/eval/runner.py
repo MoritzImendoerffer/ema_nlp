@@ -85,6 +85,53 @@ def group_by_type(rows: list[dict]) -> dict[str, list[dict]]:
     return grouped
 
 
+def mean_scores(named_values: list[tuple[str, Any]]) -> dict[str, float]:
+    """``{"<name>_mean": mean}`` over the numeric values per assessment name (pure)."""
+    sums: dict[str, float] = {}
+    counts: dict[str, int] = {}
+    for name, value in named_values:
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            continue
+        sums[name] = sums.get(name, 0.0) + v
+        counts[name] = counts.get(name, 0) + 1
+    return {f"{name}_mean": sums[name] / counts[name] for name in sums}
+
+
+def _aggregate_run_metrics(result: Any) -> dict[str, float]:
+    """Per-judge mean scores for an evaluate run, logged back onto the run.
+
+    ``mlflow.genai.evaluate`` (3.14) records per-row judge scores only as trace
+    assessments — the returned result carries no aggregate metrics. Read the
+    run's linked traces, average each judge's numeric scores, and log them as
+    run metrics so runs are comparable at a glance in the MLflow UI.
+    """
+    run_id = getattr(result, "run_id", None)
+    if not run_id:
+        return {}
+    try:
+        import mlflow
+
+        traces = mlflow.search_traces(run_id=run_id, return_type="list", max_results=500)
+        named = [
+            (a.name, getattr(getattr(a, "feedback", None), "value", None))
+            for tr in traces
+            for a in (tr.info.assessments or [])
+        ]
+        means = mean_scores(named)
+        if means:
+            from mlflow.tracking import MlflowClient
+
+            client = MlflowClient()
+            for key, value in means.items():
+                client.log_metric(run_id, key, value)
+        return means
+    except Exception as exc:  # aggregation must never fail the eval itself
+        log.warning("could not aggregate metrics for run %s: %s", run_id, exc)
+        return {}
+
+
 def _tag_eval_run(result: Any, tags: dict[str, str]) -> None:
     """Best-effort: stamp the evaluate run with recipe/benchmark tags for filtering."""
     run_id = getattr(result, "run_id", None)
@@ -148,15 +195,17 @@ def run_recipe_benchmark(
                 "ema.question_type": qtype,
             },
         )
-        results[qtype] = result
+        results[qtype] = {"result": result, "metrics": _aggregate_run_metrics(result)}
     return results
 
 
 def summarize(results: dict[str, Any]) -> str:
     """Per-type metric table (plain text) from ``run_recipe_benchmark`` results."""
     lines = []
-    for qtype, result in results.items():
-        metrics = getattr(result, "metrics", None) or {}
+    for qtype, entry in results.items():
+        metrics = (entry.get("metrics") if isinstance(entry, dict) else None) or getattr(
+            entry, "metrics", None
+        ) or {}
         rendered = ", ".join(f"{k}={v:.3f}" for k, v in sorted(metrics.items())) or "(no metrics)"
         lines.append(f"{qtype}: {rendered}")
     return "\n".join(lines)

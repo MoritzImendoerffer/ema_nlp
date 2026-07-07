@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 from llama_index.core.llms import LLM
 
@@ -119,7 +120,99 @@ def _make_anthropic(model_id: str, temperature: float, max_tokens: int) -> LLM:
     if not api_key:
         raise OSError("ANTHROPIC_API_KEY not set. Add it to ~/.myenvs/ema_nlp.env")
 
-    return Anthropic(
+    class _Anthropic(Anthropic):
+        """Anthropic wrapper hardened against two library bugs (GPU walk 2026-07-07).
+
+        1. llama-index's structured-output path (``generate_structured_response`` →
+           ``FunctionCallingProgram``) forwards ``tool_choice=None`` through kwargs,
+           which OVERRIDES the wrapper's correctly-built tool_choice object and sends
+           ``"tool_choice": null`` to the API → HTTP 400 "tool_choice: Input should
+           be an object" (llama-index-core 0.14.22). Dropping the explicit ``None``
+           restores the wrapper's own mapping; a real dict passes through untouched.
+        2. ``AnthropicChatResponse.raw`` holds live anthropic-SDK pydantic objects
+           whose classes are built lazily (``defer_build``); under pydantic 2.13 the
+           parent's recursive serializer bakes in a ``MockValSer`` for them, so any
+           attempt to ``model_dump()`` the response — which MLflow autolog does when
+           closing every LLM span — raises "'MockValSer' object is not an instance
+           of 'SchemaSerializer'", the span never ends, and ``mlflow.genai.evaluate``
+           loses the row's trace (``eval_item.trace is None`` crash). Converting
+           ``raw`` to plain JSON-able data right after each call makes responses
+           serialization-safe; per-object ``model_dump()`` works fine individually.
+        """
+
+        @staticmethod
+        def _plain(value: Any) -> Any:
+            if hasattr(value, "model_dump"):
+                try:
+                    return value.model_dump()
+                except Exception:
+                    return str(value)
+            if isinstance(value, dict):
+                return {k: _Anthropic._plain(v) for k, v in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [_Anthropic._plain(v) for v in value]
+            return value
+
+        @classmethod
+        def _sanitize(cls, response: Any) -> Any:
+            raw = getattr(response, "raw", None)
+            if raw is not None and not isinstance(raw, (str, int, float, bool)):
+                try:
+                    response.raw = cls._plain(raw)
+                except Exception:  # never let sanitation break a live call
+                    pass
+            return response
+
+        def chat(self, *args: Any, **kwargs: Any) -> Any:
+            return self._sanitize(super().chat(*args, **kwargs))
+
+        async def achat(self, *args: Any, **kwargs: Any) -> Any:
+            return self._sanitize(await super().achat(*args, **kwargs))
+
+        def stream_chat(self, *args: Any, **kwargs: Any) -> Any:
+            gen = super().stream_chat(*args, **kwargs)
+
+            def _gen():
+                for item in gen:
+                    yield self._sanitize(item)
+
+            return _gen()
+
+        async def astream_chat(self, *args: Any, **kwargs: Any) -> Any:
+            gen = await super().astream_chat(*args, **kwargs)
+
+            async def _gen():
+                async for item in gen:
+                    yield self._sanitize(item)
+
+            return _gen()
+
+        # NOTE: the signature must mirror the parent exactly — llama-index probes
+        # it (inspect.signature) to decide whether ``tool_required`` is supported;
+        # a bare *args/**kwargs override makes it silently drop tool_required.
+        def _prepare_chat_with_tools(
+            self,
+            tools: Any,
+            user_msg: Any = None,
+            chat_history: Any = None,
+            verbose: bool = False,
+            allow_parallel_tool_calls: bool = False,
+            tool_required: bool = False,
+            **kwargs: Any,
+        ) -> dict:
+            if kwargs.get("tool_choice", ...) is None:
+                kwargs.pop("tool_choice")
+            return super()._prepare_chat_with_tools(
+                tools,
+                user_msg=user_msg,
+                chat_history=chat_history,
+                verbose=verbose,
+                allow_parallel_tool_calls=allow_parallel_tool_calls,
+                tool_required=tool_required,
+                **kwargs,
+            )
+
+    return _Anthropic(
         model=model_id,
         temperature=temperature,
         max_tokens=max_tokens,

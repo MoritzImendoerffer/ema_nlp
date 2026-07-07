@@ -59,3 +59,13 @@ def test_summarize_renders_per_type_metrics():
     out = summarize({"T1": _Result(), "T2": object()})
     assert "T1: faithfulness/mean=0.800" in out
     assert "T2: (no metrics)" in out
+
+
+def test_mean_scores_averages_numeric_and_skips_non_numeric():
+    from harness.eval.runner import mean_scores
+
+    means = mean_scores(
+        [("faithfulness", "5"), ("faithfulness", 3), ("correctness", 4),
+         ("gold_answer", None), ("note", "text")]
+    )
+    assert means == {"faithfulness_mean": 4.0, "correctness_mean": 4.0}

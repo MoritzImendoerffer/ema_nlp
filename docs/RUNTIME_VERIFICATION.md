@@ -220,29 +220,36 @@ the natural next build steps are the **closed-book baseline + lift metric** (the
 benchmark headline — see [`ONBOARDING.md`](ONBOARDING.md) §9), then Phase 2.5's
 contamination screen.
 
-### Results — first attempt, 2026-07-07 (GPU host)
+### Results — 2026-07-07/08 (GPU host) — **WALK COMPLETE** (browser click-through remains)
 
 | Step | Result |
 |---|---|
-| Baseline | ✅ services healthy; 492 passed / 2 skipped |
+| Baseline | ✅ services healthy; full suite green |
 | **W1** | ✅ live retriever returns `title`/`source_type`/real `chunk_id`/derived `category` (committee/reference_number empty where the source document has none — expected) |
-| **W2** | ⛔ **blocked by LLM-gateway infrastructure** (below) — eval harness also crashed downstream (`eval_item.trace is None` in mlflow's `_get_new_expectations`); re-test after the gateway fix |
-| **W3** | ⛔ same blocker: the agent runs **tool-less** and answers "I don't have access to the `ema_search` tool". The degradation path behaved as designed (plain answer, zero fabricated references, no crash) |
-| **W4** | ✅ retrieval side live: `doc_type_priority` reorders (epar > other for a mixed result set), stable within category. Trace-stamping half pending W3 |
-| **W5** | ⏳ pending a real turn — the live sidecar is still the legacy list (26 entries); provenance is adopted on the next save |
+| **W2** | ✅ after the two fixes below: run tagged `ema.recipe`/`ema.benchmark`/`ema.question_type`, per-row judge assessments on linked traces, and aggregated run metrics — smoke result `T1: correctness_mean=4.000, faithfulness_mean=5.000` |
+| **W3** | ✅ programmatic: live turn produced verbatim-claim spans + inline `[1][2]` markers, references with full passages + located quotes, complete tagged trace; `log_citation_feedback` → `citation_1_*` assessment (verdict/rank/prefer metadata) readable on the trace; MD+HTML exports rendered with highlight machinery. **Browser click-through (markers, review panel, export download, resume) = the remaining manual step** |
+| **W4** | ✅ retrieval side live: `doc_type_priority` reorders (epar > other), stable within category; stamping path exercised via the same resolved-attributes flow as `ema.recipe` |
+| **W5** | ✅ live sidecar adopted the provenance format: `{"embed_model": "BAAI/bge-large-en-v1.5", entries: 27}` (26 legacy preserved + 1 new), no `.bak-*` triggered |
 
-**Root cause of the W2/W3 blocker (verified with raw `anthropic` SDK probes):** the
-`ANTHROPIC_BASE_URL` gateway (`gw.claudeapi.com`) **strips client-supplied `tools` and
-injects its own** — a raw `messages.create` with one custom tool came back with a
-`tool_use` for an injected `WebSearch` tool. This breaks the agent loop (no `ema_search`
-definitions ever reach the model) *and* native structured output ("Expected at least one
-tool call, but got 0"). The configured API key is gateway-issued (401 against
-`api.anthropic.com`), so the fix is infrastructure, not code: either configure the
-gateway to pass client tools through unmodified, or set a direct Anthropic key and unset
-`ANTHROPIC_BASE_URL`. The 2026-06-22 T1–T6 verification predates this gateway behavior.
+**Three defects found + fixed during the walk** (this is what the walk is for):
 
-**Follow-up once unblocked:** re-run W2/W3/W5; also investigate the (non-fatal in direct
-runs) span-close warning `Failed to end span …: 'MockValSer' object is not an instance of
-'SchemaSerializer'` — one autolog span fails to serialize; the trace still completes
-(state OK) outside the eval harness, but it may be implicated in the harness's
-`trace=None` crash.
+1. **Infrastructure:** the original `ANTHROPIC_BASE_URL` gateway (`gw.claudeapi.com`)
+   stripped client-supplied `tools` and injected its own (probes came back calling
+   `WebSearch`/`ToolSearch`) — the agent ran tool-less. Resolved by the owner switching to
+   the direct Anthropic endpoint. Symptom to remember: an agent answering *"I don't have
+   access to the `ema_search` tool"* means tool definitions aren't reaching the model.
+2. **llama-index 0.14.22 structured output:** `generate_structured_response` forwards
+   `tool_choice=None`, overriding the Anthropic wrapper's correct object → HTTP 400
+   "tool_choice: Input should be an object". Fixed in `harness/llms.py::_Anthropic`
+   (drops the explicit None; exact-signature override so `tool_required` support is
+   still detected).
+3. **anthropic-SDK × pydantic 2.13 serialization:** `AnthropicChatResponse.raw` holds
+   lazily-built SDK models (`MockValSer`), so MLflow autolog's span-close `model_dump()`
+   raised and `mlflow.genai.evaluate` lost the row's trace (`eval_item.trace is None`).
+   Fixed by sanitizing `raw` to plain data in the same wrapper. Plus:
+   `run_recipe_benchmark` now aggregates per-judge means from trace assessments onto the
+   run (this mlflow version returns no aggregate metrics).
+
+**Known cosmetic leftover:** one `Failed to end span … MockValSer` warning per agent run
+remains (mlflow's own stream-accumulator span, built from pre-sanitation deltas). Traces
+complete and the eval passes; chase only if it starts mattering.
