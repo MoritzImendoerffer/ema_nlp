@@ -133,7 +133,7 @@ complexity rule).
 
 ## 5. Runtime verification (GPU host)
 
-Live turn → `[n]` markers clickable; **Review citations** expands, verdict click
-lands as a `citation_*` assessment on the trace; **⬇ Export** produces MD+HTML
-downloads whose highlight sync works in a browser; resume the thread → review
-element still present with saved verdicts.
+The full ordered checklist (retriever provenance, eval-runner smoke, the UI walk —
+markers, review panel, verdict→assessment, export, resume — and the
+`doc_type_priority` live check) is
+[`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md) **§8, "The 2026-07-07 walk"**.

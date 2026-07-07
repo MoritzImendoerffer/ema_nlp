@@ -1,223 +1,299 @@
 # Onboarding — ema_nlp
 
-> ✅ **Post-refactor (2026-06-04, updated 2026-07-05).** Retrieval is LlamaIndex-first over a
-> **Neo4j hierarchical `PropertyGraphIndex`** (see [`docs/RETRIEVAL.md`](RETRIEVAL.md)). The old
-> Postgres + pgvector + FAISS-over-`corpus.jsonl` stack, the `EMA_RETRIEVER` switch, and
-> `harness/retrieve*.py` / `harness/embed*.py` were **deleted** (LIR-012). The pre-refactor
-> eval suite was archived off-branch (`archive/pre-llamaindex-refactor`); a **new recipe-based
-> eval runner + LLM judges are rebuilt on this branch** (`harness/eval/`, `scripts/run_eval.py`).
-> Still archived-only: the ablation grid, closed-book baselines, and the lift computation.
+**Read this first, top to bottom, when returning to the project.** It rebuilds the mental
+model from the big picture down to the file level, then points at the deeper docs. Nothing
+here requires remembering earlier states of the repo — several older architectures
+(Postgres+pgvector, FAISS document index, the 7-workflow engine, Arize Phoenix) were fully
+deleted; what follows describes only what exists now.
 
-A one-stop "where am I, what does this do, how do I run things" guide. Read this when returning to the project after time away. It complements [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) (data flow + stores), [`docs/RETRIEVAL.md`](RETRIEVAL.md) (the Neo4j retrieval pipeline), and [`docs/RECIPES.md`](RECIPES.md) (the recipe config surface).
-
----
-
-## What this project is
-
-A RAG benchmark over EMA (European Medicines Agency) regulatory documents. Three goals: (1) learn RAG end-to-end, (2) produce a publishable benchmark with lift metrics, (3) build a portfolio piece showing pharma + ML.
-
-Two separable layers:
-
-- **Retrieval** runs over the **narrative corpus** — the full PDF + HTML body text from `ema_scraper.parsed_documents` (~80k docs, EPARs included since 2026-06-02), indexed into a Neo4j `PropertyGraphIndex`. This is what the chat UI and the recipe-configured agent query.
-- **Benchmark** is `benchmark/benchmark.jsonl` (45 curated questions) scored with the lift metric. `corpus/corpus.jsonl` (26,251 mined Q&A pairs) is benchmark/material only — it is **not** the runtime retrieval target.
+Reading order after this file:
+[`RECIPES.md`](RECIPES.md) (how to configure pipelines, with worked examples) →
+[`RETRIEVAL.md`](RETRIEVAL.md) (the Neo4j index internals) →
+[`CITATIONS.md`](CITATIONS.md) (citations, SME review, export) →
+[`ARCHITECTURE.md`](ARCHITECTURE.md) (module map + stores) →
+[`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md) (the GPU-host walk that is the next step).
 
 ---
 
-## End-to-end data flow
+## 1. What this project is (in three sentences)
+
+A **question-answering benchmark plus reference RAG system** built from the European
+Medicines Agency's public regulatory content (guidelines, Q&A documents, assessment
+reports). The end goal is to measure *where subject-matter-expert effort pays off* in
+agentic RAG — better source curation? retrieval filtering? prompting? — using a curated
+45-question benchmark and a **lift** metric (answer quality with retrieval minus without).
+Along the way it is a working, inspectable chat system over ~80,000 EMA documents.
+
+One domain trap to internalize immediately: in EMA documents, **"AI" means Acceptable
+Intake** (a toxicology limit in ng/day) — never artificial intelligence.
+
+---
+
+## 2. The 60-second mental model
+
+Six sentences that carry most of the architecture. Everything else is detail.
+
+1. **All documents live in a Neo4j graph.** ~80k EMA pages/PDFs are chunked and embedded
+   into a `PropertyGraphIndex`: `:Document` and `:Chunk` nodes, with edges for section
+   hierarchy (`PARENT_OF`) and page→PDF hyperlinks (`LINKS_TO`). The website's *structure*
+   is a retrieval signal, not just its text.
+2. **There is exactly one answering engine**: a LlamaIndex `FunctionAgent` — an LLM that
+   can call tools in a loop and must return a typed, structured answer.
+3. **A "recipe" is a YAML file that configures that engine** — which system prompt, which
+   tools, which retrieval setup, which model, and optional few-shot/judge stages. Different
+   RAG techniques (naive RAG, CRAG, ReAct) are *not* different codebases; they are
+   different recipes. Adding a pipeline = adding a YAML file.
+4. **Answers are structured and cited.** The agent returns a `RegulatoryAnswer` (answer
+   text + verbatim claims + citations + confidence + caveats); the system rebuilds citation
+   provenance from what was *actually retrieved*, anchors each claim to its exact span in
+   the answer, and renders clickable `[n]` citation markers.
+5. **MLflow is the single system of record** for traces, human feedback (👍/👎 and
+   per-citation verdicts), judge scores, and eval results. Every turn is one trace, stamped
+   with the *resolved* recipe config — the trace never claims a setting that didn't run.
+6. **Configs are files, results are traceable.** Recipes, prompts, index profiles, model
+   bindings, and export options are all YAML/Markdown in `harness/configs/` (overridable
+   via `$EMA_CONFIG_DIR`); every result links back to the exact config that produced it.
+
+---
+
+## 3. The big picture
 
 ```mermaid
-flowchart TD
-    M[(MongoDB<br/>ema_scraper.parsed_documents<br/>~80k parsed docs)] -->|python -m harness.indexing.build| N4J[(Neo4j<br/>PropertyGraphIndex<br/>:Document + :Chunk)]
-
-    subgraph N4J_DETAIL["Neo4j graph (live full build)"]
-      D[79,882 :Document]
-      CH[7.4M :Chunk<br/>5.82M leaf-embedded<br/>BGE-large native vector index]
-      E[HAS_CHUNK / PARENT_OF<br/>99,520 LINKS_TO]
+flowchart TB
+    subgraph DATA["Data layer"]
+      EMA[EMA website] -->|ema_scraper repo| MG[("MongoDB<br/>parsed_documents ~80k")]
+      MG -->|"python -m harness.indexing.build<br/>(chunk + embed, GPU)"| NEO[("Neo4j PropertyGraphIndex<br/>79,882 :Document · 5.82M embedded :Chunk<br/>PARENT_OF · 99,520 LINKS_TO · vector index")]
     end
 
-    Q[Query] --> RET[HierarchicalPGRetriever<br/>small-to-big + 1-hop LINKS_TO]
-    N4J --> RET
-    RET --> DOCS[ranked chunks]
+    subgraph ENGINE["Answering engine (configured per recipe)"]
+      REC["recipe YAML<br/>prompt + tools + retrieval + model"] --> AG["FunctionAgent"]
+      AG -->|calls| TOOLS["tools: ema_search ·<br/>corrective_search · resolve_substance"]
+      TOOLS --> RET["HierarchicalPGRetriever<br/>vector hit → parent chunk → LINKS_TO"]
+      RET --> NEO
+      AG --> ANS["RegulatoryAnswer<br/>answer + verbatim claims + citations"]
+      ANS --> ATT["attribution<br/>claim spans + numbered references"]
+    end
 
-    DOCS --> WF[FunctionAgent recipe<br/>naive_rag / crag_agentic / react_agentic / …]
-    WF --> ANS[structured RegulatoryAnswer]
+    subgraph SURFACES["Surfaces"]
+      ATT --> UI["Chainlit chat<br/>[n] markers · source cards ·<br/>🔍 citation review · ⬇ export MD/HTML"]
+      ATT --> EVAL["scripts/run_eval.py<br/>recipe × benchmark → MLflow runs"]
+    end
 
-    ANS --> APP[app.py — Chainlit UI]
-    APP --> PHX[(MLflow traces<br/>localhost:5000)]
-    APP -->|👍 / 👎| FB[user_rating assessment<br/>on the turn's trace]
-    FB --> CACHE[FAISS query cache<br/>harness/query_cache.py]
+    subgraph LEARN["Feedback"]
+      UI -->|"👍/👎 + per-citation verdicts"| MLF[("MLflow :5000<br/>traces + assessments + eval runs")]
+      AG -.autolog spans.-> MLF
+      UI -->|rated answers| QC["FAISS query cache"]
+      QC -->|few-shot examples| AG
+    end
 ```
 
-`corpus.jsonl` and `benchmark.jsonl` are in Git. The Neo4j graph is **not** — it is rebuilt from Mongo by `python -m harness.indexing.build` (full GPU build over 79,882 docs; embeddings are BAAI/bge-large-en-v1.5 on local CUDA, leaf chunks only). Link extraction (`harness/indexing/links.py`) is scoped to `<main class="main-content-wrapper">` and produces typed `LINKS_TO` edges carrying `{kind, link_context, document_type, anchor}`.
+Three things intentionally *not* in the picture because they don't exist: no second
+retrieval store (pgvector/FAISS document indexes were deleted), no per-technique workflow
+engines (deleted 2026-06-25), no second observability system (Phoenix removed 2026-06-22).
 
 ---
 
-## File map — where to look for what
+## 4. Life of a question
 
-| You want to... | Read / edit |
-|---|---|
-| Understand corpus schema | `corpus/models.py` (`QARecord`) |
-| Change how docs are retrieved | `harness/indexing/property_graph.py` (`HierarchicalPGRetriever`, `open_index`) |
-| Pick which retrieval setup is active | `EMA_INDEX_PROFILE` env var → `harness/configs/index/<name>.yaml` (default `neo4j_hier`) |
-| Build / rebuild the Neo4j index | `python -m harness.indexing.build` (entry: `harness/indexing/build.py`) |
-| Add a new index kind or retriever strategy | register via `harness/indexing/registry.py` + a new profile YAML |
-| Add a new pipeline (technique/mode) | drop a recipe YAML in `harness/configs/recipes/` (or `$EMA_CONFIG_DIR/recipes/`) — see [`RECIPES.md`](RECIPES.md) |
-| Add a new tool (RAG technique) | implement + `@register_tool` in `harness/tools/`, then list it in a recipe's `tools` — see [`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md) |
-| Change an agent's instructions | edit its prompt under `harness/prompts/` (e.g. `agent_crag.md`) named by the recipe's `system_prompt` |
-| Change which model does what role | `harness/configs/models.yaml` (role-based bindings via `harness/llms.py`) |
-| Chat interactively | `bash run_ui.sh` → Chainlit on :8000, MLflow on :5000 |
-| Inspect / collect feedback | MLflow trace assessments (👍/👎 via `mlflow.log_feedback`) + Chainlit; export with `harness/export_traces.py`; cache in `harness/query_cache.py` |
-| Tag docs with IDMP concepts | `python scripts/tag_concepts.py` (requires RDF in Nextcloud) |
-
-> **Rebuilt on this branch (2026-07-04):** the eval runner + LLM judges — `scripts/run_eval.py`
-> runs a recipe over the benchmark (one MLflow run per question type, `mlflow.genai`
-> faithfulness/correctness judges). **Still archived** (on `archive/pre-llamaindex-refactor`):
-> the old `harness/embed.py`, `harness/retrieve.py`, `harness/label_session.py`,
-> `harness/compute_lift.py`, the ablation grid, and the FAISS-over-`corpus.jsonl` doc index.
-> FAISS survives **only** as the semantic query cache (`harness/query_cache.py`).
-
----
-
-## The benchmark — what's being measured
-
-`benchmark/benchmark.jsonl` (45 questions, in Git: 20 T1 / 10 T2 / 10 T3 / 5 T4) is stratified into four difficulty tiers:
-
-- **T1 Lookup** — single document answers it directly
-- **T2 Scoping** — relevant doc is adjacent to distractors with similar vocabulary
-- **T3 Multi-hop** — answer requires two cross-referenced documents
-- **T4 Synthesis** — answer requires combining across multiple procedures (e.g. "compare Article 30 vs Article 31")
-
-The headline metric is **lift**: open-book correctness minus closed-book correctness. Closed-book = same questions answered with no retrieval context. A model that memorized the corpus gets zero lift.
-
-> **Status (2026-07-04):** a recipe-based benchmark runner is **rebuilt on this branch** —
-> `scripts/run_eval.py --recipe <name>` scores the benchmark with `mlflow.genai` judges, one
-> MLflow run per question type. Not yet rebuilt: closed-book baselines and the **lift**
-> computation (so the headline metric can't be produced yet). The benchmark items themselves
-> are current and in Git. See [`project_roadmap/ABLATIONS.md`](../project_roadmap/ABLATIONS.md).
-
----
-
-## Retrieval profiles — the YAML that selects retrieval
-
-The active retrieval setup is chosen by the `EMA_INDEX_PROFILE` env var (default `neo4j_hier`), which names a file under `harness/configs/index/`. A profile describes how the index is built (`index.kind`, chunking, scope) and which retriever to attach (`retrieval.strategy`, `k`). Swapping retrieval setups is an env change, not a code edit.
-
-Currently **one** retrieval strategy is built: `hierarchical` over `index.kind = property_graph` (profile `neo4j_hier`). The `vector_flat` / `hierarchical_links` / `property_graph_native` tracks are spec-only — see [`docs/RETRIEVAL_TRACKS.md`](RETRIEVAL_TRACKS.md).
-
-`harness/configs/models.yaml` is separate — it defines the model catalog and role bindings (`roles.agent` / `roles.grader` / `roles.judge` / …). Change a role binding to swap models everywhere without touching individual configs; recipes can also name a model directly (`generation.model`).
-
----
-
-## Recipe registry — the built-in recipes
-
-From `harness/configs/recipes/*.yaml` (+ `$EMA_CONFIG_DIR/recipes/`). One engine — a
-`FunctionAgent` — configured per recipe; the toolset + prompt define the technique. See
-[`docs/RECIPES.md`](RECIPES.md) + [`docs/RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md).
-
-| Recipe | Tools | What it does |
-|---|---|---|
-| `naive_rag` (default) | `ema_search` | retrieve once → answer (lightest baseline) |
-| `crag_agentic` | `corrective_search`, `ema_search` | CRAG: grade ⇄ rewrite-retry (bounded) for multi-hop/scoping |
-| `react_agentic` | `ema_search`, `resolve_substance` | reason→act loop |
-| `regulatory_agent` | `ema_search`, `resolve_substance` | the full agent |
-| `agentic_reranked` | + `native` pipeline | query-expansion + cross-encoder rerank (GPU) |
-| `agentic_judged` | + inline judge | faithfulness judge per turn (logged to MLflow) |
-| `regulatory_fewshot` | + few-shot | injects 👍-rated past answers as examples |
-
-A single Chainlit **recipe dropdown** selects one (the resolved recipe is stamped on every
-MLflow trace); `model`/`temperature`/`retrieval_k`/`cache` are live overrides. The pipeline
-exposes `invoke(inputs)` / `ainvoke(inputs)` with inputs `{"question": str, "few_shot_context"?: str}`
-and returns a structured `RegulatoryAnswer`. Programmatically: `build_recipe(get_recipe(name), index)`.
-
----
-
-## HITL — the human-in-the-loop loop
+The single most useful thing to understand. When you type a question into the chat:
 
 ```mermaid
-flowchart TD
-    Q[Ask a question in Chainlit] --> WF[Recipe agent runs]
-    WF --> PHX[(MLflow captures<br/>root + per-step spans)]
-    WF --> ANS[Answer shown]
+sequenceDiagram
+    actor U as You
+    participant APP as app.py (Chainlit)
+    participant AG as FunctionAgent<br/>(built from the recipe)
+    participant T as ema_search /<br/>corrective_search
+    participant NEO as Neo4j
+    participant MLF as MLflow
 
-    ANS -->|Chainlit 👍 / 👎| FB[user_rating assessment<br/>on the turn's trace<br/>mlflow.log_feedback]
-
-    Q --> CACHE[query_cache<br/>FAISS over past queries<br/>harness/query_cache.py]
-    FB --> CACHE
-    CACHE -->|≥3 entries rating≥4| INJ[get_fewshot_context<br/>prepend top-k examples<br/>to system prompt]
-    INJ -.-> WF
+    U->>APP: question
+    APP->>APP: semantic-cache lookup<br/>(offer similar past answers)
+    APP->>AG: ainvoke(question [+ few-shot examples])
+    loop agent decides (bounded)
+        AG->>T: search("…")
+        T->>NEO: vector query + graph expansion
+        NEO-->>T: passages + provenance<br/>(title, committee, category, …)
+        T-->>AG: formatted passages<br/>(nodes captured server-side)
+    end
+    AG-->>APP: RegulatoryAnswer<br/>(answer, verbatim claims, citations)
+    APP->>APP: rebuild citations from captured nodes,<br/>anchor claim spans, inject [n] markers
+    APP-->>U: marked answer + source cards +<br/>🔍 review panel + ⬇ export + 👍/👎
+    AG--)MLF: one trace (autolog spans +<br/>resolved recipe config)
+    U->>APP: 👍/👎 or citation verdicts
+    APP--)MLF: assessments on that trace
 ```
 
-**Current state:**
-- The Chainlit UI captures a 👍/👎 rating per answer, written as a `user_rating` trace assessment (feedback) on the turn's MLflow trace (`mlflow.log_feedback`).
-- MLflow is the trace store and HITL/feedback surface; `app.py` enables `mlflow.llama_index.autolog()` + a per-turn `harness.obs.tracing.traced` span against the `MLFLOW_TRACKING_URI` env var (default `http://localhost:5000`). Rated traces are harvested to JSONL with `harness/export_traces.py`.
-- `harness/query_cache.py` is a FAISS index over past query embeddings; `get_fewshot_context()` (in `harness/fewshot_inject.py`) is wired into `app.py` and injects top-k rated examples once ≥ 3 entries with rating ≥ 4 exist.
+Step by step, with the code that does it:
+
+1. **Cache check** (`harness/query_cache.py`): the question is embedded; if a similar past
+   question with a stored answer exists, you're offered it before any LLM runs.
+2. **Recipe → agent** (`harness/recipes/build.py:build_recipe`): the selected recipe was
+   assembled at session start into a `FunctionAgent` wrapped in an `AgentWorkflowAdapter`
+   (the uniform `invoke`/`ainvoke` entry point everything uses — UI, demo script, eval).
+3. **The agent loops over tools** (`harness/agents/`): the prompt prescribes *how* (e.g.
+   the naive recipe says "search exactly once"); the tools do the deterministic work. The
+   passages every tool retrieves are also **captured server-side** in a sink
+   (`harness/tools/search.py:capture_search_nodes`) — the LLM only ever sees text, so real
+   provenance (chunk ids, scores, titles) must come from the system, not the model.
+4. **Structured answer** (`harness/schemas/answer.py`): the agent must return a
+   `RegulatoryAnswer`. Its `claims` are contractually **verbatim spans** of the answer
+   text, each with the sources supporting exactly that span.
+5. **Attribution** (`harness/attribution.py`): the server locates each claim in the answer
+   (exact match, fuzzy fallback), numbers the references by first appearance, injects
+   `[n]` markers, and pairs every citation with its **full** retrieved passage. If the
+   model produced no usable claims, everything degrades to a plain answer with
+   score-ordered sources — never an error.
+6. **Rendering** (`app.py`): the `[n]` markers are clickable (they open the source card);
+   below the answer sit the **🔍 Review citations** panel (side-by-side answer/source view
+   with per-citation verdict buttons) and the **⬇ Export** button (Markdown + HTML
+   downloads). See [`CITATIONS.md`](CITATIONS.md).
+7. **Observability** (`harness/obs/`): the whole turn is one MLflow trace — every LLM and
+   retrieval call as a span, the resolved recipe as `ema.*` attributes, `ema.recipe` as a
+   searchable tag. Your 👍/👎 and per-citation verdicts attach to that same trace as
+   assessments.
 
 ---
 
-## Common tasks
+## 5. The three config surfaces
 
-### Start the data services
+Everything tunable lives in one of three YAML surfaces (all overridable by dropping a
+same-named file under `$EMA_CONFIG_DIR/<namespace>/` — external files shadow built-ins):
 
-```bash
-scripts/start_services.sh   # MongoDB (mongo:8.0.4) + Neo4j (neo4j:5.26 community), Docker, health-checked
+| Surface | File(s) | Decides | Selected by |
+|---|---|---|---|
+| **Recipe** | `harness/configs/recipes/*.yaml` | prompt, tools, output schema, retrieval profile + pipeline, few-shot, model, judge | UI dropdown / `EMA_RECIPE` / `--recipe` |
+| **Index profile** | `harness/configs/index/*.yaml` | how the Neo4j index is built (chunk sizes, scope) and queried (retriever, k) | the recipe's `index_profile` (default `neo4j_hier`) |
+| **Models** | `harness/configs/models.yaml` | the model catalog + role bindings (`agent`, `grader`, `judge`, `reviewer`, …) | roles referenced by code/recipes |
+
+Two more, smaller: `harness/configs/retrieval/*.yaml` (optional query-expansion + rerank
+pipeline a recipe can attach) and `harness/configs/export/default.yaml` (what exports
+contain). Prompts are Markdown files in `harness/prompts/`.
+
+A recipe in seven lines (the complete built-in baseline, `naive_rag.yaml` abridged):
+
+```yaml
+recipe:
+  label: "Naive RAG"
+  default: true
+  orchestration:
+    system_prompt: agent_naive.md   # "search once, answer only from the passages"
+    tools: [ema_search]             # one tool = classic retrieve-then-generate
+    output_schema: RegulatoryAnswer
 ```
 
-No Postgres — it was removed by the refactor.
+Everything not stated uses defaults (index profile `neo4j_hier`, model `claude_opus`, no
+rerank/few-shot/judge). **Worked examples — including reproducing the CRAG paper — are in
+[`RECIPES.md`](RECIPES.md) §"Worked examples".**
 
-### Chat with the system
+### The built-in recipes
+
+| Recipe | Technique | Extra stages |
+|---|---|---|
+| `naive_rag` (default) | retrieve once → answer | — |
+| `crag_agentic` | **CRAG** (Yan et al. 2024): grade retrieval, rewrite + retry when insufficient | — |
+| `react_agentic` | ReAct-style tool loop | — |
+| `regulatory_agent` | full agent (search + substance lookup) | — |
+| `agentic_reranked` | full agent | query expansion + cross-encoder rerank (GPU) |
+| `agentic_judged` | full agent | inline faithfulness judge + soft reviewer gate (threshold 3) |
+| `regulatory_fewshot` | full agent | injects 👍-rated past answers as few-shot examples |
+
+---
+
+## 6. The feedback loops
+
+Three signals accumulate, all in MLflow (plus the local query cache):
+
+1. **Answer-level 👍/👎** → a `user_rating` assessment on the turn's trace **and** a 1–5
+   rating in the FAISS query cache. Recipes with `fewshot.enabled` inject well-rated
+   similar past answers as examples on future questions — learning without training.
+2. **Per-citation verdicts** (the SME loop, new): in the 🔍 review panel each reference
+   takes *supports / partial / no*, an optional "wrong source type — prefer `<category>`"
+   flag (e.g. an EPAR was retrieved where a guideline belongs), and a note. Each verdict is
+   one `citation_<rank>_<chunk>` assessment carrying rank/ids/category — exactly the data a
+   future learned re-ranker needs. Today, the deterministic `doc_type_priority` reranker is
+   the actionable knob (see [`CITATIONS.md`](CITATIONS.md) §4).
+3. **LLM judge scores** (optional per recipe): a gold-free faithfulness judge grades each
+   answer against its retrieved context; with `judge.threshold` set, a weak answer ships
+   with a visible ⚠️ caution note (advisory — never blocked).
+
+---
+
+## 7. Where things live (file map)
+
+| You want to… | Go to |
+|---|---|
+| Add/modify a pipeline | `harness/configs/recipes/` (+ [`RECIPES.md`](RECIPES.md)) |
+| Change an agent's instructions | `harness/prompts/agent_*.md` |
+| Add a new tool (RAG technique) | `harness/tools/` + `@register_tool` ([`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md)) |
+| Change retrieval behavior | `harness/indexing/property_graph.py` (`HierarchicalPGRetriever`) + `harness/configs/index/` |
+| Change rerank / source-type priority | `harness/retrieval/postprocessors.py` + a pipeline YAML's `rerank:` |
+| The structured answer / citations schema | `harness/schemas/answer.py` |
+| Claim-span attribution / `[n]` markers | `harness/attribution.py` |
+| Source-category rules (guideline vs EPAR…) | `harness/retrieval/doc_categories.py` |
+| Export formats + options | `harness/export/` + `harness/configs/export/default.yaml` |
+| The SME review panel | `public/elements/CitationReview.jsx` + `app.py` (`cite_feedback`) |
+| Tracing / feedback helpers | `harness/obs/` (`setup_tracing`, `log_user_feedback`, `log_citation_feedback`) |
+| Eval runner | `harness/eval/runner.py` + `scripts/run_eval.py` |
+| Model catalog / roles | `harness/configs/models.yaml` + `harness/llms.py` |
+| The chat app itself | `app.py` (Chainlit handlers, ~1000 lines, heavily commented) |
+| Benchmark items | `benchmark/benchmark.jsonl` (45 questions, T1–T4) |
+| Corpus extraction (phase 1, done) | `corpus/` |
+
+---
+
+## 8. Running things
 
 ```bash
-bash run_ui.sh                            # MLflow (:5000) + Chainlit (:8000)
-# or
-EMA_TRACING_DISABLED=1 bash run_ui.sh     # Chainlit only, no tracing
-```
+# 0) once: services (Docker) — MongoDB + Neo4j, health-checked
+scripts/start_services.sh
 
-Chainlit on http://localhost:8000, MLflow on http://localhost:5000. The **recipe** is selected at session start via the chat-profile dropdown (one profile per recipe, 7 built-ins) or live via the settings panel's Recipe selector; changing it does not require a restart.
+# 1) chat (MLflow server on :5000 + Chainlit on :8000)
+bash run_ui.sh
 
-### Build / rebuild the Neo4j index
+# 2) one-off question from the CLI (same recipe engine as the UI)
+python scripts/run_agent_demo.py --recipe crag_agentic "What is the AI for NDMA?"
 
-```bash
-# whole corpus, GPU, fresh build (~80k docs; long-running)
-python -m harness.indexing.build --full --reset --embed-device cuda
+# 3) evaluate a recipe on the benchmark (one MLflow run per question type)
+python scripts/run_eval.py --recipe naive_rag            # all 45 questions
+python scripts/run_eval.py --recipe crag_agentic --types T3 --limit 2   # smoke run
 
-# resume an interrupted full build (no --reset — already-built docs are skipped)
+# 4) rebuild the Neo4j index from Mongo (GPU, long-running; see RETRIEVAL.md)
 python -m harness.indexing.build --full --embed-device cuda
 
-# a 500-doc slice for quick iteration
-python -m harness.indexing.build --limit 500
-
-# rebuild only the LINKS_TO edges over an existing graph
-python -m harness.indexing.build --full --reset-links
+# tests (offline, no services needed; ~490 tests)
+pytest -q --ignore=tests/test_mongo_source.py
 ```
 
-The active profile (`EMA_INDEX_PROFILE`, default `neo4j_hier`) decides chunking/scope/retriever. Use `--pause-every-docs` / `--pause-seconds` to throttle the GPU on long builds (the 3090 can wedge its GSP firmware under sustained load — see machine memory).
-
-### Tag docs with IDMP concepts
-
-```bash
-python scripts/tag_concepts.py        # requires IDMP RDF in Nextcloud
-```
-
-> **Eval:** `python scripts/run_eval.py --recipe <name>` (recipe × benchmark → per-type MLflow
-> runs). **Still archived (off-branch):** the cross-run comparison report, interactive labeling
-> (`harness.label_session`), computing lift (`harness.compute_lift`), and `harness.embed` —
-> they live on `archive/pre-llamaindex-refactor`.
+Useful env vars: `EMA_RECIPE` (default recipe), `EMA_INDEX_PROFILE` (index profile),
+`EMA_CONFIG_DIR` (external configs), `EMA_MLFLOW_EXPERIMENT` (experiment name),
+`EMA_TRACING_DISABLED=1` (no MLflow).
 
 ---
 
-## What you should hold in your head
+## 9. The benchmark and what's still missing for it
 
-1. **One retrieval store.** Neo4j `PropertyGraphIndex` (`:Document` + `:Chunk`, `HAS_CHUNK`/`PARENT_OF`/`LINKS_TO` edges, native chunk vector index). `HierarchicalPGRetriever` walks small-to-big and expands 1 hop over `LINKS_TO`. There is no pgvector, no FAISS doc index, no `EMA_RETRIEVER` switch.
-2. **Retrieval is a profile, not code.** `EMA_INDEX_PROFILE` → `harness/configs/index/<name>.yaml` selects the index kind + retriever. Today only `neo4j_hier` (hierarchical over property_graph) is built.
-3. **One engine, configured by recipes.** Every pipeline is a `FunctionAgent` configured by a recipe YAML; RAG techniques are tools + prompt instructions (naive RAG = `ema_search`; CRAG = `corrective_search`; ReAct = the tool loop). `build_recipe(get_recipe(name), index)` returns the runner (`invoke()`/`ainvoke()`). The legacy `harness/workflows/*` Workflow engine was retired 2026-06-25.
-4. **Models are role-bound.** Code never hardcodes a model — it asks `get_llm("agent")` / `get_llm("grader")` / `get_llm("judge")` etc. `models.yaml` decides what those mean; recipes can override with a direct model name.
-5. **MLflow is the trace store and HITL/feedback surface.** Every LlamaIndex call is instrumented automatically (`mlflow.llama_index.autolog()`, `MLFLOW_TRACKING_URI`); 👍/👎 trace assessments are the human signal.
-6. **Corpus + benchmark are in Git; the graph is not.** The Neo4j graph rebuilds from Mongo `parsed_documents`. Eval results live in MLflow (the system of record); the lift/ablation machinery is still archived off-branch.
+`benchmark/benchmark.jsonl`: 45 curated questions — 20 **T1 Lookup**, 10 **T2 Scoping**
+(distractor-adjacent), 10 **T3 Multi-hop** (cross-referenced documents), 5 **T4 Synthesis**
+(combine across procedures) — each with gold answers and sources. Metrics are always
+reported **per type**, and the headline number is **lift** (open-book minus closed-book) to
+neutralize training-data contamination (see `project_roadmap/LEAKAGE.md`).
+
+Current state: the recipe × benchmark runner **exists** (`scripts/run_eval.py`, judges
+included, results to MLflow) but is not yet runtime-verified; **closed-book baselines and
+the lift computation do not exist yet** — they are the main missing piece between "working
+system" and "benchmark results".
 
 ---
 
-## Where things hurt right now
+## 10. Next step: the GPU-host verification walk
 
-- The benchmark runner + LLM judges are rebuilt (`scripts/run_eval.py`), but **closed-book baselines and the lift metric are not** — the headline Phase 3/4 numbers can't be produced yet; the ablation grid is still archived (`archive/pre-llamaindex-refactor`). The runner itself is also not yet runtime-verified on the GPU host.
-- Only one retrieval strategy is built (`neo4j_hier`); `vector_flat` / `hierarchical_links` / `property_graph_native` are spec-only (`docs/RETRIEVAL_TRACKS.md`).
-- Few-shot injection fires once ≥ `min_examples` well-rated similar interactions exist (default 1, per-recipe via `FewshotPolicy`); the rated pool is still small.
-- The 3090 can wedge its GSP firmware under sustained CUDA load — throttle long index builds with the power cap + `--pause-every-docs` (see machine memory) before any reboot.
+Everything recent was verified offline (tests + headless boot) but not yet **live**. The
+concrete, ordered checklist — eval-runner smoke run, the citations/review/export UI walk,
+feedback landing as MLflow assessments, resume persistence, `doc_type_priority` in action —
+is in [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md) §8 ("2026-07-07 walk"). Do that
+walk on the GPU host (`marvin-gpu` — it has the Neo4j graph, the local BGE embedder, and
+the MongoDB) before building anything new on top.
+
+Known frictions to keep in mind on that host: the 3090 can wedge its GSP firmware under
+sustained CUDA load (throttle long builds; see machine memory), and `git push` needs a
+credentialed machine.

@@ -142,3 +142,80 @@ bash run_ui.sh   # the live Chainlit app — starts the MLflow tracking server o
 Green → append a `.claude/HISTORY.md` row, `git commit`, `git push origin claude/agentic-rag-foundation`.
 Red → capture the traceback, make the **minimal** fix on the branch, re-run that task, then commit.
 Report progress against the T1–T6 list.
+
+---
+
+## 8. The 2026-07-07 walk — verify the July refactors live (NEXT STEP)
+
+Everything since 2026-07-04 was verified offline (492 tests) + by headless boot, but not
+against the live graph/LLM/browser. Run this on the GPU host (`marvin-gpu` — it has the
+79,882-doc Neo4j graph, the local BGE embedder, and MongoDB), in order; fix-on-fail,
+commit + HISTORY row per step, exactly like §5–§7.
+
+```bash
+scripts/start_services.sh                       # Mongo + Neo4j up + healthy
+pytest -q --ignore=tests/test_mongo_source.py   # baseline: ~492 passed / 2 skipped
+```
+
+**W1 — retriever provenance (the enriched `_QUERY`).** The Cypher now projects
+`title/topic_path/committee/reference_number/source_type` off the Document node:
+
+```bash
+python - <<'PY'
+from harness.indexing import load_index_profile, open_index, build_retriever
+p = load_index_profile(); r = build_retriever(p, open_index(p))
+n = r.retrieve("nitrosamine acceptable intake limit")[0]
+print({k: n.node.metadata.get(k) for k in
+       ("title", "category", "committee", "chunk_id", "source_url")})
+PY
+```
+Expect a real title, a sensible `category` (qa/scientific_guideline/…), a non-empty
+`chunk_id`. If Document nodes lack a property (older build), values are `""` — acceptable,
+note it.
+
+**W2 — eval runner smoke (first live run of the R6 vehicle).**
+```bash
+python scripts/run_eval.py --recipe naive_rag --types T1 --limit 2
+```
+Expect one MLflow run (experiment per `EMA_MLFLOW_EXPERIMENT`) tagged
+`ema.recipe/ema.benchmark/ema.question_type`, with faithfulness+correctness scores. Watch
+for: judge gateway routing (`ANTHROPIC_BASE_URL` → `/v1/messages`), and that per-row
+traces carry `context_passages`.
+
+**W3 — the citations UI walk.** `bash run_ui.sh`, ask (recipe `naive_rag`):
+*"What is the Acceptable Intake for NDMA?"* Then check, in order:
+1. the answer contains clickable **`[n]` markers** and a **Sources:** line; clicking a
+   marker opens the numbered source card (title, category badge, committee, score);
+2. **🔍 Review citations (n)** expands to the side-by-side view; clicking an answer span
+   highlights its reference card and vice versa; the retrieved quote is highlighted inside
+   the full passage;
+3. rate one citation (✓/~/✗ + a "prefer scientific_guideline" flag + note) → in the MLflow
+   UI, the turn's trace shows a `citation_<rank>_<chunk8>` assessment with that metadata
+   (Assessments panel on the trace);
+4. **⬇ Export** → download both files; the HTML opens offline with working two-way
+   span↔reference highlighting; the Markdown has the config table + bolded quotes;
+5. **resume**: restart the browser session, reopen the thread from history → sources and
+   the review panel are still there, saved verdicts visible; the export files still
+   download.
+   *(If claims come back unanchored — no markers — the answer still renders plainly;
+   check the trace: are `claims[].text` verbatim? If the model paraphrases despite the
+   prompt, consider tightening `agent_naive.md` further. Degradation is by design, not a
+   crash.)*
+6. give the turn a 👍 → `user_rating` assessment on the same trace; ask a *similar*
+   question with recipe `regulatory_fewshot` → few-shot injection fires
+   (`ema.fewshot.injected=true` on the new trace).
+
+**W4 — `doc_type_priority` live.** Create `$EMA_CONFIG_DIR/retrieval/prio.yaml`
+(`rerank: [doc_type_priority]`, `doc_type_priority: [scientific_guideline, qa, epar]`) +
+a recipe pointing at it; ask a question that retrieves EPARs; confirm guideline/Q&A
+sources outrank EPARs in the cards and the trace stamps
+`ema.retrieval.doc_type_priority`.
+
+**W5 — embed-model provenance.** Confirm `harness/index/query_cache.json` now has the
+`{"embed_model": ..., "entries": [...]}` shape after a turn; no `.bak-*` files appeared
+(no accidental model switch).
+
+Done = all five green, committed, pushed (from a credentialed machine). After this walk,
+the natural next build steps are the **closed-book baseline + lift metric** (the missing
+benchmark headline — see [`ONBOARDING.md`](ONBOARDING.md) §9), then Phase 2.5's
+contamination screen.

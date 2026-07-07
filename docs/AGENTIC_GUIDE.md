@@ -16,8 +16,9 @@ configures which tools/prompt/schema the agent runs with. The live Chainlit app 
 **MLflow** (autolog), the same as everything else.
 
 - **Design / rationale:** [`TARGET_ARCHITECTURE.md`](TARGET_ARCHITECTURE.md)
-- **Verification runbook + results (T1–T6):** [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md)
-- **Recipes (the config surface):** [`RECIPES.md`](RECIPES.md) · techniques: [`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md)
+- **Verification runbook + results (T1–T6; §8 = the pending 2026-07-07 walk):** [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md)
+- **Recipes (the config surface, with worked examples):** [`RECIPES.md`](RECIPES.md) · techniques: [`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md)
+- **Citations / SME review / export:** [`CITATIONS.md`](CITATIONS.md)
 - **Retrieval store:** [`RETRIEVAL.md`](RETRIEVAL.md)
 
 Everything below was run on the GPU host (`marvin-gpu`) on 2026-06-22.

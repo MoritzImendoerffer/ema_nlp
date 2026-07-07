@@ -54,11 +54,25 @@ class RetrievalPipelineConfig:
 
 
 def load_pipeline_config(profile: str, *, config_dir: Path | None = None) -> RetrievalPipelineConfig:
-    """Load ``harness/configs/retrieval/<profile>.yaml`` into a config object."""
-    directory = config_dir or CONFIG_DIR
-    path = directory / f"{profile}.yaml"
-    if not path.exists():
-        raise FileNotFoundError(f"Retrieval pipeline config not found: {path}")
+    """Load ``retrieval/<profile>.yaml`` into a config object.
+
+    Same search path as recipes/index profiles: an explicit ``config_dir`` (tests)
+    wins, else ``$EMA_CONFIG_DIR/retrieval/`` shadows the built-in
+    ``harness/configs/retrieval/``.
+    """
+    if config_dir is not None:
+        path = config_dir / f"{profile}.yaml"
+        if not path.exists():
+            raise FileNotFoundError(f"Retrieval pipeline config not found: {path}")
+    else:
+        from harness.config_paths import find_config
+
+        path = find_config("retrieval", f"{profile}.yaml")
+        if path is None:
+            raise FileNotFoundError(
+                f"Retrieval pipeline config not found: {profile!r} (searched "
+                "$EMA_CONFIG_DIR/retrieval and the built-in retrieval/)"
+            )
     with path.open(encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
     section = raw.get("retrieval", raw)

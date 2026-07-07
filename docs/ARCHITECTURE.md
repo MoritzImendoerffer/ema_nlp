@@ -28,8 +28,10 @@ flowchart TD
     WI -. links_to .-> NEO
 
     NEO -->|build_retriever| WF["harness/recipes + agents — FunctionAgent"]
-    WF --> APP["app.py — Chainlit chat UI"]
-    APP --> PHX[MLflow traces + 👍/👎 feedback]
+    WF --> ATT["harness/attribution.py<br/>claim spans + numbered references"]
+    ATT --> APP["app.py — Chainlit chat UI<br/>[n] markers · 🔍 citation review · ⬇ export"]
+    APP --> PHX["MLflow traces + 👍/👎 +<br/>per-citation assessments"]
+    ATT --> EXP["harness/export/ — MD/HTML downloads"]
     CJ -.benchmark.-> BM["benchmark/benchmark.jsonl<br/>(45 Qs; scripts/run_eval.py → MLflow)"]
 ```
 
@@ -111,11 +113,13 @@ not separate engines. (LangChain/LangGraph are not in the stack.)
 | `harness/recipes/` | `Recipe` dataclass + loader + registry; `build_recipe(recipe, index)` → the composition path (one `FunctionAgent`, wrapped in `AgentWorkflowAdapter`) |
 | `harness/agents/` | `build_agent` / `assemble_agent` → `FunctionAgent` (config always derived from a recipe — `build_session` was absorbed 2026-07-04); `AgentWorkflowAdapter` exposes the `invoke`/`ainvoke` contract |
 | `harness/tools/` | `FunctionTool` registry — `ema_search` (naive RAG), `corrective_search` (CRAG grade/rewrite loop), `resolve_substance` |
-| `harness/schemas/` | Pydantic structured output (`RegulatoryAnswer` + `Claim`/`Citation`) |
-| `harness/retrieval/` | config-driven pipeline (query transform + rerank) + the shared CRAG primitives (`corrective.py`) |
-| `harness/obs/` | resolved-config trace stamping + MLflow run recording/tracing |
+| `harness/schemas/` | Pydantic structured output (`RegulatoryAnswer` + `Claim`/`Citation` — claims are contractually **verbatim answer spans**; citations carry title/committee/category provenance) |
+| `harness/attribution.py` | Claim-span matching + reference numbering + `[n]` marker injection — the shared attribution model behind chat markers, HTML export, and the SME review view ([CITATIONS.md](CITATIONS.md)) |
+| `harness/retrieval/` | config-driven pipeline (query transform + rerank incl. `doc_type_priority`) + the shared CRAG primitives (`corrective.py`) + source-category classifier (`doc_categories.py`) |
+| `harness/export/` | Config-driven turn export (registry + `ExportBundle` + Markdown/HTML renderers; subclass-extensible) |
+| `harness/obs/` | resolved-config trace stamping + MLflow run recording/tracing + feedback helpers (`log_user_feedback`, `log_citation_feedback`, `log_judge_feedback`) |
 | `harness/ontology/` | typed entity/relation schema + `SchemaLLMPathExtractor` enrichment |
-| `harness/eval/` | `mlflow.genai` judges + the inline judge layer + DSPy bootstrap |
+| `harness/eval/` | `mlflow.genai` judges + the inline judge layer + the recipe×benchmark runner + DSPy bootstrap |
 
 Techniques: **Naive RAG → `ema_search`**; **CRAG → `corrective_search`**; **ReAct → the
 agent's native tool loop**. Built-in recipes: `naive_rag` (default), `crag_agentic`,
@@ -136,10 +140,12 @@ agent's native tool loop**. Built-in recipes: `naive_rag` (default), `crag_agent
 pipeline; on session start `app.py` loads the index/retriever and builds the recipe's agent
 via `build_recipe` (with live model/temperature/k/cache overrides). Per message it checks the
 semantic query cache, optionally injects rated few-shot examples (when the recipe enables it),
-runs the agent, shows sources, optionally runs the inline judge, and records 👍/👎 to MLflow
-as trace assessments (feedback — which also rates the cache for few-shot). Tracing (MLflow
+runs the agent, renders the answer with clickable **`[n]` citation markers** + numbered source
+cards, attaches the **🔍 citation-review panel** (per-citation SME verdicts → MLflow) and the
+**⬇ Export** action (Markdown/HTML downloads), optionally runs the inline judge, and records
+👍/👎 to MLflow as trace assessments (which also rate the cache for few-shot). Tracing (MLflow
 autolog + `harness.obs.tracing.traced`) and the feedback stack (`query_cache.py`,
-`fewshot_inject.py`) are **kept**.
+`fewshot_inject.py`) are **kept**. Citations/review/export details: [CITATIONS.md](CITATIONS.md).
 
 > **Refactor status (LIR-010 done, 2026-06-02):** `app.py` now loads the Neo4j
 > `PropertyGraphIndex` via `EMA_INDEX_PROFILE` and builds a `HierarchicalPGRetriever`

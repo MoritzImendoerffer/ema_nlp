@@ -25,13 +25,18 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 
 ## Quick links
 
+**Start here: [Onboarding →](docs/ONBOARDING.md)** — the big picture, the mental model,
+"life of a question", and where everything lives. Then, in reading order:
+
+- **[Recipes →](docs/RECIPES.md)** — configure pipelines via YAML, with worked examples (simple RAG, reproducing the CRAG paper, the kitchen sink)
+- **[Retrieval →](docs/RETRIEVAL.md)** — Neo4j PropertyGraphIndex: node/graph model, config profiles, build + retrieve
+- **[Citations →](docs/CITATIONS.md)** — claim-span attribution, the SME review panel, per-citation feedback, Markdown/HTML export
+- **[Architecture →](docs/ARCHITECTURE.md)** — module map, data flow, MongoDB collections
+- **[Runtime verification →](docs/RUNTIME_VERIFICATION.md)** — the GPU-host walk (§8 = the current next step)
 - **[Setup guide →](docs/SETUP.md)** — install dependencies, configure credentials, start services
-- **[Architecture →](docs/ARCHITECTURE.md)** — data flow, MongoDB collections, corpus pipeline
-- **[Retrieval →](docs/RETRIEVAL.md)** — Neo4j PropertyGraphIndex: node/graph model, config profiles, build + retrieve, mermaid flows
-- **[Decisions →](DECISIONS.md)** — architectural and scope decisions with rationale
-- **[Open questions →](OPEN_QUESTIONS.md)** — decisions not yet made
+- **[Decisions →](DECISIONS.md)** / **[Open questions →](OPEN_QUESTIONS.md)** — what was decided (with rationale) and what isn't yet
 - **[Roadmap →](project_roadmap/ROADMAP.md)** — full phase-by-phase plan
-- **[Glossary →](project_roadmap/GLOSSARY.md)** — EMA regulatory terminology (read before touching pharma acronyms)
+- **[Glossary →](project_roadmap/GLOSSARY.md)** — EMA regulatory terminology (read before touching pharma acronyms; "AI" = Acceptable Intake)
 
 ## Current status
 
@@ -45,6 +50,14 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 - ✅ The **eval suite is rebuilt** (2026-07-04): `harness/eval/runner.py` + `scripts/run_eval.py` run a recipe over `benchmark/benchmark.jsonl` — one MLflow run per question type (T1–T4) with `mlflow.genai` judges. *(The pre-refactor suite remains archived on `archive/pre-llamaindex-refactor`; ablations + the lift metric are still TODO.)*
 
 **Recipe engine — single-engine agentic RAG (branch `claude/agentic-rag-foundation`).** There is **one engine**: a LlamaIndex `FunctionAgent`. The UI/eval select a **recipe** (`harness/configs/recipes/*.yaml` + `$EMA_CONFIG_DIR`) = orchestration (system prompt + tools + output schema) + retrieval (index profile + optional pipeline + few-shot) + generation + an optional inline judge. RAG *techniques are tools + instructions* — Naive RAG → `ema_search`; **CRAG → `corrective_search`** (a bounded grade/rewrite loop); ReAct → the agent's tool loop. Structured `RegulatoryAnswer` output, MLflow autolog + `mlflow.genai` judges, and typed ontology enrichment live under `harness/{schemas,tools,agents,retrieval,recipes,obs,ontology,eval}/`. A single Chainlit **recipe dropdown** drives it; the resolved recipe is stamped honestly on every MLflow trace (Arize Phoenix was fully removed in the 2026-06-22 migration). **The legacy `harness/workflows/*` Workflow engine was retired (2026-06-25).** Start here: **[docs/RECIPES.md](docs/RECIPES.md)** + **[docs/RAG_TECHNIQUES.md](docs/RAG_TECHNIQUES.md)**; design in **[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md)**.
+
+**Citations, SME review & export (2026-07-07).** Answers carry clickable `[n]` citation
+markers anchored to **verbatim claim spans** (`harness/attribution.py`); each answer has a
+persistent **🔍 citation-review panel** (side-by-side answer/source view; per-citation
+supports/partial/no verdicts + source-type preference, logged as MLflow assessments) and a
+**⬇ Export** action producing config-driven Markdown/HTML (self-contained, two-way
+span↔reference highlighting). A deterministic `doc_type_priority` reranker makes source-type
+preferences (guidelines before EPARs) enforceable per recipe. See **[docs/CITATIONS.md](docs/CITATIONS.md)**.
 
 See `.claude/work/` for work unit logs.
 

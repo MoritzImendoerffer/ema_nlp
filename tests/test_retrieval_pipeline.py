@@ -252,3 +252,14 @@ def test_pipeline_config_validates_doc_type_priority(tmp_path):
     assert cfg.doc_type_priority == ["scientific_guideline", "qa"]
     attrs = cfg.resolved_attributes()
     assert attrs["ema.retrieval.doc_type_priority"] == "scientific_guideline,qa"
+
+
+def test_load_pipeline_config_honors_ema_config_dir(tmp_path, monkeypatch):
+    external = tmp_path / "retrieval"
+    external.mkdir()
+    (external / "mine.yaml").write_text(
+        "retrieval:\n  query_transform: none\n  rerank: [doc_type_priority]\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("EMA_CONFIG_DIR", str(tmp_path))
+    cfg = load_pipeline_config("mine")
+    assert cfg.rerank == ["doc_type_priority"]

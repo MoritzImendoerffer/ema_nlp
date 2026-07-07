@@ -97,6 +97,131 @@ never advertises a stage that did not run.
 | `agentic_judged` | ema_search, resolve_substance | none | + inline faithfulness judge |
 | `regulatory_fewshot` | ema_search, resolve_substance | none | + rated-trajectory few-shot injection (👍-rated past answers) |
 
+## Worked examples
+
+Three complete configurations, from simplest to fully loaded. Each is runnable as-is:
+save it under `$EMA_CONFIG_DIR/recipes/<name>.yaml` (or `harness/configs/recipes/`) and it
+appears in the UI dropdown; or run it directly:
+
+```bash
+python scripts/run_agent_demo.py --recipe <name> "What is the AI for NDMA?"
+python scripts/run_eval.py --recipe <name> --types T1 --limit 2   # benchmark smoke run
+```
+
+### Example 1 — plain "simple RAG" (retrieve once, answer)
+
+The classic retrieve-then-generate pipeline (Lewis et al. 2020). One tool, a prompt that
+forbids extra searching, nothing else:
+
+```yaml
+# $EMA_CONFIG_DIR/recipes/my_simple_rag.yaml
+recipe:
+  label: "My simple RAG"
+  description: "One retrieval, answer strictly from the passages."
+  orchestration:
+    system_prompt: agent_naive.md      # "call ema_search once, answer only from passages"
+    tools: [ema_search]                # exactly one tool = no agentic behavior to speak of
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_hier          # the live Neo4j graph (only built profile)
+  generation:
+    model: claude_opus                 # any name from configs/models.yaml `models:`
+    temperature: 0.0
+```
+
+That is the entire configuration — the built-in `naive_rag` recipe is exactly this. The
+"technique" is carried by two choices: the single `ema_search` tool and the
+`agent_naive.md` prompt. Retrieval `k` comes from the index profile (default 10);
+override live in the UI settings panel or per profile.
+
+### Example 2 — reproducing the CRAG paper (Yan et al. 2024, arXiv:2401.15884)
+
+CRAG's core idea: **don't trust retrieval blindly** — grade the retrieved passages with a
+lightweight evaluator, and when they don't cover the question, take a corrective action
+and retry before generating. Here the whole corrective loop is deterministic code inside
+the `corrective_search` tool; the recipe just hands the agent that tool and a prompt
+saying when to use it:
+
+```yaml
+# harness/configs/recipes/crag_agentic.yaml (built-in)
+recipe:
+  label: "Corrective RAG (agentic)"
+  description: "Agent uses corrective_search (grade + rewrite-retry) for multi-hop questions."
+  orchestration:
+    system_prompt: agent_crag.md
+    tools: [corrective_search, ema_search]   # corrective loop + plain search fallback
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_hier
+  generation:
+    model: claude_opus
+    temperature: 0.0
+```
+
+How the paper's components map onto this repo (and where we deliberately deviate):
+
+| CRAG paper | Here | Where |
+|---|---|---|
+| Retrieval evaluator (correct / incorrect / ambiguous) | LLM grader scores each passage 0/1/2 + lists `missing_facts`; "sufficient" = a 2-scored passage **and** no gaps | `harness/retrieval/corrective.py` (`GRADE_SYSTEM`, `is_sufficient`) — the grader runs on the cheap `grader` model role, not the expensive agent model |
+| Corrective action: web search | **Query rewrite + re-retrieve over the corpus** — this project is deliberately corpus-only (the benchmark's contamination story depends on it), so there is no web fallback | `REWRITE_SYSTEM` + the loop in `harness/tools/corrective_search.py` |
+| Bounded retries | `max_cycles` (default 2); the loop keeps the **best-graded** retrieval across cycles, not blindly the last | `corrective_search.py` (`grade_key` best-so-far) |
+| Knowledge refinement (decompose–recompose) | Not implemented (candidate future tool) | — |
+| Generate once, after correction | The agent answers from the corrected passages; the tool returns *context + an honest grade note* ("STILL MISSING: …"), never an answer | `grade_note` → the agent's prompt tells it to reflect residual gaps in `caveats`/`confidence` |
+
+To *experiment* with the technique, everything is a visible knob: the grading rubric and
+rewrite prompt are plain text in `harness/retrieval/corrective.py`; the grader model is
+`roles.grader` in `models.yaml`; the retry bound is the tool's `max_cycles`. The MLflow
+trace shows every grade/rewrite step, so you can check adherence per question.
+
+### Example 3 — the kitchen sink (rerank + source-type priority + judge gate + few-shot)
+
+Every optional stage enabled at once — useful as a menu of what exists. Each stage costs
+latency/GPU/LLM calls, so real recipes should enable only what a benchmark failure
+justifies:
+
+```yaml
+# $EMA_CONFIG_DIR/recipes/full_stack.yaml
+recipe:
+  label: "Full stack (demo)"
+  description: "Query expansion + rerank + source-type priority + judge gate + few-shot."
+  orchestration:
+    system_prompt: agent_regulatory.md
+    tools: [ema_search, resolve_substance]
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_hier
+    pipeline: my_pipeline                # -> $EMA_CONFIG_DIR/retrieval/my_pipeline.yaml (below)
+    fewshot:
+      enabled: true                      # inject 👍-rated similar past answers…
+      k: 3
+      min_rating: 4                      # …rated ≥4/5 (👍 = 5.0)…
+      min_examples: 1                    # …as soon as one qualifying example exists
+  generation:
+    model: claude_opus
+    temperature: 0.0
+  judge:
+    enabled: true
+    judges: [faithfulness]               # gold-free, runs on every turn
+    model_role: judge                    # or `reviewer` — a models.yaml role
+    threshold: 3                         # score <3 → visible ⚠ caution (advisory, never blocks)
+    on_fail: annotate
+```
+
+```yaml
+# $EMA_CONFIG_DIR/retrieval/my_pipeline.yaml — the pipeline the recipe names above
+retrieval:
+  query_transform: acronym               # expand "AI" → "Acceptable Intake" etc. (context-aware)
+  rerank:
+    - doc_type_priority                  # deterministic, free: guidelines before EPARs
+    - cross_encoder                      # GPU cross-encoder rerank
+  rerank_top_n: 8
+  doc_type_priority: [scientific_guideline, qa, epar]   # validated category order
+```
+
+The trace for a turn run with this recipe stamps every one of those choices
+(`ema.retrieval.pipeline`, `ema.retrieval.doc_type_priority`, `ema.judge.threshold`,
+`ema.fewshot.*`) plus the runtime facts (`ema.fewshot.injected`, `ema.judge.passed`).
+
 ## Add your own
 
 1. (Optional) write a prompt `.md` under `harness/prompts/` or `$EMA_CONFIG_DIR/prompts/`
