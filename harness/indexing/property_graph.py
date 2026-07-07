@@ -495,11 +495,14 @@ class HierarchicalPGRetriever(BaseRetriever):
     (CHUNK_VECTOR_INDEX) and expand HAS_CHUNK (-> doc) / PARENT_OF (-> parent).
     """
 
+    # The doc map projection surfaces the Document node's reference metadata
+    # (title/topic_path/committee/reference_number/source_type) so citations,
+    # reference cards, and exports carry real provenance — not just a URL.
     _QUERY = (
         f"CALL db.index.vector.queryNodes('{CHUNK_VECTOR_INDEX}', $k, $q) YIELD node, score "
         "RETURN node.id AS id, node.text AS text, score, "
-        "head([(node)<-[:HAS_CHUNK]-(d) | d.source_url]) AS source_url, "
-        "head([(node)<-[:HAS_CHUNK]-(d) | d.id]) AS doc_id, "
+        "head([(node)<-[:HAS_CHUNK]-(d) | d {.id, .source_url, .title, .topic_path, "
+        ".committee, .reference_number, .source_type}]) AS doc, "
         "head([(node)<-[:PARENT_OF]-(p) | {id: p.id, text: p.text}]) AS parent"
     )
 
@@ -513,6 +516,8 @@ class HierarchicalPGRetriever(BaseRetriever):
         super().__init__()
 
     def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
+        from harness.retrieval.doc_categories import classify_source
+
         qvec = self._embed.get_query_embedding(query_bundle.query_str)
         rows = self._store.structured_query(self._QUERY, param_map={"k": self._k, "q": qvec})
         seen: set[str] = set()
@@ -526,9 +531,21 @@ class HierarchicalPGRetriever(BaseRetriever):
             if nid in seen:
                 continue
             seen.add(nid)
+            doc = r.get("doc") or {}
+            source_url = doc.get("source_url") or ""
+            topic_path = doc.get("topic_path") or ""
             meta = {
-                "source_url": r.get("source_url"),
-                "doc_id": r.get("doc_id"),
+                "source_url": source_url,
+                "doc_id": doc.get("id") or "",
+                "title": doc.get("title") or "",
+                "topic_path": topic_path,
+                "committee": doc.get("committee") or "",
+                "reference_number": doc.get("reference_number") or "",
+                "source_type": doc.get("source_type") or "",
+                "category": classify_source(source_url, topic_path),
+                # chunk_id = the node actually returned (parent after small-to-big
+                # merge); matched_chunk = the leaf the vector hit landed on.
+                "chunk_id": nid,
                 "matched_chunk": r["id"],
             }
             out.append(

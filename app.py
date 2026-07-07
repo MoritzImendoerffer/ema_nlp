@@ -790,40 +790,51 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
                 metadata={"score": r.score, "run_id": run_id},
             )
 
-    # ── Source sidebar elements ───────────────────────────────────────────────
+    # ── Source sidebar elements (numbered references, attribution order) ──────
+    # Elements are named "[1]".."[n]": Chainlit renders every occurrence of an
+    # element NAME in the message content as a clickable reference — so the inline
+    # [n] markers the attribution injects after each claim span double as the
+    # click targets that (re)open the source card, live and after resume.
+    attribution = result.get("attribution")
+    references = list(getattr(attribution, "references", []))[:SOURCES_SHOWN]
     source_elements: list[cl.Text] = []
-    for i, doc in enumerate(docs[:SOURCES_SHOWN], 1):
-        meta = doc.metadata
-        score = meta.get("score", 0.0)
-        topic = meta.get("topic_path", "")
-        url = meta.get("source_url", "")
-        # Narrative chunks (no Q:/A: structure) — show a collapsed snippet of the
-        # retrieved passage instead of parsing a question out of it.
-        snippet = " ".join((doc.text or "").split())
+    for ref in references:
+        cit = ref.citation
+        url = cit.source_url
+        snippet = " ".join((ref.full_text or cit.quote or "").split())
         snippet = snippet[:240] + ("…" if len(snippet) > 240 else "")
         link = f"[{url}]({url})" if url else "_no URL_"
+        detail_bits = [f"Category: `{cit.category or '—'}`", f"Score: `{(cit.score or 0.0):.3f}`"]
+        if cit.committee:
+            detail_bits.append(f"Committee: `{cit.committee}`")
+        if cit.reference_number:
+            detail_bits.append(f"Ref: `{cit.reference_number}`")
         card = (
-            f"**Q{msg_num}·{i}**\n\n"
-            f"Score: `{score:.3f}` · Topic: `{topic or '—'}`\n\n"
-            f"Source: {link}\n\n"
-            f"{snippet}"
+            f"**[{ref.n}] {cit.title or url or 'Source'}**\n\n"
+            + " · ".join(detail_bits)
+            + f"\n\nSource: {link}\n\n{snippet}"
         )
-        source_elements.append(cl.Text(name=f"Q{msg_num} · Src {i}", content=card, display="side"))
+        source_elements.append(cl.Text(name=f"[{ref.n}]", content=card, display="side"))
 
     # ── Final message ─────────────────────────────────────────────────────────
-    # The element NAMES must appear in the message content: Chainlit renders each
-    # occurrence as a clickable reference that (re)opens the element side panel.
-    # Without them the panel only auto-opens once per new element set — after
-    # closing it (or resuming a thread) there is nothing to click.
+    # Answer text with [n] markers injected after each attributed claim span;
+    # zero/unmatched claims degrade to the plain answer. The Sources line keeps
+    # every reference reachable even when it was never anchored in the text.
+    marked_answer = getattr(attribution, "marked_text", None) or answer_text
     sources_line = ""
-    if source_elements:
+    if references:
+        sources_line = "\n\n**Sources:** " + " · ".join(
+            f"[{r.n}] {r.citation.title or r.citation.source_url or 'source'}"
+            for r in references
+        )
+    elif source_elements:
         sources_line = "\n\n**Sources:** " + " | ".join(e.name for e in source_elements)
     footer = ""
     if not TRACING_DISABLED:
         traces_link = await asyncio.to_thread(_traces_url)
         footer = f"\n\n[View traces →]({traces_link})"
     await cl.Message(
-        content=answer_text + judge_note + sources_line + footer, elements=source_elements
+        content=marked_answer + judge_note + sources_line + footer, elements=source_elements
     ).send()
 
     # ── Store in cache ────────────────────────────────────────────────────────

@@ -56,3 +56,48 @@ def test_adapter_without_fewshot_passes_question_only():
     sess = _RecordingSession(RegulatoryAnswer(answer="ok"))
     asyncio.run(AgentWorkflowAdapter(sess).ainvoke({"question": "Q only"}))
     assert sess.last_query == "Q only"
+
+
+def test_adapter_result_carries_attribution_and_references():
+    """ainvoke joins citations to full captured passages and exposes the
+    attribution model (spans + numbered references) for UI/export/SME view."""
+    import asyncio
+
+    from harness.agents.workflow_adapter import AgentWorkflowAdapter
+    from harness.schemas import Citation, Claim, RegulatoryAnswer
+
+    full_passage = "Long background. The Acceptable Intake for NDMA is 96 ng/day per CHMP. More."
+    answer = RegulatoryAnswer(
+        answer="The Acceptable Intake for NDMA is 96 ng/day.",
+        claims=[Claim(text="The Acceptable Intake for NDMA is 96 ng/day.",
+                      citations=[Citation(source_url="https://ema.eu/n", chunk_id="chunk-9")])],
+        citations=[Citation(source_url="https://ema.eu/n", chunk_id="chunk-9",
+                            quote="Acceptable Intake for NDMA is 96 ng/day", score=0.9)],
+        confidence=0.9,
+    )
+
+    class _Node:
+        def __init__(self):
+            self.node_id = "chunk-9"
+            self.text = full_passage
+            self.metadata = {"chunk_id": "chunk-9", "source_url": "https://ema.eu/n"}
+
+    class _NWS:
+        node = _Node()
+        score = 0.9
+
+    class _Session:
+        async def arun(self, msg):
+            from harness.tools.search import _NODE_SINK
+
+            sink = _NODE_SINK.get()
+            if sink is not None:
+                sink.append(_NWS())
+            return answer
+
+    result = AgentWorkflowAdapter(_Session()).invoke({"question": "q"})
+    att = result["attribution"]
+    assert "[1]" in att.marked_text
+    assert result["references"][0]["n"] == 1
+    assert result["references"][0]["full_text"] == full_passage
+    assert result["references"][0]["quote_start"] >= 0  # quote located in the passage

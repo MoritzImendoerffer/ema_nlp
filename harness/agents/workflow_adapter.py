@@ -70,6 +70,7 @@ class AgentWorkflowAdapter:
         return attrs
 
     async def ainvoke(self, payload: dict) -> dict:
+        from harness.attribution import build_attribution
         from harness.obs.tracing import record_answer_on_span, tag_current_trace, traced
         from harness.tools.search import capture_search_nodes, passages_from_nodes
 
@@ -90,11 +91,28 @@ class AgentWorkflowAdapter:
                 answer: RegulatoryAnswer = await self._session.arun(user_msg)
             record_answer_on_span(span, question=question, answer=answer)
             context_passages = passages_from_nodes(evidence)
+            # Join each citation to the FULL retrieved passage (the 240-char
+            # citation quote is a snippet) so attribution, the SME review view,
+            # and exports can show/highlight real source text.
+            full_text_by_id: dict[str, str] = {}
+            for nws in evidence:
+                node = getattr(nws, "node", nws)
+                meta = getattr(node, "metadata", {}) or {}
+                text = (getattr(node, "text", "") or "").strip()
+                for key in (getattr(node, "node_id", None), meta.get("chunk_id"), meta.get("matched_chunk")):
+                    if key and text:
+                        full_text_by_id.setdefault(str(key), text)
+            citation_texts = [full_text_by_id.get(c.chunk_id, "") for c in answer.citations]
+            attribution = build_attribution(answer, citation_texts)
             return {
                 "answer_text": answer.answer,
                 "docs": [_CitationDoc(c) for c in answer.citations],
                 "answer": answer,
                 "context_passages": context_passages,
+                # Claim-span attribution: marked text, spans, numbered references
+                # with full passages (see harness.attribution).
+                "attribution": attribution,
+                "references": [r.to_dict() for r in attribution.references],
             }
 
     def invoke(self, payload: dict) -> dict:

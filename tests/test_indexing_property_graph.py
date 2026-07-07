@@ -208,3 +208,64 @@ def test_embed_pass_embeds_leaves_only():
     assert len(embed.embedded) == len(leaves)
     # the vector index was created (sized from a leaf embedding)
     assert any("VECTOR INDEX" in q for q in store.queries)
+
+
+# ── HierarchicalPGRetriever metadata mapping (offline, fake store) ────────────
+
+def test_retriever_meta_carries_document_provenance():
+    """The retriever surfaces the Document node's reference metadata + real
+    chunk_id so citations/reference cards get title/category/committee etc."""
+    from llama_index.core import QueryBundle
+
+    from harness.indexing.property_graph import HierarchicalPGRetriever
+
+    rows = [
+        {
+            "id": "leaf-1",
+            "text": "leaf text",
+            "score": 0.91,
+            "doc": {
+                "id": "doc-1",
+                "source_url": "https://www.ema.europa.eu/en/documents/scientific-guideline/ich-q3a_en.pdf",
+                "title": "ICH Q3A Impurities",
+                "topic_path": "/documents/scientific-guideline/",
+                "committee": "CHMP",
+                "reference_number": "EMA/CHMP/123/2021",
+                "source_type": "pdf",
+            },
+            "parent": {"id": "parent-1", "text": "parent text (bigger window)"},
+        },
+        {   # doc props may be null in the graph — must map to "" not "None"
+            "id": "leaf-2",
+            "text": "other leaf",
+            "score": 0.5,
+            "doc": {"id": "doc-2", "source_url": None, "title": None, "topic_path": None,
+                    "committee": None, "reference_number": None, "source_type": None},
+            "parent": None,
+        },
+    ]
+
+    class _FakeStore:
+        def structured_query(self, query, param_map=None):
+            assert "d {.id, .source_url, .title, .topic_path" in query
+            return rows
+
+    class _FakeEmbed:
+        def get_query_embedding(self, q):
+            return [0.0]
+
+    retriever = HierarchicalPGRetriever(_FakeStore(), _FakeEmbed(), k=5, merge=True)
+    out = retriever._retrieve(QueryBundle(query_str="q"))
+    assert len(out) == 2
+
+    meta = out[0].node.metadata
+    assert out[0].node.node_id == "parent-1"  # small-to-big merge
+    assert meta["chunk_id"] == "parent-1" and meta["matched_chunk"] == "leaf-1"
+    assert meta["title"] == "ICH Q3A Impurities"
+    assert meta["committee"] == "CHMP"
+    assert meta["reference_number"] == "EMA/CHMP/123/2021"
+    assert meta["category"] == "scientific_guideline"
+
+    meta2 = out[1].node.metadata
+    assert meta2["source_url"] == "" and meta2["title"] == ""  # nulls never become "None"
+    assert meta2["category"] == "other"

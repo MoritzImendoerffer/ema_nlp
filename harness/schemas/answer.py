@@ -27,30 +27,83 @@ _QUOTE_MAX = 240
 
 
 class Citation(BaseModel):
-    """A single cited source passage."""
+    """A single cited source passage.
 
-    source_url: str = ""
-    doc_id: str = ""
-    chunk_id: str = ""
-    quote: str = ""
-    score: float | None = None
+    The LLM only ever needs to fill ``source_url`` (the URL shown in the search
+    results it relied on); every other field is provenance that the runner
+    backfills from the retrieved nodes (see ``harness.agents.runner``).
+    """
+
+    source_url: str = Field(
+        default="", description="URL of the source passage, exactly as shown in the search results."
+    )
+    doc_id: str = Field(default="", description="Internal document id (filled by the system).")
+    chunk_id: str = Field(default="", description="Internal chunk id (filled by the system).")
+    quote: str = Field(
+        default="", description="Snippet of the cited passage (filled by the system)."
+    )
+    score: float | None = Field(
+        default=None, description="Retrieval score of the cited passage (filled by the system)."
+    )
+    # Reference metadata, backfilled from the retrieved document node (F-attribution).
+    title: str = Field(default="", description="Source document title (filled by the system).")
+    topic_path: str = Field(
+        default="", description="EMA site topic path of the source (filled by the system)."
+    )
+    committee: str = Field(
+        default="", description="EMA committee (e.g. CHMP) when known (filled by the system)."
+    )
+    reference_number: str = Field(
+        default="", description="EMA reference number (e.g. EMA/409815/2020) when known."
+    )
+    source_type: str = Field(default="", description="pdf | html (filled by the system).")
+    category: str = Field(
+        default="",
+        description=(
+            "Source category: scientific_guideline | qa | epar | medicine_page | other "
+            "(filled by the system)."
+        ),
+    )
 
 
 class Claim(BaseModel):
     """One assertion in the answer, with the citations that support it."""
 
-    text: str
-    citations: list[Citation] = Field(default_factory=list)
+    text: str = Field(
+        description=(
+            "A verbatim, contiguous quote copied EXACTLY from `answer` — the exact "
+            "substring this claim's citations support. Do not paraphrase, shorten, or "
+            "reword; copy the characters as they appear in `answer`."
+        )
+    )
+    citations: list[Citation] = Field(
+        default_factory=list,
+        description="The retrieved sources (by source_url) that support exactly this text span.",
+    )
 
 
 class RegulatoryAnswer(BaseModel):
     """Structured final answer produced by the regulatory agent."""
 
-    answer: str
-    claims: list[Claim] = Field(default_factory=list)
-    citations: list[Citation] = Field(default_factory=list)
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-    caveats: list[str] = Field(default_factory=list)
+    answer: str = Field(description="The complete answer text shown to the user.")
+    claims: list[Claim] = Field(
+        default_factory=list,
+        description=(
+            "Every supported assertion in `answer`, each as a VERBATIM span of `answer` "
+            "with the citations backing it. Together the claims should cover the "
+            "substantive statements of the answer."
+        ),
+    )
+    citations: list[Citation] = Field(
+        default_factory=list,
+        description="All sources relied on (by source_url); the system rebuilds provenance.",
+    )
+    confidence: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="Overall confidence in the answer, 0-1."
+    )
+    caveats: list[str] = Field(
+        default_factory=list, description="Limitations, gaps, or scope notes for the answer."
+    )
 
     @classmethod
     def from_nodes(
@@ -124,10 +177,25 @@ def citation_from_node(node_with_score: Any) -> Citation:
         except (TypeError, ValueError):
             score = None
 
+    source_url = str(meta.get("source_url") or "")
+    topic_path = str(meta.get("topic_path") or "")
+    category = str(meta.get("category") or "")
+    if not category and (source_url or topic_path):
+        # Lazy import keeps this module pydantic-only at import time.
+        from harness.retrieval.doc_categories import classify_source
+
+        category = classify_source(source_url, topic_path)
+
     return Citation(
-        source_url=str(meta.get("source_url", "")),
-        doc_id=str(meta.get("doc_id", "")),
+        source_url=source_url,
+        doc_id=str(meta.get("doc_id") or ""),
         chunk_id=str(meta.get("chunk_id") or meta.get("id") or ""),
         quote=quote,
         score=(float(score) if score is not None else None),
+        title=str(meta.get("title") or ""),
+        topic_path=topic_path,
+        committee=str(meta.get("committee") or ""),
+        reference_number=str(meta.get("reference_number") or ""),
+        source_type=str(meta.get("source_type") or ""),
+        category=category,
     )

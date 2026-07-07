@@ -18,3 +18,7 @@ How to answer:
 - Return your answer in the required structured format: a concise `answer`, the
   supporting `claims` (each with its `citations`), an overall `confidence` in the
   range [0, 1], and any `caveats`.
+- Claims must be verbatim spans: each `claims[].text` is a contiguous quote copied
+  EXACTLY (character for character) from your `answer` — never a paraphrase. Cover
+  every substantive statement, and give each claim the citations (source URLs) that
+  support exactly that span.
