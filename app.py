@@ -833,8 +833,33 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
     if not TRACING_DISABLED:
         traces_link = await asyncio.to_thread(_traces_url)
         footer = f"\n\n[View traces →]({traces_link})"
+
+    # ── SME citation-review element (persistent CustomElement) ───────────────
+    # Attached to the answer MESSAGE (not the sidebar / an action) so it survives
+    # chat resume; verdicts flow via callAction("cite_feedback") → MLflow.
+    message_elements: list = list(source_elements)
+    if attribution is not None and getattr(attribution, "references", None):
+        from harness.retrieval.doc_categories import CATEGORIES
+
+        att_dict = attribution.to_dict()
+        message_elements.append(
+            cl.CustomElement(
+                name="CitationReview",
+                display="inline",
+                props={
+                    "answer_text": att_dict["answer_text"],
+                    "spans": att_dict["spans"],
+                    "references": att_dict["references"],
+                    "unmatched_claims": att_dict["unmatched_claims"],
+                    "categories": list(CATEGORIES),
+                    "verdicts": {},
+                    "run_id": run_id,
+                    "trace_id": trace_id,
+                },
+            )
+        )
     await cl.Message(
-        content=marked_answer + judge_note + sources_line + footer, elements=source_elements
+        content=marked_answer + judge_note + sources_line + footer, elements=message_elements
     ).send()
 
     # ── Store in cache ────────────────────────────────────────────────────────
@@ -857,15 +882,119 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
     cl.user_session.set("last_run_id", run_id)
     cl.user_session.set("last_trace_id", trace_id)
 
-    # ── Rating actions ────────────────────────────────────────────────────────
+    # ── Turn bundle (export + SME review data) ────────────────────────────────
+    # Everything a Markdown/HTML export (or an external review tool) needs for
+    # this turn; session-held, so exports work for current-session turns only.
+    if attribution is not None:
+        from datetime import datetime
+
+        from harness.export import ExportBundle
+
+        settings = cl.user_session.get("settings") or {}
+        try:
+            resolved_config = recipe.resolved_attributes(
+                model=str(settings.get("model")) if settings.get("model") else None,
+                temperature=float(settings["temperature"]) if "temperature" in settings else None,
+                retrieval_k=int(settings["retrieval_k"]) if "retrieval_k" in settings else None,
+            )
+        except Exception:
+            resolved_config = {}
+        bundle = ExportBundle(
+            question=query,
+            answer=result.get("answer"),
+            attribution=attribution,
+            recipe_name=getattr(recipe, "name", ""),
+            resolved_config=resolved_config,
+            settings=dict(settings),
+            judge_results=[
+                {"name": r.name, "score": r.score, "rationale": r.rationale}
+                for r in judge_results
+            ],
+            confidence=confidence if isinstance(confidence, (int, float)) else None,
+            run_id=run_id,
+            trace_id=trace_id,
+            trace_url=(traces_link if not TRACING_DISABLED else ""),
+            msg_num=msg_num,
+            asked_at=datetime.now().isoformat(timespec="seconds"),
+        )
+        bundles = cl.user_session.get("turn_bundles") or {}
+        bundles[run_id] = bundle
+        cl.user_session.set("turn_bundles", bundles)
+
+    # ── Rating + export actions ───────────────────────────────────────────────
     # Carry the trace id in the payload so the 👍/👎 maps to this exact turn's trace.
     await cl.Message(
         content="Rate this response:",
         actions=[
             cl.Action(name="rate", payload={"rating": "good", "run_id": run_id, "trace_id": trace_id}, label="👍 Helpful"),
             cl.Action(name="rate", payload={"rating": "bad",  "run_id": run_id, "trace_id": trace_id}, label="👎 Not helpful"),
+            cl.Action(name="export_turn", payload={"run_id": run_id}, label="⬇ Export"),
         ],
     ).send()
+
+
+# ── Per-citation SME feedback callback ────────────────────────────────────────
+
+@cl.action_callback("cite_feedback")
+async def on_cite_feedback(action: cl.Action) -> None:
+    """One SME verdict for one citation (from the CitationReview element).
+
+    Logged as a per-citation MLflow trace assessment (unique name per rank+chunk,
+    metadata carries the re-ranking signal: rank, ids, category, preferred type).
+    """
+    p = action.payload or {}
+    if TRACING_DISABLED or not p.get("trace_id"):
+        log.info("citation feedback (untraced): %s", p)
+        return
+    from harness.obs import log_citation_feedback
+
+    await asyncio.to_thread(
+        log_citation_feedback,
+        p.get("trace_id", ""),
+        rank=int(p.get("rank", 0)),
+        verdict=str(p.get("verdict", "")),
+        chunk_id=str(p.get("chunk_id", "")),
+        doc_id=str(p.get("doc_id", "")),
+        source_url=str(p.get("source_url", "")),
+        category=str(p.get("category", "")),
+        preferred_category=str(p.get("preferred_category", "")) or None,
+        note=str(p.get("note", "")) or None,
+        run_id=str(p.get("run_id", "")),
+    )
+
+
+# ── Export callback ───────────────────────────────────────────────────────────
+
+@cl.action_callback("export_turn")
+async def on_export(action: cl.Action) -> None:
+    """Render the turn's export bundle to the configured formats as downloads.
+
+    The resulting ``cl.File`` elements are persisted by the data layer's storage
+    client, so the downloads keep working after a chat resume (the bundle itself
+    is session-held — only current-session turns can be *re*-exported).
+    """
+    run_id = (action.payload or {}).get("run_id", "")
+    bundle = (cl.user_session.get("turn_bundles") or {}).get(run_id)
+    if bundle is None:
+        await cl.Message(
+            content="Export unavailable for this turn (bundles are kept per session — "
+            "re-ask the question to export it)."
+        ).send()
+        return
+
+    from harness.export import export_turn as render_export
+
+    try:
+        files = await asyncio.to_thread(render_export, bundle)
+    except Exception as exc:
+        await cl.Message(content=f"Export failed: {exc}").send()
+        return
+    elements = [
+        cl.File(name=filename, content=content.encode("utf-8"), mime=mime)
+        for filename, mime, content in files
+    ]
+    names = ", ".join(e.name for e in elements)
+    await cl.Message(content=f"Export of Q{bundle.msg_num}: {names}", elements=elements).send()
 
 
 # ── Message handler ───────────────────────────────────────────────────────────

@@ -45,7 +45,10 @@ def assemble_agent(
         # (tests) overrides it.
         transform = get_transform(pipeline_config.query_transform, llm=llm, acronyms=acronyms)
         postprocessors = build_postprocessors(
-            pipeline_config.rerank, top_n=pipeline_config.rerank_top_n, llm=llm
+            pipeline_config.rerank,
+            top_n=pipeline_config.rerank_top_n,
+            llm=llm,
+            doc_type_priority=getattr(pipeline_config, "doc_type_priority", None),
         )
     return build_agent(
         llm=llm,

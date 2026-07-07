@@ -134,6 +134,17 @@ def export_rated_traces(
             for a in assessments
             if a.name == "step_quality"
         ]
+        # Per-citation SME verdicts (log_citation_feedback): the re-ranking signal.
+        citation_ratings = [
+            {
+                "name": a.name,
+                "verdict": getattr(getattr(a, "feedback", None), "value", None),
+                "rationale": getattr(a, "rationale", None),
+                "metadata": getattr(a, "metadata", None),
+            }
+            for a in assessments
+            if a.name.startswith("citation_")
+        ]
         records.append(
             {
                 "run_id": run_id,
@@ -142,6 +153,7 @@ def export_rated_traces(
                 "answer": answer,
                 "rating": rating,
                 "step_ratings": step_ratings,
+                "citation_ratings": citation_ratings,
                 "index_profile": ema.get("ema.index.profile", ""),
                 "strategy": ema.get("ema.orchestration.strategy", ""),
             }

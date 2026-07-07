@@ -119,6 +119,26 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Not chosen (for now):** hard gating (block/retry below threshold) — deferred until a benchmark failure demands it; a `review_answer` *tool* — a tool cannot intercept the agent's final output, so the adapter-level seam is the one that can actually gate.  
 **Ref:** [`docs/RECIPES.md`](docs/RECIPES.md), `harness/eval/inline_judge.py:review_verdict`, [`docs/REQUIREMENTS_REVIEW.md`](docs/REQUIREMENTS_REVIEW.md) (F18/R1-Q3)
 
+### Citation attribution: verbatim claims + server-derived markers
+**Decided:** 2026-07-07 (approved plan `PLAN_citations_export_sme_review.md`)  
+**What:** Answer↔citation linking is claim-based: `Claim.text` is contractually a **verbatim, contiguous span** of `answer` (Pydantic field descriptions — previously absent — plus all four agent prompts state the rule). The **server** (`harness/attribution.py`) locates spans (normalized-exact, then `difflib` fuzzy ≥ 0.85), resolves overlaps, numbers references by first appearance, and injects `[n]` markers. One `Attribution` model powers the chat markers, the HTML export's span highlighting, and the SME review element.  
+**Why:** Span-level attribution is what SME verification and export highlighting need; LLM-emitted inline markers were rejected (point anchors only, dependent on model numbering discipline over ephemeral per-tool-call labels). Degrades exactly to the previous behavior when claims are absent/unanchorable.  
+**Not chosen:** post-hoc sentence↔passage alignment (approximate, no claim semantics); LLM-managed reference numbers.  
+**Ref:** [`docs/CITATIONS.md`](docs/CITATIONS.md), `harness/attribution.py`
+
+### SME citation review lives in the chat app; feedback is per-citation MLflow assessments
+**Decided:** 2026-07-07 (evidence: 103-agent deep-research pass, 19 verified claims)  
+**What:** The citation-verification UI is a persistent Chainlit **CustomElement** attached to each answer (side-by-side answer/reference view with two-way highlight sync; verdicts `supports|partial|no` + "wrong source type — prefer `<category>`" + note). Each verdict = one MLflow trace assessment (`citation_<rank>_<chunk8>`, metadata: rank/chunk_id/doc_id/source_url/category/preferred_category/run_id) via `harness.obs.log_citation_feedback`; `export_traces.py` reads them back as `citation_ratings`.  
+**Why (research-verified):** MLflow's Review App/labeling sessions are **Databricks-gated at the code level** (OSS has only the feedback APIs + a basic trace Assessments panel); Argilla is in maintenance mode; Label Studio's RAG template lacks two-sided span highlighting and needs a second service + sync; Langfuse would reintroduce a parallel observability backend after the deliberate Phoenix→MLflow consolidation. In-chat keeps zero new infrastructure and reviews where the answers appear.  
+**Escape hatch:** `ExportBundle.to_dict()` is a tool-neutral interchange format — if review outgrows 1–2 SMEs, Label Studio can consume the bundles as tasks with an assessments→MLflow sync, without reworking attribution/export.  
+**Ref:** [`docs/CITATIONS.md`](docs/CITATIONS.md), `public/elements/CitationReview.jsx`
+
+### Per-citation feedback taxonomy + deterministic doc-type priority (learned re-ranking deferred)
+**Decided:** 2026-07-07  
+**What:** Feedback = (a) grounding verdict per reference, (b) source-type preference flag, (c) note. Ordering feedback ("guideline should be cited first") is **derived** from verdict×rank — no reorder UI. Actionable today: the `doc_type_priority` postprocessor (config-validated category order, e.g. `[scientific_guideline, qa, epar]`, selectable in any pipeline's `rerank:` list) deterministically floats preferred source types.  
+**Why:** Captures the *why* (wrong-content vs wrong-source-type) that makes feedback trainable; the deterministic knob makes the EPAR-vs-guideline preference enforceable now, while learned re-ranking stays deferred until assessment data accumulates (complexity-by-need rule).  
+**Ref:** [`docs/CITATIONS.md`](docs/CITATIONS.md) §4, `harness/retrieval/{doc_categories,postprocessors}.py`
+
 ### Role/model separation in models.yaml
 **Decided:** 2026-05-23  
 **What:** `harness/configs/models.yaml` is restructured into two top-level sections:

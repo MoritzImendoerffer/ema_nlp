@@ -1,0 +1,14 @@
+# Default export configuration (loaded via the config search path — an
+# $EMA_CONFIG_DIR/export/default.yaml shadows this file; other names are
+# selectable programmatically via load_export_options("<name>")).
+#
+# formats: names from the exporter registry (harness/export/registry.py).
+# Unknown keys or unregistered formats are HARD errors — the export must never
+# silently claim a format that cannot run.
+export:
+  formats: [markdown, html]
+  include_config: true          # resolved ema.* recipe configuration table
+  include_judge: true           # inline judge scores, when the recipe ran them
+  include_full_passages: true   # full retrieved passages (vs 240-char quotes)
+  include_trace_link: true      # link to the MLflow trace
+  filename_template: "ema_answer_{msg_num}_{run8}"

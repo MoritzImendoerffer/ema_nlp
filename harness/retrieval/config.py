@@ -37,18 +37,20 @@ class RetrievalPipelineConfig:
     query_transform: str = "none"
     rerank: list[str] = field(default_factory=list)
     rerank_top_n: int = 8
+    # Category order for the ``doc_type_priority`` postprocessor (only meaningful
+    # when that name appears in ``rerank``); empty = the postprocessor's default.
+    doc_type_priority: list[str] = field(default_factory=list)
 
     def resolved_attributes(self) -> dict[str, Any]:
         """Flatten the *active* pipeline stages to ``ema.retrieval.*`` (honest stamping)."""
-        return resolved_config_attributes(
-            {
-                "retrieval": {
-                    "profile": self.profile,
-                    "query_transform": self.query_transform,
-                    "rerank": self.rerank,
-                }
-            }
-        )
+        retrieval: dict[str, Any] = {
+            "profile": self.profile,
+            "query_transform": self.query_transform,
+            "rerank": self.rerank,
+        }
+        if "doc_type_priority" in self.rerank and self.doc_type_priority:
+            retrieval["doc_type_priority"] = self.doc_type_priority
+        return resolved_config_attributes({"retrieval": retrieval})
 
 
 def load_pipeline_config(profile: str, *, config_dir: Path | None = None) -> RetrievalPipelineConfig:
@@ -60,9 +62,20 @@ def load_pipeline_config(profile: str, *, config_dir: Path | None = None) -> Ret
     with path.open(encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
     section = raw.get("retrieval", raw)
+    doc_type_priority = [str(c) for c in (section.get("doc_type_priority") or [])]
+    if doc_type_priority:
+        from harness.retrieval.doc_categories import CATEGORIES
+
+        unknown = [c for c in doc_type_priority if c not in CATEGORIES]
+        if unknown:
+            raise ValueError(
+                f"retrieval.doc_type_priority has unknown categor(ies) {unknown}; "
+                f"valid: {list(CATEGORIES)}"
+            )
     return RetrievalPipelineConfig(
         profile=profile,
         query_transform=section.get("query_transform", "none"),
         rerank=list(section.get("rerank", [])),
         rerank_top_n=int(section.get("rerank_top_n", 8)),
+        doc_type_priority=doc_type_priority,
     )

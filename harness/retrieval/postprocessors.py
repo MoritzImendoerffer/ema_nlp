@@ -91,3 +91,50 @@ def build_llm_sme(*, llm: Any = None, top_n: int = 8, **_: Any) -> BaseNodePostp
     from llama_index.core.postprocessor import LLMRerank
 
     return LLMRerank(llm=llm, top_n=top_n)
+
+
+class DocTypePriorityPostprocessor(BaseNodePostprocessor):
+    """Deterministic source-type priority reorder (the SME-feedback-tunable knob).
+
+    Stable-sorts nodes by the configured category order (classified from node
+    metadata via :mod:`harness.retrieval.doc_categories`), tie-breaking by the
+    original (score) order — e.g. ``[scientific_guideline, qa, epar]`` floats a
+    guideline hit above a higher-scoring EPAR (the F18/R1 review's canonical
+    complaint). Categories not in the priority list sort last, in original order.
+    No LLM, no heavy deps; fully offline-testable.
+    """
+
+    priority: list[str] = []
+
+    def _postprocess_nodes(
+        self, nodes: list, query_bundle: QueryBundle | None = None
+    ) -> list:
+        from harness.retrieval.doc_categories import classify_source
+
+        order = {category: i for i, category in enumerate(self.priority)}
+
+        def sort_key(indexed: tuple[int, Any]) -> tuple[int, int]:
+            i, node_with_score = indexed
+            node = getattr(node_with_score, "node", node_with_score)
+            meta = getattr(node, "metadata", {}) or {}
+            category = meta.get("category") or classify_source(
+                meta.get("source_url") or "", meta.get("topic_path") or ""
+            )
+            return (order.get(category, len(order)), i)
+
+        return [n for _, n in sorted(enumerate(nodes), key=sort_key)]
+
+
+@register_postprocessor("doc_type_priority")
+def build_doc_type_priority(
+    *, doc_type_priority: list[str] | None = None, **_: Any
+) -> BaseNodePostprocessor:
+    """Deterministic category-priority reorder; see :class:`DocTypePriorityPostprocessor`.
+
+    ``doc_type_priority`` comes from the retrieval pipeline config (validated
+    there); the default prefers guidelines and Q&A over EPARs.
+    """
+    from harness.retrieval.doc_categories import CATEGORIES
+
+    priority = list(doc_type_priority) if doc_type_priority else [c for c in CATEGORIES if c != "other"]
+    return DocTypePriorityPostprocessor(priority=priority)

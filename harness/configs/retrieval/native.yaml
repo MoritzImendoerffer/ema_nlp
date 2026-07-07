@@ -5,7 +5,10 @@
 retrieval:
   query_transform: acronym        # none | acronym | llm_rewrite | (agent, future)
   rerank:                         # ordered node_postprocessors
-    - cross_encoder               # cross_encoder | llm_sme
+    - cross_encoder               # cross_encoder | llm_sme | doc_type_priority
   rerank_top_n: 8
+  # To prefer source types deterministically (the SME-feedback-tunable knob),
+  # add `doc_type_priority` to rerank: and set the category order, e.g.:
+  #   doc_type_priority: [scientific_guideline, qa, epar, medicine_page]
   # (retrieval k lives in the index profile; the former sub_retrievers/graph_mode/k
   #  keys here were dead config with no consumer and were removed — F8, 2026-07-05)

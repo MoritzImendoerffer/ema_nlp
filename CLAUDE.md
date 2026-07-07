@@ -47,6 +47,21 @@
 > line; `docs/WORKFLOWS.md` + `docs/RETRIEVAL_TRACKS.md` are intentionally-preserved history
 > behind SUPERSEDED banners.)*
 
+> 📎 **Citations: attribution + SME review + export** (2026-07-07, this branch).
+> Claims are **verbatim answer spans** (prompt + schema contract); `harness/attribution.py`
+> locates them (exact→fuzzy), numbers references by first use, and injects clickable `[n]`
+> markers into the chat answer. Under each answer: a persistent **CitationReview** custom
+> element (`public/elements/CitationReview.jsx`) — side-by-side answer/reference view with
+> per-citation SME verdicts (`supports|partial|no` + "prefer <category>" + note) logged as
+> MLflow trace assessments (`log_citation_feedback`, unique `citation_<rank>_<chunk8>`
+> names). Per-turn **⬇ Export** renders config-driven Markdown/HTML downloads
+> (`harness/export/`, `configs/export/default.yaml`, subclass-extensible registry; the HTML
+> is self-contained with two-way span↔reference highlighting). Retrieval nodes now carry
+> full document provenance (title/topic_path/committee/reference_number/source_type +
+> a derived `category` from `harness/retrieval/doc_categories.py`), and the deterministic
+> `doc_type_priority` postprocessor lets a recipe prefer e.g. guidelines over EPARs — the
+> knob the SME feedback will tune. *How-to: [`docs/CITATIONS.md`](docs/CITATIONS.md).*
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What this project is

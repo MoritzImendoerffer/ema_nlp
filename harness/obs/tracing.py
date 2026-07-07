@@ -144,11 +144,12 @@ def _log_feedback(
     trace_id: str | None,
     *,
     name: str,
-    value: bool | int | float,
+    value: bool | int | float | str,
     source_type: str,
     source_id: str,
     rationale: str | None,
     metadata: dict[str, Any] | None,
+    span_id: str | None = None,
 ) -> bool:
     """Attach an assessment to ``trace_id`` (shared by human + judge feedback).
 
@@ -171,6 +172,9 @@ def _log_feedback(
             source = AssessmentSource(source_type=source_type, source_id=source_id)
         except Exception:
             source = None
+        kwargs: dict[str, Any] = {}
+        if span_id:
+            kwargs["span_id"] = span_id  # scope the assessment to one span (OSS 3.x)
         mf.log_feedback(
             trace_id=trace_id,
             name=name,
@@ -178,6 +182,7 @@ def _log_feedback(
             source=source,
             rationale=rationale,
             metadata=metadata,
+            **kwargs,
         )
         return True
     except Exception as exc:
@@ -203,6 +208,54 @@ def log_user_feedback(
         source_id=source_id,
         rationale=rationale,
         metadata=metadata,
+    )
+
+
+def log_citation_feedback(
+    trace_id: str | None,
+    *,
+    rank: int,
+    verdict: str,
+    chunk_id: str = "",
+    doc_id: str = "",
+    source_url: str = "",
+    category: str = "",
+    preferred_category: str | None = None,
+    note: str | None = None,
+    run_id: str = "",
+    source_id: str = "chainlit",
+    span_id: str | None = None,
+) -> bool:
+    """Attach one SME per-citation verdict to ``trace_id`` (the citation-review loop).
+
+    ``verdict`` is ``supports | partial | no`` (plus the optional
+    ``preferred_category`` when the source *type* is wrong — the
+    EPAR-where-a-guideline-belongs case). Each citation gets a UNIQUE assessment
+    name (``citation_<rank>_<chunk8>``) so re-rating one citation never
+    overwrites another; the metadata carries everything a future re-ranking
+    aggregation needs. Mirrors the ``step_quality`` pattern that
+    ``harness.export_traces`` reads back.
+    """
+    chunk8 = (chunk_id or "x")[:8]
+    metadata: dict[str, Any] = {
+        "rank": rank,
+        "chunk_id": chunk_id,
+        "doc_id": doc_id,
+        "source_url": source_url,
+        "category": category,
+        "run_id": run_id,
+    }
+    if preferred_category:
+        metadata["preferred_category"] = preferred_category
+    return _log_feedback(
+        trace_id,
+        name=f"citation_{rank}_{chunk8}",
+        value=verdict,
+        source_type="HUMAN",
+        source_id=source_id,
+        rationale=note or None,
+        metadata=metadata,
+        span_id=span_id,
     )
 
 

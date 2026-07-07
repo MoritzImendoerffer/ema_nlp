@@ -170,3 +170,85 @@ def test_resolved_attributes_empty_rerank_is_explicit_none():
     cfg = RetrievalPipelineConfig(profile="x", rerank=[])
     attrs = cfg.resolved_attributes()
     assert attrs["ema.retrieval.rerank"] == "none"
+
+
+# --- doc_type_priority postprocessor (deterministic source-type reorder) -----
+
+
+def _fake_node(url, score, category=None):
+    from llama_index.core.schema import NodeWithScore, TextNode
+
+    meta = {"source_url": url}
+    if category:
+        meta["category"] = category
+    return NodeWithScore(node=TextNode(text="x", metadata=meta), score=score)
+
+
+def test_doc_type_priority_floats_guideline_above_higher_scoring_epar():
+    from harness.retrieval.postprocessors import get_postprocessor
+
+    epar = _fake_node("https://ema.eu/documents/assessment-report/x-epar-public-assessment-report.pdf", 0.95)
+    guideline = _fake_node("https://ema.eu/documents/scientific-guideline/ich-q3a.pdf", 0.80)
+    qa = _fake_node("https://ema.eu/x/questions-answers-nitrosamines", 0.90)
+
+    pp = get_postprocessor("doc_type_priority", doc_type_priority=["scientific_guideline", "qa", "epar"])
+    out = pp.postprocess_nodes([epar, qa, guideline])
+    urls = [n.node.metadata["source_url"] for n in out]
+    assert "scientific-guideline" in urls[0]
+    assert "questions-answers" in urls[1]
+    assert "assessment-report" in urls[2]
+
+
+def test_doc_type_priority_stable_within_category_and_unknown_last():
+    from harness.retrieval.postprocessors import get_postprocessor
+
+    g1 = _fake_node("https://ema.eu/documents/scientific-guideline/a.pdf", 0.9)
+    g2 = _fake_node("https://ema.eu/documents/scientific-guideline/b.pdf", 0.7)
+    misc = _fake_node("https://example.org/unrelated", 0.99)  # category "other" → last
+
+    pp = get_postprocessor("doc_type_priority", doc_type_priority=["scientific_guideline"])
+    out = pp.postprocess_nodes([misc, g1, g2])
+    urls = [n.node.metadata["source_url"] for n in out]
+    assert urls == [g1.node.metadata["source_url"], g2.node.metadata["source_url"],
+                    misc.node.metadata["source_url"]]
+
+
+def test_doc_type_priority_prefers_precomputed_category_metadata():
+    from harness.retrieval.postprocessors import get_postprocessor
+
+    # metadata["category"] (set by the live retriever) wins over URL heuristics
+    tagged = _fake_node("https://example.org/whatever", 0.5, category="qa")
+    other = _fake_node("https://example.org/other", 0.9)
+    pp = get_postprocessor("doc_type_priority", doc_type_priority=["qa"])
+    out = pp.postprocess_nodes([other, tagged])
+    assert out[0].node.metadata["source_url"].endswith("/whatever")
+
+
+def test_pipeline_config_validates_doc_type_priority(tmp_path):
+    import textwrap
+
+    import pytest
+
+    bad = tmp_path / "bad.yaml"
+    bad.write_text(textwrap.dedent(
+        """
+        retrieval:
+          rerank: [doc_type_priority]
+          doc_type_priority: [guidelines]
+        """
+    ), encoding="utf-8")
+    with pytest.raises(ValueError, match="unknown categor"):
+        load_pipeline_config("bad", config_dir=tmp_path)
+
+    good = tmp_path / "good.yaml"
+    good.write_text(textwrap.dedent(
+        """
+        retrieval:
+          rerank: [doc_type_priority]
+          doc_type_priority: [scientific_guideline, qa]
+        """
+    ), encoding="utf-8")
+    cfg = load_pipeline_config("good", config_dir=tmp_path)
+    assert cfg.doc_type_priority == ["scientific_guideline", "qa"]
+    attrs = cfg.resolved_attributes()
+    assert attrs["ema.retrieval.doc_type_priority"] == "scientific_guideline,qa"

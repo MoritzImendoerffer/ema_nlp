@@ -67,7 +67,9 @@ recipe:
 
 ### Opt-in stages (off by default → GPU-light)
 - **`retrieval.pipeline`** — set to a `configs/retrieval/<name>.yaml` (e.g. `native`) to turn
-  on query-expansion + cross-encoder rerank. Costs GPU per turn.
+  on query-expansion + rerank. `rerank:` accepts `cross_encoder` / `llm_sme` (GPU/LLM cost
+  per turn) and the free deterministic `doc_type_priority` (source-type ordering, e.g.
+  guidelines before EPARs — see [`CITATIONS.md`](CITATIONS.md) §4).
 - **`retrieval.fewshot.enabled`** — inject the top-k rated past answers (👍=5/👎=1 in the
   semantic cache) as few-shot examples. Needs ≥ `min_examples` rated entries to fire.
 - **`judge.enabled`** — run gold-free judges (`faithfulness`) on each answer vs its context;
