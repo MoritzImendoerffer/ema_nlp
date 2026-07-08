@@ -220,7 +220,7 @@ the natural next build steps are the **closed-book baseline + lift metric** (the
 benchmark headline — see [`ONBOARDING.md`](ONBOARDING.md) §9), then Phase 2.5's
 contamination screen.
 
-### Results — 2026-07-07/08 (GPU host) — **WALK COMPLETE** (browser click-through remains)
+### Results — 2026-07-07/08 (GPU host) — **WALK COMPLETE ✅** (incl. browser click-through, owner-confirmed 2026-07-08: markers, review panel + verdict→assessment, export downloads, resume persistence all work in the live UI)
 
 | Step | Result |
 |---|---|

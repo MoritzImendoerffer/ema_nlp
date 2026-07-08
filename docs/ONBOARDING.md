@@ -278,22 +278,24 @@ Useful env vars: `EMA_RECIPE` (default recipe), `EMA_INDEX_PROFILE` (index profi
 reported **per type**, and the headline number is **lift** (open-book minus closed-book) to
 neutralize training-data contamination (see `project_roadmap/LEAKAGE.md`).
 
-Current state: the recipe × benchmark runner **exists** (`scripts/run_eval.py`, judges
-included, results to MLflow) but is not yet runtime-verified; **closed-book baselines and
-the lift computation do not exist yet** — they are the main missing piece between "working
-system" and "benchmark results".
+Current state: the recipe × benchmark runner **works live** (`scripts/run_eval.py`, judges
+included, results to MLflow — verified on the GPU host, `RUNTIME_VERIFICATION.md` §8);
+**closed-book baselines and the lift computation do not exist yet** — they are the main
+missing piece between "working system" and "benchmark results". The detailed plan for
+building them (a `closed_book` recipe + `harness/eval/lift.py` + the `zero_shot_known`
+contamination backfill) is [`next/closed_book_lift.md`](next/closed_book_lift.md).
 
 ---
 
-## 10. Next step: the GPU-host verification walk
+## 10. Next step: closed-book baseline + lift
 
-Everything recent was verified offline (tests + headless boot) but not yet **live**. The
-concrete, ordered checklist — eval-runner smoke run, the citations/review/export UI walk,
-feedback landing as MLflow assessments, resume persistence, `doc_type_priority` in action —
-is in [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md) §8 ("2026-07-07 walk"). Do that
-walk on the GPU host (`marvin-gpu` — it has the Neo4j graph, the local BGE embedder, and
-the MongoDB) before building anything new on top.
+The GPU-host verification walk is **complete** (all steps green incl. the browser
+click-through — results + the three defects it caught are in
+[`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md) §8). The next build is the
+**closed-book baseline + lift metric** — detailed plan in
+[`next/closed_book_lift.md`](next/closed_book_lift.md); future plans generally live under
+[`docs/next/`](next/README.md).
 
-Known frictions to keep in mind on that host: the 3090 can wedge its GSP firmware under
-sustained CUDA load (throttle long builds; see machine memory), and `git push` needs a
-credentialed machine.
+Known frictions on the GPU host: the 3090 can wedge its GSP firmware under sustained CUDA
+load (throttle long builds; see machine memory), and `git push` may need a credentialed
+machine.
