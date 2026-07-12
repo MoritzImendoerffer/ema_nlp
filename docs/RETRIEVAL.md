@@ -266,9 +266,12 @@ python scripts/backfill_doc_badges.py             # write d.audience + d.site_to
 ```
 
 These are **additive metadata** — surfaced by `scripts/inspect_graph.py
-overview` and available for future steering, but not yet wired into a
-`doc_type_priority`-style knob (gated on a benchmark failure that needs them,
-per the complexity rule).
+overview` and carried on retrieved nodes, but **deliberately not yet wired into
+any steering decision**. The concrete ways to use them (ground `category` on
+`doc_type`, replace the URL-based `veterinary` rule with the `audience` badge,
+route on `site_topic`, doc-type-granular `doc_type_priority`) are designed and
+execution-ready in [`next/metadata_steering.md`](next/metadata_steering.md),
+gated on a benchmark failure that needs them per the complexity rule.
 
 ### Mechanism A — filter + quota (candidate stage)
 

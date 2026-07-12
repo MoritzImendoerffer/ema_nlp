@@ -10,6 +10,7 @@ moves to the main `docs/`, and the plan file gains a "landed" banner (kept as hi
 |---|---|---|
 | [`closed_book_lift.md`](closed_book_lift.md) | 📋 planned | Closed-book baseline + the **lift** metric — the benchmark's headline number, and the Phase 2.5 contamination screen it doubles as |
 | [`retrieval_miss_detection.md`](retrieval_miss_detection.md) | 💡 designed (gated) | OLMoTrace-style exact-span probe (infini-gram) over the corpus — buckets answer spans into grounded / **in-corpus-but-not-retrieved** / novel for eval triage, memorization signature, citation repair; build waits for a §5 trigger |
+| [`metadata_steering.md`](metadata_steering.md) | 💡 designed (gated) | Use the **authoritative node metadata** (`doc_type` 96.6% of PDFs / `audience` / `site_topic`, landed 2026-07-12) for steering — ground `category` on `doc_type`, replace the URL-based `veterinary` rule with the badge, route on `site_topic`, doc-type-granular priority; metadata already on the graph, only the *use* waits for a §5 trigger |
 
 Candidates without a written plan yet (see `docs/REQUIREMENTS_REVIEW.md` +
 `OPEN_QUESTIONS.md`): graph-navigation tools for the agent (R1-Q2), external tools/MCP

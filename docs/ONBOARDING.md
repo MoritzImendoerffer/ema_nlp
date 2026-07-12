@@ -313,6 +313,14 @@ click-through — results + the three defects it caught are in
   the lift metric, and can later power "suggested source" citation repair in SME
   review. Deliberately gated on a concrete benchmark failure (triggers in the plan's
   §5), per the complexity rule.
+- **Steer on the authoritative node metadata**
+  ([`next/metadata_steering.md`](next/metadata_steering.md)): the graph now carries EMA's
+  own `doc_type` (96.6% of PDFs, from the website-data JSON export), `audience`, and
+  `site_topic` (page badges) — landed 2026-07-12 as *additive metadata only*
+  ([`RETRIEVAL.md`](RETRIEVAL.md) §7). Using it for steering — grounding `category` on
+  `doc_type`, replacing the URL-based `veterinary` rule with the badge, routing on
+  `site_topic`, doc-type-granular priority — is designed but **deliberately not wired
+  in**, gated on a benchmark failure that needs it (triggers in the plan's §5).
 
 Known frictions on the GPU host: the 3090 can wedge its GSP firmware under sustained CUDA
 load (throttle long builds; see machine memory), and `git push` may need a credentialed
