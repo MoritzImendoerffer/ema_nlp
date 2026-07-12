@@ -233,6 +233,7 @@ Three signals accumulate, all in MLflow (plus the local query cache):
 | Change retrieval behavior | `harness/indexing/property_graph.py` (`HierarchicalPGRetriever`) + `harness/configs/index/` |
 | Change rerank / source-type priority | `harness/retrieval/postprocessors.py` + a pipeline YAML's `rerank:` |
 | Steer retrieval toward source types | `harness/retrieval/steering.py` + `routing.py`, `harness/configs/routing/`, the `neo4j_steered` profile ([`RETRIEVAL.md`](RETRIEVAL.md) §7) |
+| Drive the pipeline headless (no UI) | the notebooks in [`docs/examples/`](examples/README.md) |
 | The structured answer / citations schema | `harness/schemas/answer.py` |
 | Claim-span attribution / `[n]` markers | `harness/attribution.py` |
 | Source-category rules (guideline vs EPAR…) | `harness/retrieval/doc_categories.py` |

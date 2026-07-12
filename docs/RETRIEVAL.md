@@ -313,6 +313,11 @@ plus the steering cases in `tests/test_tools.py` /
 `tests/test_indexing_property_graph.py` / `tests/test_indexing_profiles.py` —
 all offline (fake store, no Neo4j).
 
+**Worked, runnable walkthrough:** the notebooks in
+[`docs/examples/`](examples/README.md) drive the whole stack headless — categories +
+backfill (01), retriever-level filters/quotas/expansion (02), routing + the full
+`steered_agent` recipe end-to-end (03).
+
 ---
 
 ## 8. Adding another index kind
