@@ -22,9 +22,17 @@ index:
                                     # override profile for CPU iteration — never here (F11).
 
 retrieval:
-  strategy: hierarchical            # small-to-big merge + links-to traversal (v1)
+  strategy: hierarchical            # small-to-big merge (+ optional links-to expansion)
   k: 10
   merge: true                       # merge retrieved leaf chunks up to their parents
+  # Source-category steering is OFF in this profile (plain top-k). The agent's
+  # per-call `source_category` filter still works here (it oversamples on demand,
+  # default oversample: 4). For quotas + link-graph expansion see the
+  # neo4j_steered profile / docs/RETRIEVAL.md; both need :Document.category
+  # (scripts/backfill_doc_categories.py).
+  # oversample: 4                   # candidate pool multiplier when filtering/stratifying
+  # category_quota: {}              # e.g. {scientific_guideline: 2, qa: 1}
   graph:
     max_hops: 1
     edge_types: [links_to]
+    expand: false                   # links-to expansion (see neo4j_steered.yaml)

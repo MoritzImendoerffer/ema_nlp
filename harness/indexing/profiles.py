@@ -113,13 +113,22 @@ class GraphRetrievalConfig:
     max_hops: int = 1
     edge_types: list[str] = field(default_factory=lambda: ["links_to"])
     # ── link-extraction upgrade: filter LINKS_TO expansion by DOM context ─────
-    # Consumed by Track B's ``hierarchical_links`` retriever (work unit 2026-06-03_22);
-    # see docs/RETRIEVAL_TRACKS.md §0.8. Default keeps the content-bearing contexts and
-    # drops ``other`` (standalone anchors). ``document_types`` empty = no doc-type filter.
+    # Default keeps the content-bearing contexts and drops ``other`` (standalone
+    # anchors). ``document_types`` empty = no edge doc-type filter.
     link_contexts: list[str] = field(
         default_factory=lambda: ["file_component", "card_or_listing", "inline"]
     )
     document_types: list[str] = field(default_factory=list)
+    # ── link-graph expansion (steering Option B) ──────────────────────────────
+    # When ``expand`` is on, ``HierarchicalPGRetriever`` follows the configured
+    # edges from the vector-hit documents (up to ``max_hops``) and appends the
+    # best-matching chunk of up to ``max_expand`` linked documents — restricted
+    # to ``expand_categories`` when set ([] = any category). Additive: expansion
+    # never displaces a vector hit. Requires backfilled ``:Document.category``
+    # for the category restriction (scripts/backfill_doc_categories.py).
+    expand: bool = False
+    expand_categories: list[str] = field(default_factory=list)
+    max_expand: int = 3
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> GraphRetrievalConfig:
@@ -136,11 +145,30 @@ class GraphRetrievalConfig:
                 f"graph.link_contexts has unknown value(s) {unknown}; "
                 f"valid: {list(VALID_LINK_CONTEXTS)}"
             )
+        expand = bool(d.get("expand", False))
+        expand_categories = _as_str_list(d.get("expand_categories"))
+        if expand_categories:
+            from harness.retrieval.doc_categories import CATEGORIES
+
+            bad = [c for c in expand_categories if c not in CATEGORIES]
+            if bad:
+                raise ValueError(
+                    f"graph.expand_categories has unknown categor(ies) {bad}; "
+                    f"valid: {list(CATEGORIES)}"
+                )
+        max_expand = int(d.get("max_expand", 3))
+        if max_expand < 1:
+            raise ValueError("graph.max_expand must be >= 1")
+        if expand and max_hops < 1:
+            raise ValueError("graph.expand requires max_hops >= 1")
         return cls(
             max_hops=max_hops,
             edge_types=_as_str_list(d.get("edge_types")) or ["links_to"],
             link_contexts=link_contexts,
             document_types=_as_str_list(d.get("document_types")),
+            expand=expand,
+            expand_categories=expand_categories,
+            max_expand=max_expand,
         )
 
 
@@ -149,6 +177,15 @@ class RetrievalConfig:
     strategy: str = "hierarchical"
     k: int = 10
     merge: bool = True
+    # ── source-category steering (Option A) ───────────────────────────────────
+    # ``oversample`` sizes the candidate pool (k * oversample vector hits) used
+    # whenever a category filter or quota is active — filtering/stratifying a
+    # plain top-k would just shrink it. ``category_quota`` maps category ->
+    # guaranteed slots within the final k (e.g. {scientific_guideline: 2});
+    # empty = no stratification. Categories come from
+    # harness.retrieval.doc_categories.CATEGORIES — nothing is hardcoded here.
+    oversample: int = 4
+    category_quota: dict[str, int] = field(default_factory=dict)
     graph: GraphRetrievalConfig = field(default_factory=GraphRetrievalConfig)
 
     @classmethod
@@ -157,10 +194,21 @@ class RetrievalConfig:
         k = int(d.get("k", 10))
         if k <= 0:
             raise ValueError("retrieval.k must be > 0")
+        oversample = int(d.get("oversample", 4))
+        if oversample < 1:
+            raise ValueError("retrieval.oversample must be >= 1")
+        raw_quota = d.get("category_quota") or {}
+        category_quota = {str(c): int(n) for c, n in raw_quota.items()}
+        if category_quota:
+            from harness.retrieval.steering import validate_quota
+
+            validate_quota(category_quota, k=k)
         return cls(
             strategy=str(d.get("strategy", "hierarchical")),
             k=k,
             merge=bool(d.get("merge", True)),
+            oversample=oversample,
+            category_quota=category_quota,
             graph=GraphRetrievalConfig.from_dict(d.get("graph")),
         )
 

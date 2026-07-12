@@ -99,7 +99,9 @@ flowchart LR
 ```
 
 - **`:Document`** entity node per web page / PDF — `id = sha256(source_url)`, with
-  `title`, `committee`, `topic_path`, `reference_number`, `source_type`.
+  `title`, `committee`, `topic_path`, `reference_number`, `source_type`, and
+  `category` (the source category from `harness/retrieval/doc_categories.py`,
+  stamped at ingest / backfilled by `scripts/backfill_doc_categories.py` — see §7).
 - **`:Chunk`** node per hierarchical chunk — `id`, `text`, `is_leaf`, `doc_id`,
   `source_url`, `embedding`. Multi-level (chunk_sizes `[2048,512,128]`); parent/child
   retained (the old flat chunker discarded non-leaves).
@@ -128,10 +130,12 @@ index:
   chunking: { parser: hierarchical, chunk_sizes: [2048, 512, 128] }
   scope: { committee: [], topic_prefix: "", limit: 50 }   # subset-first
 retrieval:
-  strategy: hierarchical            # small-to-big merge + links_to traversal
+  strategy: hierarchical            # small-to-big merge (+ optional links_to expansion)
   k: 10
   merge: true
-  graph: { max_hops: 1, edge_types: [links_to] }
+  graph: { max_hops: 1, edge_types: [links_to], expand: false }
+  # source-category steering keys (oversample, category_quota, graph.expand,
+  # graph.expand_categories, graph.max_expand) — see §7; enabled in neo4j_steered.yaml
 ```
 
 Env (`~/.myenvs/ema_nlp.env`):
@@ -198,7 +202,120 @@ then in **one Cypher** expands `HAS_CHUNK`→doc and `PARENT_OF`→parent, retur
 
 ---
 
-## 7. Adding another index kind
+## 7. Steering retrieval by source category
+
+**The problem.** The corpus is dominated by product-specific documents (~18k EPAR
+assessment reports among 79,882 docs), so a plain vector top-k often comes back
+EPAR-saturated even when the question asks about *general* requirements that live
+in scientific guidelines or EMA Q&A pages. Reordering after the fact can't fix
+that — if no guideline made the top-k, there is nothing to float up. Steering
+therefore acts on the **candidate set**, at three independent, composable stages
+(2026-07-12; all generic — no category or topic is special-cased in code).
+
+### The category vocabulary
+
+`harness/retrieval/doc_categories.py` classifies every document from its
+URL/topic path into `scientific_guideline | qa | epar | medicine_page | other`
+(ordered substring rules, offline-testable). The category is **persisted as
+`:Document.category`** — stamped at ingest, and backfilled onto an existing
+graph with:
+
+```bash
+python scripts/backfill_doc_categories.py --dry-run   # histogram only
+python scripts/backfill_doc_categories.py             # write d.category (idempotent)
+```
+
+Re-run it whenever the classification rules change; chunks/embeddings/edges are
+untouched. **The persisted property is what Cypher-side filtering, quotas, and
+expansion targeting operate on — run the backfill once before enabling them.**
+
+### Mechanism A — filter + quota (candidate stage)
+
+`HierarchicalPGRetriever` supports:
+
+- **Per-call category filter** — `retriever.with_categories([...])` returns a
+  filtered view; the vector query oversamples (`k * oversample`, profile key
+  `retrieval.oversample`, default 4) and filters on `:Document.category` in
+  Cypher, so the final top-k is drawn from a pool the filter didn't starve.
+  This is the seam behind the agent's `source_category` tool argument (below).
+- **Category quotas** — profile key `retrieval.category_quota`
+  (e.g. `{scientific_guideline: 2, qa: 1}`) guarantees slots in the final k,
+  stratifying the oversampled pool (`harness/retrieval/steering.py`,
+  `stratify_by_category`). Quotas are *guarantees, not requirements*: a category
+  with no pool members yields its slots back; score order is always preserved.
+
+The agent-facing lever: `ema_search(query, source_category="scientific_guideline,qa")`
+hard-filters the search; every result line is tagged `category=<...>` so the
+agent can *see* a mismatched source mix and steer its follow-up search. An
+invalid category returns the valid vocabulary (the agent self-corrects); a
+filter that yields nothing automatically retries unfiltered, with an honest
+note in the tool output.
+
+### Mechanism B — link-graph expansion (expansion stage)
+
+The graph's 99,520 typed `LINKS_TO` edges encode "this page/report cites that
+document" — exactly the path from an EPAR hit to the guideline behind it. With
+`retrieval.graph.expand: true`, the retriever follows those edges from the
+vector-hit documents (up to `max_hops`) and appends the best-matching chunk of
+up to `max_expand` linked documents, optionally restricted to
+`expand_categories` (target `:Document.category`) and the edge's
+`link_contexts` / `document_types` properties. Expansion is **additive** —
+expanded nodes never displace a vector hit, carry
+`retrieval_origin="link_expansion"` + `linked_from` (the seed doc ids), and
+render as `via=link_expansion` in the tool output. Scores are cosine
+similarities rescaled to the same `[0,1]` range as the vector-index scores.
+
+### Mechanism C — query→category routing (routing stage)
+
+A **routing table** (`harness/configs/routing/<name>.yaml`, shadowable via
+`$EMA_CONFIG_DIR/routing/`) maps query keywords/phrases to a category prior —
+the "if you ask about X, look in Y first" knowledge, kept entirely as data.
+Rules are ordered, first-match-wins, word-boundary, case-insensitive
+(`harness/retrieval/routing.py`). Each rule has a `mode`:
+
+- `prefer` (default, soft): results are reordered with the routed categories first
+- `filter` (hard): retrieval is restricted (with the automatic unfiltered retry)
+
+A recipe opts in with `retrieval.routing: default`; the applied rule is stamped
+into the tool output and the trace.
+
+### Precedence and composition
+
+The three mechanisms stack; when they interact the rule is:
+
+> **explicit agent intent** (`source_category`) > **routing prior** > profile
+> defaults — and **link expansion is always additive** (a guideline found via a
+> link from an EPAR is signal, not noise, even when it falls outside a filter).
+
+Everything ships **off by default**: `neo4j_hier` behaves exactly as before.
+The `neo4j_steered` profile (same graph, nothing rebuilt) turns on quotas +
+expansion, and the `steered_agent` recipe combines all three
+(`index_profile: neo4j_steered` + `routing: default` + the prompt guidance in
+`agent_regulatory.md`). Per the scope lock, keep/tune each mechanism on eval
+evidence — the SME "prefer *category*" citation feedback (`preferred_category`
+MLflow assessments, see [`CITATIONS.md`](CITATIONS.md)) is the intended tuning
+signal for quotas, priorities, and routing rules.
+
+```yaml
+# harness/configs/index/neo4j_steered.yaml (retrieval section)
+retrieval:
+  k: 10
+  oversample: 4                       # candidate pool = k * oversample when steering
+  category_quota: {scientific_guideline: 2, qa: 1}
+  graph:
+    expand: true
+    expand_categories: [scientific_guideline, qa]
+    max_expand: 3
+```
+
+Tests: `tests/test_retrieval_steering.py`, `tests/test_retrieval_routing.py`,
+plus the steering cases in `tests/test_tools.py` /
+`tests/test_indexing_property_graph.py` / `tests/test_indexing_profiles.py` —
+all offline (fake store, no Neo4j).
+
+---
+
+## 8. Adding another index kind
 
 The registry is the seam (mirrors the `harness/tools/registry.py` decorator pattern):
 
@@ -218,7 +335,7 @@ The registry is the seam (mirrors the `harness/tools/registry.py` decorator patt
 
 ---
 
-## 8. Tests
+## 9. Tests
 
 ```bash
 pytest tests/test_indexing_profiles.py tests/test_indexing_chunking.py \
@@ -230,7 +347,7 @@ The live build + retrieval are integration-verified against Neo4j (not in CI).
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 **Container can't bind `:7474`/`:7687`.** A native Neo4j already holds them. Run the
 project container on alt ports (`NEO4J_HTTP_PORT=7475 NEO4J_BOLT_PORT=7688 docker

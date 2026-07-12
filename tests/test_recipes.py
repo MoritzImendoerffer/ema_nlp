@@ -190,3 +190,17 @@ def test_fewshot_unknown_source_rejected():
     # Only the rated cache exists; a recipe must not claim a source that doesn't (F10).
     with pytest.raises(ValueError, match="fewshot.source"):
         FewshotPolicy.from_dict({"source": "mlflow_rated"})
+
+
+def test_routing_key_parsed_and_stamped():
+    r = get_recipe("steered_agent")
+    assert r.routing == "default"
+    assert r.index_profile == "neo4j_steered"
+    attrs = r.resolved_attributes()
+    assert attrs["ema.retrieval.routing"] == "default"
+
+
+def test_routing_defaults_to_none_and_stamps_honestly():
+    r = get_recipe("naive_rag")
+    assert r.routing is None
+    assert r.resolved_attributes()["ema.retrieval.routing"] == "none"

@@ -54,6 +54,12 @@ def build_recipe(
 
         pipeline_config = load_pipeline_config(recipe.pipeline)
 
+    router = None
+    if recipe.routing:
+        from harness.retrieval import load_router
+
+        router = load_router(recipe.routing)
+
     # The recipe carries the agent-shaped fields inline (prompt/tools/schema), so we
     # construct an AgentConfig from it rather than loading a separate agent YAML.
     agent_config = AgentConfig(
@@ -68,12 +74,14 @@ def build_recipe(
         llm=llm,
         agent_config=agent_config,
         pipeline_config=pipeline_config,
+        router=router,
     )
     log.info(
-        "built recipe %r: tools=%s pipeline=%s model=%s k=%s",
+        "built recipe %r: tools=%s pipeline=%s routing=%s model=%s k=%s",
         recipe.name,
         recipe.tools,
         recipe.pipeline or "none",
+        recipe.routing or "none",
         effective_model,
         effective_k,
     )

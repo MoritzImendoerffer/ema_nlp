@@ -46,6 +46,8 @@ recipe:
   retrieval:
     index_profile: neo4j_hier             # harness/configs/index/<name>.yaml
     pipeline: none                        # none | a configs/retrieval/<name>.yaml (e.g. native)
+    routing: none                         # none | a configs/routing/<name>.yaml (query→category
+                                          #   prior for ema_search — see RETRIEVAL.md §7)
     fewshot:                              # optional rated-trajectory few-shot injection
       enabled: false
       k: 3
@@ -76,6 +78,10 @@ recipe:
   the score is shown in the chat and logged to MLflow as an LLM-judge assessment. Add
   `judge.threshold` to turn the score into a *recommendation*: a below-threshold (or
   unscorable) answer ships with a visible ⚠️ caution note — it is never blocked.
+- **`retrieval.routing`** — set to a `configs/routing/<name>.yaml` table to give `ema_search`
+  a per-query source-category prior (keyword rules → prefer/filter categories). Combine with
+  a steered index profile (`neo4j_steered`: category quotas + LINKS_TO expansion) for the
+  full steering stack — see [`RETRIEVAL.md`](RETRIEVAL.md) §7.
 
 ## Transparency (MLflow)
 
@@ -96,6 +102,7 @@ never advertises a stage that did not run.
 | `agentic_reranked` | ema_search, resolve_substance | native | + query-expansion + rerank (GPU) |
 | `agentic_judged` | ema_search, resolve_substance | none | + inline faithfulness judge |
 | `regulatory_fewshot` | ema_search, resolve_substance | none | + rated-trajectory few-shot injection (👍-rated past answers) |
+| `steered_agent` | ema_search, resolve_substance | none | + source-category steering: `routing: default` + `neo4j_steered` profile (quotas + LINKS_TO expansion); needs the category backfill — RETRIEVAL.md §7 |
 
 ## Worked examples
 

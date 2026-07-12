@@ -29,13 +29,16 @@ def assemble_agent(
     pipeline_config: Any = None,
     acronyms: dict[str, str] | None = None,
     fetcher: Any = None,
+    router: Any = None,
 ) -> Any:
     """Wire a FunctionAgent whose ``ema_search`` runs the config-driven pipeline.
 
     Pure assembly — no index/LLM is opened here. Pass ``pipeline_config=None`` for a
     plain retrieve (no transform/rerank). ``agent_config`` (an ``AgentConfig``,
     normally derived from a recipe by ``build_recipe``) supplies the
-    toolset/prompt/schema — there is no separate agent YAML (F6).
+    toolset/prompt/schema — there is no separate agent YAML (F6). ``router`` (a
+    ``QueryRouter`` from the recipe's ``retrieval.routing`` table, or None) gives
+    ``ema_search`` its per-query source-category prior.
     """
     transform = None
     postprocessors: list = []
@@ -57,6 +60,7 @@ def assemble_agent(
         transform=transform,
         postprocessors=postprocessors,
         fetcher=fetcher,
+        router=router,
     )
 
 

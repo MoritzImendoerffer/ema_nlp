@@ -109,20 +109,9 @@ class DocTypePriorityPostprocessor(BaseNodePostprocessor):
     def _postprocess_nodes(
         self, nodes: list, query_bundle: QueryBundle | None = None
     ) -> list:
-        from harness.retrieval.doc_categories import classify_source
+        from harness.retrieval.steering import sort_by_category_priority
 
-        order = {category: i for i, category in enumerate(self.priority)}
-
-        def sort_key(indexed: tuple[int, Any]) -> tuple[int, int]:
-            i, node_with_score = indexed
-            node = getattr(node_with_score, "node", node_with_score)
-            meta = getattr(node, "metadata", {}) or {}
-            category = meta.get("category") or classify_source(
-                meta.get("source_url") or "", meta.get("topic_path") or ""
-            )
-            return (order.get(category, len(order)), i)
-
-        return [n for _, n in sorted(enumerate(nodes), key=sort_key)]
+        return sort_by_category_priority(nodes, self.priority)
 
 
 @register_postprocessor("doc_type_priority")

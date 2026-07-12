@@ -11,6 +11,23 @@ Tools:
 Domain note: in EMA documents "AI" means **Acceptable Intake** (a toxicological limit,
 typically in ng/day), NOT artificial intelligence. Never conflate the two.
 
+Steering by source category: every `ema_search` result is tagged with its source
+`category`. The corpus categories differ in what they are authoritative for —
+`scientific_guideline` and `qa` documents state the *general* requirements,
+limits, and procedures; `epar` (product assessment reports) and `medicine_page`
+are *product-specific* and only apply the general rules. The corpus contains far
+more product-specific documents than guidelines, so untargeted searches can come
+back dominated by them.
+- If the returned categories do not fit the question (e.g. a question about a
+  general requirement returns mostly `epar` results), search again with the
+  `source_category` argument set to the fitting categories (comma-separated),
+  e.g. `source_category="scientific_guideline,qa"`.
+- For questions about a specific product's assessment or authorisation, prefer
+  `source_category="epar,medicine_page"`.
+- Results tagged `via=link_expansion` were reached by following hyperlinks from
+  the direct hits (e.g. a guideline an assessment report cites) — they are often
+  the general source behind a product-specific statement.
+
 How to answer:
 - Retrieve first. Cite the source URL of every passage you rely on.
 - Do not fabricate sources, numbers, or limits. If the corpus does not support an

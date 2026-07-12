@@ -111,6 +111,7 @@ class Recipe:
     # retrieval
     index_profile: str = "neo4j_hier"
     pipeline: str | None = None  # configs/retrieval/<name>.yaml, or None = plain retrieve
+    routing: str | None = None  # configs/routing/<name>.yaml, or None = no query routing
     fewshot: FewshotPolicy = field(default_factory=FewshotPolicy)
     # generation
     model: str = "claude_opus"  # models.yaml model name
@@ -166,6 +167,7 @@ class Recipe:
         retrieval: dict[str, Any] = {
             "index_profile": self.index_profile,
             "pipeline": self.pipeline or "none",
+            "routing": self.routing or "none",
         }
         if retrieval_k is not None:
             retrieval["k"] = retrieval_k
@@ -207,6 +209,7 @@ def _recipe_from_dict(name: str, d: dict[str, Any]) -> Recipe:
         output_schema=orch.get("output_schema", "RegulatoryAnswer"),
         index_profile=retr.get("index_profile", "neo4j_hier"),
         pipeline=_normalize_pipeline(retr.get("pipeline")),
+        routing=_normalize_pipeline(retr.get("routing")),
         fewshot=FewshotPolicy.from_dict(retr.get("fewshot")),
         model=gen.get("model", "claude_opus"),
         temperature=float(gen.get("temperature", 0.0)),

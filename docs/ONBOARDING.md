@@ -165,9 +165,11 @@ same-named file under `$EMA_CONFIG_DIR/<namespace>/` — external files shadow b
 | **Index profile** | `harness/configs/index/*.yaml` | how the Neo4j index is built (chunk sizes, scope) and queried (retriever, k) | the recipe's `index_profile` (default `neo4j_hier`) |
 | **Models** | `harness/configs/models.yaml` | the model catalog + role bindings (`agent`, `grader`, `judge`, `reviewer`, …) | roles referenced by code/recipes |
 
-Two more, smaller: `harness/configs/retrieval/*.yaml` (optional query-expansion + rerank
-pipeline a recipe can attach) and `harness/configs/export/default.yaml` (what exports
-contain). Prompts are Markdown files in `harness/prompts/`.
+Three more, smaller: `harness/configs/retrieval/*.yaml` (optional query-expansion + rerank
+pipeline a recipe can attach), `harness/configs/routing/*.yaml` (optional query→source-category
+routing table for `ema_search` — the "if you ask about X, look in guidelines first" knowledge
+as pure data, see [`RETRIEVAL.md`](RETRIEVAL.md) §7), and `harness/configs/export/default.yaml`
+(what exports contain). Prompts are Markdown files in `harness/prompts/`.
 
 A recipe in seven lines (the complete built-in baseline, `naive_rag.yaml` abridged):
 
@@ -196,6 +198,7 @@ rerank/few-shot/judge). **Worked examples — including reproducing the CRAG pap
 | `agentic_reranked` | full agent | query expansion + cross-encoder rerank (GPU) |
 | `agentic_judged` | full agent | inline faithfulness judge + soft reviewer gate (threshold 3) |
 | `regulatory_fewshot` | full agent | injects 👍-rated past answers as few-shot examples |
+| `steered_agent` | full agent | source-category steering: routing prior + category quotas + LINKS_TO expansion (needs the one-off `scripts/backfill_doc_categories.py`; [`RETRIEVAL.md`](RETRIEVAL.md) §7) |
 
 ---
 
@@ -210,8 +213,10 @@ Three signals accumulate, all in MLflow (plus the local query cache):
    takes *supports / partial / no*, an optional "wrong source type — prefer `<category>`"
    flag (e.g. an EPAR was retrieved where a guideline belongs), and a note. Each verdict is
    one `citation_<rank>_<chunk>` assessment carrying rank/ids/category — exactly the data a
-   future learned re-ranker needs. Today, the deterministic `doc_type_priority` reranker is
-   the actionable knob (see [`CITATIONS.md`](CITATIONS.md) §4).
+   future learned re-ranker needs. Today the actionable knobs are the deterministic
+   `doc_type_priority` reranker ([`CITATIONS.md`](CITATIONS.md) §4) and the source-category
+   steering stack — routing rules, category quotas, link expansion
+   ([`RETRIEVAL.md`](RETRIEVAL.md) §7).
 3. **LLM judge scores** (optional per recipe): a gold-free faithfulness judge grades each
    answer against its retrieved context; with `judge.threshold` set, a weak answer ships
    with a visible ⚠️ caution note (advisory — never blocked).
@@ -227,6 +232,7 @@ Three signals accumulate, all in MLflow (plus the local query cache):
 | Add a new tool (RAG technique) | `harness/tools/` + `@register_tool` ([`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md)) |
 | Change retrieval behavior | `harness/indexing/property_graph.py` (`HierarchicalPGRetriever`) + `harness/configs/index/` |
 | Change rerank / source-type priority | `harness/retrieval/postprocessors.py` + a pipeline YAML's `rerank:` |
+| Steer retrieval toward source types | `harness/retrieval/steering.py` + `routing.py`, `harness/configs/routing/`, the `neo4j_steered` profile ([`RETRIEVAL.md`](RETRIEVAL.md) §7) |
 | The structured answer / citations schema | `harness/schemas/answer.py` |
 | Claim-span attribution / `[n]` markers | `harness/attribution.py` |
 | Source-category rules (guideline vs EPAR…) | `harness/retrieval/doc_categories.py` |

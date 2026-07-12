@@ -1,0 +1,23 @@
+# Regulatory agent + source steering — turns ON all three category-steering
+# mechanisms (docs/RETRIEVAL.md "Steering retrieval by source category"):
+#   A. the agent's per-call `source_category` lever + oversample/quota retrieval
+#      (index profile neo4j_steered — same graph as neo4j_hier, steering enabled)
+#   B. LINKS_TO expansion toward configured categories (also in the profile)
+#   C. the query→category routing table (configs/routing/default.yaml)
+# Requires :Document.category (scripts/backfill_doc_categories.py — one-off).
+recipe:
+  label: "Regulatory agent + steering"
+  description: "Regulatory agent with source-category steering: routing prior, category quotas, link-graph expansion."
+  orchestration:
+    system_prompt: agent_regulatory.md
+    tools: [ema_search, resolve_substance]
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_steered
+    pipeline: none
+    routing: default
+  generation:
+    model: claude_opus
+    temperature: 0.0
+  judge:
+    enabled: false

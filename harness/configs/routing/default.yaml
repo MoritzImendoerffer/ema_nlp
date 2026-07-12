@@ -1,0 +1,84 @@
+# Query→category routing table (steering Option C) — pure DATA, no topics in code.
+#
+# Loaded by harness/retrieval/routing.py when a recipe sets `retrieval.routing: default`
+# (an $EMA_CONFIG_DIR/routing/default.yaml shadows this file). Rules are ordered,
+# first match wins; a rule matches when ANY keyword/phrase appears in the query
+# (case-insensitive, word-boundary).
+#
+# Per rule:
+#   name:        stable identifier — stamped into the tool output + trace
+#   keywords:    words/phrases that trigger the rule
+#   categories:  source categories to steer toward, in preference order
+#                (vocabulary: harness/retrieval/doc_categories.py CATEGORIES —
+#                 scientific_guideline | qa | epar | medicine_page | other)
+#   mode:        prefer (soft reorder — nothing excluded; DEFAULT)
+#              | filter (hard restriction; ema_search auto-retries unfiltered
+#                        if the filter yields nothing)
+#
+# Precedence at runtime: an explicit `source_category` from the agent always
+# beats this table; the table only supplies the default prior.
+#
+# Tuning: SME citation feedback ("prefer <category>", logged as MLflow trace
+# assessments with `preferred_category`) is the intended evidence source for
+# adding/adjusting rules here.
+routing:
+  rules:
+    # Impurity / toxicology limits are set by guidelines (ICH Q3x/M7) and the
+    # EMA Q&A documents about them — product assessments only apply them.
+    - name: impurity_toxicology_limits
+      keywords:
+        - impurity
+        - impurities
+        - nitrosamine
+        - nitrosamines
+        - residual solvent
+        - elemental impurity
+        - genotoxic
+        - mutagenic
+        - acceptable intake
+        - threshold of toxicological concern
+        - TTC
+      categories: [scientific_guideline, qa]
+      mode: prefer
+
+    # Procedural / lifecycle obligations are answered by EMA Q&A pages and
+    # regulatory-procedural guidance.
+    - name: regulatory_procedures
+      keywords:
+        - variation
+        - marketing authorisation
+        - renewal
+        - referral
+        - pharmacovigilance
+        - PSUR
+        - risk management plan
+        - paediatric investigation plan
+        - scientific advice
+        - orphan designation
+        - worksharing
+      categories: [qa, scientific_guideline]
+      mode: prefer
+
+    # Development guidance (clinical / non-clinical / bioequivalence) lives in
+    # scientific guidelines.
+    - name: development_guidance
+      keywords:
+        - bioequivalence
+        - first-in-human
+        - non-clinical
+        - nonclinical
+        - pharmacokinetic
+        - clinical development
+      categories: [scientific_guideline, qa]
+      mode: prefer
+
+    # Product-specific questions ARE the EPAR / medicine-page use case — steer
+    # toward them so the guideline-preferring rules above never hide precedent.
+    - name: product_assessments
+      keywords:
+        - assessment report
+        - EPAR
+        - product information
+        - summary of product characteristics
+      categories: [epar, medicine_page]
+      mode: prefer

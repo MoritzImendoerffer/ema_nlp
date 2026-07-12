@@ -1,0 +1,49 @@
+# Steered index profile — the SAME live Neo4j graph as neo4j_hier (identical
+# index: section; nothing is rebuilt or re-embedded), with the source-category
+# steering mechanisms turned ON (see docs/RETRIEVAL.md, "Steering retrieval by
+# source category"):
+#
+#   - oversample + category_quota  (Option A): the retriever draws a k*oversample
+#     candidate pool and guarantees per-category slots in the final k.
+#   - graph.expand                 (Option B): follow LINKS_TO edges from the
+#     vector-hit documents and append the best-matching chunk of linked docs
+#     in the configured target categories.
+#
+# PREREQUISITE: :Document.category must exist on the graph —
+#   python scripts/backfill_doc_categories.py
+# (new ingests stamp it automatically). Without it, quotas degrade to plain
+# top-k (categories classify at read time) but Cypher-side filtering/expansion
+# restriction finds no matches.
+#
+# The quota/expansion values below are a starting point, not doctrine — tune
+# them from eval evidence and SME "prefer <category>" feedback. Category
+# vocabulary: harness/retrieval/doc_categories.py CATEGORIES.
+
+index:
+  kind: property_graph
+  source: mongo_parsed_documents
+  embed_model: BAAI/bge-large-en-v1.5
+  store:
+    graph: neo4j
+  chunking:
+    parser: hierarchical
+    chunk_sizes: [2048, 512, 128]
+  scope:
+    committee: []
+    topic_prefix: ""
+    limit: null
+
+retrieval:
+  strategy: hierarchical
+  k: 10
+  merge: true
+  oversample: 4                    # candidate pool = k * oversample when steering
+  category_quota:                  # guaranteed slots within the final k
+    scientific_guideline: 2
+    qa: 1
+  graph:
+    max_hops: 1
+    edge_types: [links_to]
+    expand: true                   # follow links from vector hits (additive)
+    expand_categories: [scientific_guideline, qa]   # [] = any category
+    max_expand: 3                  # at most this many linked docs appended

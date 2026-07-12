@@ -10,8 +10,8 @@ from __future__ import annotations
 from harness.indexing.chunking import chunk_document, doc_id_for
 from harness.indexing.ingest import IngestedDoc
 from harness.indexing.links import ExtractedLink
-from harness.indexing.profiles import ChunkingConfig
-from harness.indexing.property_graph import to_graph
+from harness.indexing.profiles import ChunkingConfig, GraphRetrievalConfig
+from harness.indexing.property_graph import HierarchicalPGRetriever, to_graph
 
 _LONG = "\n\n".join(
     f"## Section {i}\n\n" + ("regulatory guidance about acceptable intake limits " * 30)
@@ -269,3 +269,127 @@ def test_retriever_meta_carries_document_provenance():
     meta2 = out[1].node.metadata
     assert meta2["source_url"] == "" and meta2["title"] == ""  # nulls never become "None"
     assert meta2["category"] == "other"
+
+
+def test_entity_nodes_carry_persisted_category():
+    guideline_url = "https://www.ema.europa.eu/en/documents/scientific-guideline/x_en.pdf"
+    ents, _chunks, _rels = to_graph([_doc(_URL_A), _doc(guideline_url)])
+    by_url = {e.properties["source_url"]: e.properties for e in ents}
+    assert by_url[guideline_url]["category"] == "scientific_guideline"
+    assert by_url[_URL_A]["category"] == "other"
+
+
+# --- HierarchicalPGRetriever steering (fake store, no Neo4j) ------------------
+
+class _SteerStore:
+    """Records Cypher calls; serves canned rows for the vector / expansion queries."""
+
+    def __init__(self, main_rows, expand_rows=None):
+        self.main_rows = main_rows
+        self.expand_rows = expand_rows or []
+        self.calls: list[tuple[str, dict]] = []
+
+    def structured_query(self, query, param_map=None):
+        self.calls.append((query, param_map or {}))
+        if "queryNodes" in query:
+            rows = self.main_rows
+            cats = (param_map or {}).get("cats")
+            if cats is not None:
+                rows = [r for r in rows if (r.get("doc") or {}).get("category") in cats]
+            return rows[: (param_map or {})["k"]]
+        return self.expand_rows
+
+
+class _SteerEmbed:
+    def get_query_embedding(self, _q):
+        return [0.1, 0.2, 0.3]
+
+
+def _row(i: int, category: str, score: float) -> dict:
+    return {
+        "id": f"c{i}",
+        "text": f"text {i}",
+        "score": score,
+        "doc": {
+            "id": f"d{i}",
+            "source_url": f"https://ema.europa.eu/{i}",
+            "category": category,
+        },
+        "parent": None,
+    }
+
+
+def test_retriever_plain_path_unchanged():
+    store = _SteerStore([_row(i, "epar", 1 - i / 10) for i in range(3)])
+    nodes = HierarchicalPGRetriever(store, _SteerEmbed(), k=2).retrieve("q")
+    _query, params = store.calls[0]
+    assert params["k"] == 2 and params["cats"] is None  # no oversampling, no filter
+    assert [n.node.metadata["category"] for n in nodes] == ["epar", "epar"]
+    assert all(n.node.metadata["retrieval_origin"] == "vector" for n in nodes)
+
+
+def test_retriever_with_categories_oversamples_and_filters():
+    rows = [_row(0, "epar", 0.9), _row(1, "qa", 0.8), _row(2, "epar", 0.7), _row(3, "qa", 0.6)]
+    store = _SteerStore(rows)
+    base = HierarchicalPGRetriever(store, _SteerEmbed(), k=2, oversample=3)
+    nodes = base.with_categories(["qa"]).retrieve("q")
+    _query, params = store.calls[0]
+    assert params["k"] == 6 and params["cats"] == ["qa"]  # k * oversample pool
+    assert [n.node.metadata["category"] for n in nodes] == ["qa", "qa"]
+
+
+def test_retriever_quota_stratifies_pool():
+    rows = [_row(i, "epar", 1 - i / 10) for i in range(4)] + [_row(9, "qa", 0.1)]
+    store = _SteerStore(rows)
+    retriever = HierarchicalPGRetriever(
+        store, _SteerEmbed(), k=3, oversample=2, category_quota={"qa": 1}
+    )
+    nodes = retriever.retrieve("q")
+    assert store.calls[0][1]["k"] == 6  # quota also draws from the oversampled pool
+    cats = [n.node.metadata["category"] for n in nodes]
+    assert len(nodes) == 3 and cats.count("qa") == 1
+    assert cats == ["epar", "epar", "qa"]  # score order preserved
+
+
+def test_retriever_link_expansion_appends_provenance_tagged_nodes():
+    expand_rows = [
+        {
+            "doc": {
+                "id": "dg",
+                "source_url": "https://ema.europa.eu/guideline",
+                "category": "scientific_guideline",
+            },
+            "linked_from": ["d0"],
+            "best": {"id": "cg", "text": "linked guideline text", "score": 0.75, "parent": None},
+        }
+    ]
+    store = _SteerStore([_row(0, "epar", 0.9)], expand_rows=expand_rows)
+    graph = GraphRetrievalConfig(expand=True, expand_categories=["scientific_guideline"])
+    nodes = HierarchicalPGRetriever(store, _SteerEmbed(), k=1, graph=graph).retrieve("q")
+
+    assert len(store.calls) == 2
+    expand_query, expand_params = store.calls[1]
+    assert "LINKS_TO*1..1" in expand_query
+    assert expand_params["seed_ids"] == ["d0"]
+    assert expand_params["cats"] == ["scientific_guideline"]
+
+    assert len(nodes) == 2  # vector hit + additive expansion
+    expanded = nodes[-1]
+    assert expanded.node.metadata["retrieval_origin"] == "link_expansion"
+    assert expanded.node.metadata["linked_from"] == ["d0"]
+    assert expanded.node.metadata["category"] == "scientific_guideline"
+    assert expanded.score == 0.75
+
+
+def test_retriever_expansion_dedupes_against_vector_hits():
+    expand_rows = [
+        {
+            "doc": {"id": "d0", "source_url": "u", "category": "epar"},
+            "linked_from": ["d0"],
+            "best": {"id": "c0", "text": "same chunk", "score": 0.5, "parent": None},
+        }
+    ]
+    store = _SteerStore([_row(0, "epar", 0.9)], expand_rows=expand_rows)
+    graph = GraphRetrievalConfig(expand=True)
+    nodes = HierarchicalPGRetriever(store, _SteerEmbed(), k=1, graph=graph).retrieve("q")
+    assert len(nodes) == 1  # the expanded chunk was already returned by the vector pass

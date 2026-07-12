@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -116,22 +117,7 @@ def to_graph(
     chunks: list[ChunkNode] = []
     relations: list[Relation] = []
     for d in docs:
-        entities.append(
-            EntityNode(
-                name=d.doc_id,
-                label="Document",
-                properties=_clean(
-                    {
-                        "source_url": d.source_url,
-                        "title": d.title,
-                        "source_type": d.source_type,
-                        "committee": d.metadata.get("committee"),
-                        "topic_path": d.metadata.get("topic_path"),
-                        "reference_number": d.metadata.get("reference_number"),
-                    }
-                ),
-            )
-        )
+        entities.append(_entity_for(d))
         for cn in d.chunk_nodes:
             chunks.append(
                 ChunkNode(
@@ -178,6 +164,11 @@ def _link_props(link: ExtractedLink) -> dict[str, Any]:
 
 
 def _entity_for(d: IngestedDoc) -> EntityNode:
+    # ``category`` is persisted on the Document node so retrieval can filter /
+    # stratify / expand by source category in Cypher (steering Options A+B).
+    # Existing graphs get it via scripts/backfill_doc_categories.py (same rules).
+    from harness.retrieval.doc_categories import classify_source
+
     return EntityNode(
         name=d.doc_id,
         label="Document",
@@ -189,6 +180,9 @@ def _entity_for(d: IngestedDoc) -> EntityNode:
                 "committee": d.metadata.get("committee"),
                 "topic_path": d.metadata.get("topic_path"),
                 "reference_number": d.metadata.get("reference_number"),
+                "category": classify_source(
+                    d.source_url or "", d.metadata.get("topic_path") or ""
+                ),
             }
         ),
     )
@@ -486,6 +480,26 @@ def open_index(profile: IndexProfile | None = None) -> PropertyGraphIndex:
     )
 
 
+# Document-node projection shared by the retrieval queries: the reference
+# metadata (title/topic_path/committee/reference_number/source_type/category)
+# that citations, reference cards, and exports need — not just a URL.
+_DOC_PROJECTION = (
+    "{.id, .source_url, .title, .topic_path, .committee, .reference_number, "
+    ".source_type, .category}"
+)
+
+def _edge_label(edge_types: list[str]) -> str:
+    """Map the profile's edge_types (e.g. ['links_to']) to a safe Cypher rel label.
+
+    The label is interpolated into the expansion query (Cypher cannot
+    parametrize relationship types), so it is strictly validated.
+    """
+    raw = (edge_types[0] if edge_types else "links_to").upper()
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]*", raw):
+        raise ValueError(f"invalid graph edge type {raw!r}")
+    return raw
+
+
 class HierarchicalPGRetriever(BaseRetriever):
     """Chunk-centric retriever: vector hit on :Chunk nodes -> small-to-big merge
     (return the parent chunk when present) + source-doc provenance, in one Cypher.
@@ -493,33 +507,144 @@ class HierarchicalPGRetriever(BaseRetriever):
     Neo4j's default `entity` vector index covers only __Entity__ nodes; our
     retrievable units are :Chunk, so we query the dedicated chunk index directly
     (CHUNK_VECTOR_INDEX) and expand HAS_CHUNK (-> doc) / PARENT_OF (-> parent).
+
+    Source-category steering (see docs/RETRIEVAL.md, all generic — no category is
+    special-cased in code):
+
+    - **filter** (``categories`` / :meth:`with_categories`): restrict results to
+      the given categories. The vector query oversamples (``k * oversample``)
+      and filters on the persisted ``:Document.category`` in Cypher, so the
+      final top-k is drawn from a pool the filter didn't starve.
+    - **quota** (``category_quota``): guarantee slots in the final k per
+      category (e.g. 2 × scientific_guideline), stratifying the oversampled
+      pool. Membership changes; score order is preserved.
+    - **link expansion** (``graph.expand``): follow typed link edges
+      (``LINKS_TO``) from the vector-hit documents to linked documents —
+      optionally restricted to ``graph.expand_categories`` and the edge's
+      ``link_context``/``document_type`` — and append the best-matching chunk of
+      up to ``graph.max_expand`` linked docs. Additive: expanded nodes carry
+      ``retrieval_origin="link_expansion"`` + ``linked_from`` provenance and
+      never displace a vector hit.
+
+    Category filter/quota/expansion-restriction require ``:Document.category``
+    (stamped at ingest; backfill existing graphs with
+    ``scripts/backfill_doc_categories.py``).
     """
 
-    # The doc map projection surfaces the Document node's reference metadata
-    # (title/topic_path/committee/reference_number/source_type) so citations,
-    # reference cards, and exports carry real provenance — not just a URL.
     _QUERY = (
         f"CALL db.index.vector.queryNodes('{CHUNK_VECTOR_INDEX}', $k, $q) YIELD node, score "
-        "RETURN node.id AS id, node.text AS text, score, "
-        "head([(node)<-[:HAS_CHUNK]-(d) | d {.id, .source_url, .title, .topic_path, "
-        ".committee, .reference_number, .source_type}]) AS doc, "
+        f"WITH node, score, head([(node)<-[:HAS_CHUNK]-(d) | d {_DOC_PROJECTION}]) AS doc "
+        "WHERE $cats IS NULL OR doc.category IN $cats "
+        "RETURN node.id AS id, node.text AS text, score, doc, "
         "head([(node)<-[:PARENT_OF]-(p) | {id: p.id, text: p.text}]) AS parent"
     )
 
+    # Expansion: seeds -> linked docs (edge-property + target-category filtered)
+    # -> each linked doc's best chunk vs the query (+ its parent for small-to-big).
+    # vector.similarity.cosine is rescaled to (1+cos)/2 to match the [0,1] score
+    # range db.index.vector.queryNodes returns for cosine indexes.
+    @staticmethod
+    def _expand_query(edge_label: str, max_hops: int) -> str:
+        hops = max(int(max_hops), 1)
+        return (
+            "UNWIND $seed_ids AS sid "
+            f"MATCH p = (s:Document {{id: sid}})-[:{edge_label}*1..{hops}]->(t:Document) "
+            "WHERE NOT t.id IN $seed_ids "
+            "AND (size($cats) = 0 OR t.category IN $cats) "
+            "AND ALL(e IN relationships(p) WHERE "
+            "(size($contexts) = 0 OR e.link_context IN $contexts) "
+            "AND (size($doctypes) = 0 OR e.document_type IN $doctypes)) "
+            "WITH t, collect(DISTINCT sid) AS linked_from "
+            "MATCH (t)-[:HAS_CHUNK]->(c:Chunk) WHERE c.embedding IS NOT NULL "
+            "WITH t, linked_from, c, "
+            "(1.0 + vector.similarity.cosine(c.embedding, $q)) / 2.0 AS score, "
+            "head([(c)<-[:PARENT_OF]-(par) | {id: par.id, text: par.text}]) AS parent "
+            "ORDER BY score DESC "
+            "WITH t, linked_from, "
+            "collect({id: c.id, text: c.text, score: score, parent: parent})[0] AS best "
+            f"RETURN t {_DOC_PROJECTION} AS doc, linked_from, best "
+            "ORDER BY best.score DESC LIMIT $max_expand"
+        )
+
     def __init__(
-        self, store: Neo4jPropertyGraphStore, embed_model: Any, *, k: int = 10, merge: bool = True
+        self,
+        store: Neo4jPropertyGraphStore,
+        embed_model: Any,
+        *,
+        k: int = 10,
+        merge: bool = True,
+        oversample: int = 4,
+        category_quota: dict[str, int] | None = None,
+        graph: Any = None,
+        categories: list[str] | None = None,
     ):
         self._store = store
         self._embed = embed_model
         self._k = k
         self._merge = merge
+        self._oversample = max(int(oversample), 1)
+        self._quota = dict(category_quota or {})
+        self._graph = graph  # GraphRetrievalConfig or None (expansion off)
+        self._categories = list(categories) if categories else None
         super().__init__()
 
-    def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
+    def with_categories(self, categories: list[str] | None) -> HierarchicalPGRetriever:
+        """A view of this retriever restricted to ``categories`` (shares the store).
+
+        This is the per-call steering seam ``ema_search`` uses: the agent's
+        ``source_category`` argument (or a routing rule in ``filter`` mode)
+        becomes a filtered view, leaving the shared retriever untouched.
+        """
+        return HierarchicalPGRetriever(
+            self._store,
+            self._embed,
+            k=self._k,
+            merge=self._merge,
+            oversample=self._oversample,
+            category_quota=self._quota,
+            graph=self._graph,
+            categories=list(categories) if categories else None,
+        )
+
+    def _node_from_row(
+        self, doc: dict, *, chunk_id: str, matched_id: str, text: str, score: float,
+        extra: dict[str, Any] | None = None,
+    ) -> NodeWithScore:
         from harness.retrieval.doc_categories import classify_source
 
+        doc = doc or {}
+        source_url = doc.get("source_url") or ""
+        topic_path = doc.get("topic_path") or ""
+        meta = {
+            "source_url": source_url,
+            "doc_id": doc.get("id") or "",
+            "title": doc.get("title") or "",
+            "topic_path": topic_path,
+            "committee": doc.get("committee") or "",
+            "reference_number": doc.get("reference_number") or "",
+            "source_type": doc.get("source_type") or "",
+            "category": doc.get("category") or classify_source(source_url, topic_path),
+            # chunk_id = the node actually returned (parent after small-to-big
+            # merge); matched_chunk = the leaf the vector/similarity hit landed on.
+            "chunk_id": chunk_id,
+            "matched_chunk": matched_id,
+            "retrieval_origin": "vector",
+        }
+        if extra:
+            meta.update(extra)
+        return NodeWithScore(
+            node=TextNode(id_=chunk_id, text=text, metadata=meta), score=float(score)
+        )
+
+    def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
         qvec = self._embed.get_query_embedding(query_bundle.query_str)
-        rows = self._store.structured_query(self._QUERY, param_map={"k": self._k, "q": qvec})
+        # Oversample whenever a filter or quota must choose from a pool; a plain
+        # retrieve keeps the exact-k query (no behavior change for unsteered use).
+        steering = bool(self._categories) or bool(self._quota)
+        pool_k = self._k * self._oversample if steering else self._k
+        rows = self._store.structured_query(
+            self._QUERY, param_map={"k": pool_k, "q": qvec, "cats": self._categories}
+        )
         seen: set[str] = set()
         out: list[NodeWithScore] = []
         for r in rows:
@@ -531,26 +656,68 @@ class HierarchicalPGRetriever(BaseRetriever):
             if nid in seen:
                 continue
             seen.add(nid)
-            doc = r.get("doc") or {}
-            source_url = doc.get("source_url") or ""
-            topic_path = doc.get("topic_path") or ""
-            meta = {
-                "source_url": source_url,
-                "doc_id": doc.get("id") or "",
-                "title": doc.get("title") or "",
-                "topic_path": topic_path,
-                "committee": doc.get("committee") or "",
-                "reference_number": doc.get("reference_number") or "",
-                "source_type": doc.get("source_type") or "",
-                "category": classify_source(source_url, topic_path),
-                # chunk_id = the node actually returned (parent after small-to-big
-                # merge); matched_chunk = the leaf the vector hit landed on.
-                "chunk_id": nid,
-                "matched_chunk": r["id"],
-            }
             out.append(
-                NodeWithScore(node=TextNode(id_=nid, text=text, metadata=meta), score=float(r["score"]))
+                self._node_from_row(
+                    r.get("doc"), chunk_id=nid, matched_id=r["id"],
+                    text=text, score=r["score"],
+                )
             )
+        if self._quota:
+            from harness.retrieval.steering import stratify_by_category
+
+            out = stratify_by_category(out, self._quota, self._k)
+        else:
+            out = out[: self._k]
+        graph = self._graph
+        if graph is not None and getattr(graph, "expand", False) and out:
+            out.extend(self._expand(out, qvec, seen))
+        return out
+
+    def _expand(
+        self, nodes: list[NodeWithScore], qvec: list[float], seen: set[str]
+    ) -> list[NodeWithScore]:
+        """Link-graph expansion pass over the vector hits' source documents."""
+        graph = self._graph
+        seed_ids = list(
+            dict.fromkeys(n.node.metadata.get("doc_id") for n in nodes if n.node.metadata.get("doc_id"))
+        )
+        if not seed_ids:
+            return []
+        query = self._expand_query(_edge_label(graph.edge_types), graph.max_hops)
+        rows = self._store.structured_query(
+            query,
+            param_map={
+                "seed_ids": seed_ids,
+                "q": qvec,
+                "cats": list(graph.expand_categories or []),
+                "contexts": list(graph.link_contexts or []),
+                "doctypes": list(graph.document_types or []),
+                "max_expand": int(graph.max_expand),
+            },
+        )
+        out: list[NodeWithScore] = []
+        for r in rows:
+            best = r.get("best") or {}
+            parent = best.get("parent")
+            if self._merge and parent and parent.get("text"):
+                nid, text = parent["id"], parent["text"]
+            else:
+                nid, text = best.get("id"), best.get("text") or ""
+            if not nid or nid in seen:
+                continue
+            seen.add(nid)
+            out.append(
+                self._node_from_row(
+                    r.get("doc"), chunk_id=nid, matched_id=best.get("id") or nid,
+                    text=text, score=best.get("score") or 0.0,
+                    extra={
+                        "retrieval_origin": "link_expansion",
+                        "linked_from": list(r.get("linked_from") or []),
+                    },
+                )
+            )
+        if out:
+            _log.debug("link expansion added %d node(s) from %d seed doc(s)", len(out), len(seed_ids))
         return out
 
 
@@ -558,11 +725,15 @@ class HierarchicalPGRetriever(BaseRetriever):
 def build_hierarchical_retriever(
     profile: IndexProfile, index: PropertyGraphIndex, **kw: Any
 ) -> BaseRetriever:
+    retrieval = profile.retrieval
     return HierarchicalPGRetriever(
         index.property_graph_store,
         # configure + return the profile's embedder; index._embed_model is None
         # after from_existing
         _embed_model(profile.index.embed_model),
-        k=profile.retrieval.k,
-        merge=profile.retrieval.merge,
+        k=retrieval.k,
+        merge=retrieval.merge,
+        oversample=retrieval.oversample,
+        category_quota=retrieval.category_quota,
+        graph=retrieval.graph if retrieval.graph.expand else None,
     )

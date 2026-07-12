@@ -62,6 +62,21 @@
 > `doc_type_priority` postprocessor lets a recipe prefer e.g. guidelines over EPARs — the
 > knob the SME feedback will tune. *How-to: [`docs/CITATIONS.md`](docs/CITATIONS.md).*
 
+> 🎯 **Source-category steering** (2026-07-12, this branch). Three composable,
+> fully config-driven mechanisms counter EPAR dominance in retrieval (no category/topic is
+> hardcoded in code): **(A)** `:Document.category` is persisted (ingest-stamped; one-off
+> `scripts/backfill_doc_categories.py`) and `HierarchicalPGRetriever` supports per-call
+> category **filters** (`ema_search(source_category=...)`, oversample-and-filter in Cypher)
+> + per-profile **category quotas** (stratified top-k); **(B)** opt-in **`LINKS_TO`
+> expansion** (`retrieval.graph.expand`) follows link edges from vector hits and appends
+> best-matching chunks of linked docs (additive, `retrieval_origin="link_expansion"`) —
+> the previously-declared-but-unimplemented graph walk now exists; **(C)** a **routing
+> table** (`harness/configs/routing/*.yaml`, recipe key `retrieval.routing`) maps query
+> keywords to category priors (prefer/filter). Precedence: explicit agent arg > routing >
+> profile defaults; expansion is always additive. All OFF by default (`neo4j_hier`
+> unchanged); the `neo4j_steered` profile + `steered_agent` recipe enable the full stack.
+> *See [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) §7.*
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What this project is

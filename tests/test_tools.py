@@ -147,3 +147,142 @@ def test_build_tools_heterogeneous_kwargs():
         fetcher=lambda _q: _PUBCHEM_PAYLOAD,
     )
     assert {t.metadata.name for t in tools} == {"ema_search", "resolve_substance"}
+
+
+# --- ema_search source-category steering -------------------------------------
+
+
+class _SteerableFakeRetriever(BaseRetriever):
+    """Fake with the ``with_categories`` seam: records the filter it was given."""
+
+    def __init__(self, categories=None, results=None):
+        self.categories = categories
+        self.filter_calls: list = []
+        self._results = results
+        super().__init__()
+
+    def with_categories(self, categories):
+        self.filter_calls.append(categories)
+        clone = _SteerableFakeRetriever(categories=categories, results=self._results)
+        clone.filter_calls = self.filter_calls  # share the recorder
+        return clone
+
+    def _retrieve(self, query_bundle: QueryBundle):
+        if self._results is not None:
+            return list(self._results)
+        nodes = [
+            NodeWithScore(
+                node=TextNode(
+                    text="EPAR passage",
+                    metadata={"source_url": "https://ema.europa.eu/epar", "category": "epar"},
+                ),
+                score=0.9,
+            ),
+            NodeWithScore(
+                node=TextNode(
+                    text="Guideline passage",
+                    metadata={"source_url": "https://ema.europa.eu/gl", "category": "scientific_guideline"},
+                ),
+                score=0.8,
+            ),
+        ]
+        if self.categories:
+            nodes = [n for n in nodes if n.node.metadata["category"] in self.categories]
+        return nodes
+
+
+def test_ema_search_source_category_filters_and_notes():
+    retriever = _SteerableFakeRetriever()
+    tool = get_tool("ema_search", retriever=retriever)
+    out = str(tool.call(query="q", source_category="scientific_guideline"))
+    assert retriever.filter_calls == [["scientific_guideline"]]
+    assert "[category filter: scientific_guideline]" in out
+    assert "Guideline passage" in out and "EPAR passage" not in out
+
+
+def test_ema_search_invalid_category_returns_vocabulary_error():
+    tool = get_tool("ema_search", retriever=_SteerableFakeRetriever())
+    out = str(tool.call(query="q", source_category="guidelines"))
+    assert "Unknown source categor" in out
+    assert "scientific_guideline" in out  # the agent can self-correct from this
+
+
+def test_ema_search_empty_filter_falls_back_unfiltered():
+    retriever = _SteerableFakeRetriever()
+    tool = get_tool("ema_search", retriever=retriever)
+    out = str(tool.call(query="q", source_category="qa"))  # fake has no qa nodes
+    assert "retried unfiltered" in out
+    assert "EPAR passage" in out and "Guideline passage" in out
+
+
+def test_ema_search_filter_unsupported_retriever_degrades_honestly():
+    out = str(
+        get_tool("ema_search", retriever=_FakeRetriever()).call(
+            query="q", source_category="qa"
+        )
+    )
+    assert "not supported" in out
+    assert "ema.europa.eu/ndma" in out  # unfiltered results still returned
+
+
+def test_ema_search_router_prefer_reorders_with_note():
+    from harness.retrieval.routing import QueryRouter, RoutingRule
+
+    router = QueryRouter(
+        [RoutingRule(name="r1", keywords=("impurity",), categories=("scientific_guideline",))]
+    )
+    tool = get_tool("ema_search", retriever=_SteerableFakeRetriever(), router=router)
+    out = str(tool.call(query="impurity limits"))
+    assert "[routing: rule 'r1' -> prefer scientific_guideline]" in out
+    # guideline floated above the higher-scoring EPAR hit
+    assert out.index("Guideline passage") < out.index("EPAR passage")
+
+
+def test_ema_search_router_filter_mode_restricts():
+    from harness.retrieval.routing import QueryRouter, RoutingRule
+
+    router = QueryRouter(
+        [RoutingRule(name="r1", keywords=("impurity",), categories=("epar",), mode="filter")]
+    )
+    retriever = _SteerableFakeRetriever()
+    out = str(get_tool("ema_search", retriever=retriever, router=router).call(query="impurity"))
+    assert retriever.filter_calls == [["epar"]]
+    assert "EPAR passage" in out and "Guideline passage" not in out
+
+
+def test_ema_search_explicit_category_beats_router():
+    from harness.retrieval.routing import QueryRouter, RoutingRule
+
+    router = QueryRouter(
+        [RoutingRule(name="r1", keywords=("impurity",), categories=("epar",), mode="filter")]
+    )
+    retriever = _SteerableFakeRetriever()
+    tool = get_tool("ema_search", retriever=retriever, router=router)
+    out = str(tool.call(query="impurity", source_category="scientific_guideline"))
+    assert retriever.filter_calls == [["scientific_guideline"]]  # router never consulted
+    assert "routing:" not in out
+
+
+def test_ema_search_no_router_no_category_is_plain():
+    out = str(get_tool("ema_search", retriever=_SteerableFakeRetriever()).call(query="q"))
+    assert "routing:" not in out and "category filter" not in out  # no steering note
+    assert "EPAR passage" in out and "Guideline passage" in out
+
+
+def test_format_nodes_shows_category_and_expansion_origin():
+    nodes = [
+        NodeWithScore(
+            node=TextNode(
+                text="linked guideline",
+                metadata={
+                    "source_url": "https://ema.europa.eu/gl",
+                    "category": "scientific_guideline",
+                    "retrieval_origin": "link_expansion",
+                },
+            ),
+            score=0.7,
+        )
+    ]
+    rendered = format_nodes(nodes)
+    assert "category=scientific_guideline" in rendered
+    assert "via=link_expansion" in rendered
