@@ -296,6 +296,17 @@ click-through — results + the three defects it caught are in
 [`next/closed_book_lift.md`](next/closed_book_lift.md); future plans generally live under
 [`docs/next/`](next/README.md).
 
+### Possible improvements (designed, not scheduled)
+
+- **Retrieval-miss detection via exact-span search**
+  ([`next/retrieval_miss_detection.md`](next/retrieval_miss_detection.md)): an
+  OLMoTrace-style infini-gram index over the corpus that buckets answer spans into
+  *grounded* / *in-corpus-but-not-retrieved* / *novel* — separates retrieval failures
+  from generation failures in eval, gives a mechanical memorization signature next to
+  the lift metric, and can later power "suggested source" citation repair in SME
+  review. Deliberately gated on a concrete benchmark failure (triggers in the plan's
+  §5), per the complexity rule.
+
 Known frictions on the GPU host: the 3090 can wedge its GSP firmware under sustained CUDA
 load (throttle long builds; see machine memory), and `git push` may need a credentialed
 machine.
