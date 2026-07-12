@@ -121,7 +121,7 @@ def test_stratify_k_zero():
 
 
 def test_validate_quota_accepts_known_categories():
-    validate_quota({c: 1 for c in CATEGORIES if c != "other"}, k=10)
+    validate_quota({c: 1 for c in CATEGORIES if c != "other"}, k=len(CATEGORIES))
 
 
 def test_validate_quota_rejects_unknown_category():

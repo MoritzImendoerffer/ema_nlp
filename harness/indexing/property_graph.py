@@ -180,6 +180,8 @@ def _entity_for(d: IngestedDoc) -> EntityNode:
                 "committee": d.metadata.get("committee"),
                 "topic_path": d.metadata.get("topic_path"),
                 "reference_number": d.metadata.get("reference_number"),
+                "audience": d.metadata.get("audience"),
+                "site_topic": d.metadata.get("site_topic"),
                 "category": classify_source(
                     d.source_url or "", d.metadata.get("topic_path") or ""
                 ),

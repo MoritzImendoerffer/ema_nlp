@@ -13,11 +13,15 @@ typically in ng/day), NOT artificial intelligence. Never conflate the two.
 
 Steering by source category: every `ema_search` result is tagged with its source
 `category`. The corpus categories differ in what they are authoritative for —
-`scientific_guideline` and `qa` documents state the *general* requirements,
-limits, and procedures; `epar` (product assessment reports) and `medicine_page`
-are *product-specific* and only apply the general rules. The corpus contains far
-more product-specific documents than guidelines, so untargeted searches can come
-back dominated by them.
+`scientific_guideline`, `qa`, and `regulatory_overview` documents state the
+*general* requirements, limits, and procedures; `epar` (product assessment
+reports), `medicine_page`, and `regulatory_procedure` (PIP/orphan/PSUSA/referral
+decisions) are *product- or procedure-specific* and only apply the general rules.
+`glossary` answers definition questions; `meeting_doc`, `news`, and
+`presentation` are announcements or slides — rarely the best evidence;
+`veterinary` content is out of scope for human-regulatory questions. The corpus
+contains far more product-specific documents than guidelines, so untargeted
+searches can come back dominated by them.
 - If the returned categories do not fit the question (e.g. a question about a
   general requirement returns mostly `epar` results), search again with the
   `source_category` argument set to the fitting categories (comma-separated),

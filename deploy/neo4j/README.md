@@ -32,6 +32,31 @@ The compose file reads `NEO4J_USER` / `NEO4J_PASSWORD` at `up` time to set
 wiping the `ema_neo4j_data` volume if the DB was already initialised with the
 old one — Neo4j fixes the password at first init).
 
+## Inspecting the graph
+
+Two tools, same queries:
+
+- **Neo4j Browser (visual viewer)** — already bundled with the container at
+  http://localhost:7474 (login `neo4j` / `$NEO4J_PASSWORD`). Renders query
+  results as an interactive graph — use it to eyeball link neighbourhoods and
+  chunk trees. Paste-ready queries (census, LINKS_TO boilerplate audit,
+  visual graph views, drill-downs) live in
+  [`inspect_queries.cypher`](inspect_queries.cypher); run one statement at a
+  time.
+- **CLI** — `scripts/inspect_graph.py` (read-only, plain `neo4j` driver):
+
+  ```bash
+  python scripts/inspect_graph.py overview        # node/edge census + indexes
+  python scripts/inspect_graph.py links           # LINKS_TO quality audit
+  python scripts/inspect_graph.py doc <id|url-substring>
+  python scripts/inspect_graph.py cypher "MATCH (d:Document) RETURN count(d)"
+  ```
+
+  `links` prints the boilerplate fingerprint (in-degree concentration,
+  link_context histogram, repeated anchors, random samples). Audited
+  2026-07-12: top-10 targets absorb 3.3% of the 99,520 edges (pre-scoping
+  chrome baseline was 94.4%) — the main-content-scoped extraction is working.
+
 ## Notes
 
 - Image pinned to `neo4j:5.26`; APOC enabled via `NEO4J_PLUGINS=["apoc"]`

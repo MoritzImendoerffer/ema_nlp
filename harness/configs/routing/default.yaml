@@ -10,7 +10,9 @@
 #   keywords:    words/phrases that trigger the rule
 #   categories:  source categories to steer toward, in preference order
 #                (vocabulary: harness/retrieval/doc_categories.py CATEGORIES —
-#                 scientific_guideline | qa | epar | medicine_page | other)
+#                 scientific_guideline | qa | regulatory_overview | epar |
+#                 medicine_page | regulatory_procedure | herbal | glossary |
+#                 meeting_doc | news | presentation | veterinary | other)
 #   mode:        prefer (soft reorder — nothing excluded; DEFAULT)
 #              | filter (hard restriction; ema_search auto-retries unfiltered
 #                        if the filter yields nothing)

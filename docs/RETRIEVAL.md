@@ -215,8 +215,12 @@ therefore acts on the **candidate set**, at three independent, composable stages
 ### The category vocabulary
 
 `harness/retrieval/doc_categories.py` classifies every document from its
-URL/topic path into `scientific_guideline | qa | epar | medicine_page | other`
-(ordered substring rules, offline-testable). The category is **persisted as
+URL/topic path into `scientific_guideline | qa | regulatory_overview | epar |
+medicine_page | regulatory_procedure | herbal | glossary | meeting_doc | news |
+presentation | veterinary | other` (ordered substring rules, offline-testable;
+the vocabulary groups EMA's own `/en/documents/<type>/` URL taxonomy — expanded
+2026-07-12 after a sitemap/corpus audit showed 63% of docs fell into `other`
+with the original five categories; now ~8%). The category is **persisted as
 `:Document.category`** — stamped at ingest, and backfilled onto an existing
 graph with:
 
@@ -228,6 +232,43 @@ python scripts/backfill_doc_categories.py             # write d.category (idempo
 Re-run it whenever the classification rules change; chunks/embeddings/edges are
 untouched. **The persisted property is what Cypher-side filtering, quotas, and
 expansion targeting operate on — run the backfill once before enabling them.**
+
+### Authoritative enrichment — `doc_type`, `audience`, `site_topic`
+
+`category` is a coarse URL-derived label. Two EMA-published sources add
+authoritative, finer metadata (both stamped at ingest for new builds, and
+backfilled onto an existing graph):
+
+- **`:Document.doc_type`** — EMA's own document type (85 values, e.g.
+  `assessment-report`, `product-information`, `scientific-guideline`), joined
+  from the website-data JSON export
+  ([download page](https://www.ema.europa.eu/en/about-us/about-website/download-website-data-json-data-format))
+  by hashing its `document_url` to `doc_id`. `harness/indexing/doc_types.py`
+  parses the (malformed) export; `scripts/backfill_doc_types.py` downloads +
+  joins it. Covers **96.6% of PDF nodes** (55,930 / 57,925) — the document-type
+  signal PDFs otherwise lack (`LINKS_TO` edge `document_type` only reached
+  card-linked PDFs). HTML pages are not in this export.
+- **`:Document.audience`** (`Human` / `Veterinary` / `Corporate` / `Herbal`)
+  and **`:Document.site_topic`** (EMA's curated subject taxonomy —
+  `Pharmacovigilance`, `Clinical trials`, ...) — read from the page's own
+  header badges (`ema-bg-category` / `ema-bg-topic`) inside
+  `main-content-wrapper`. `harness/indexing/badges.py` extracts them;
+  `scripts/backfill_doc_badges.py` backfills from `web_items.html_raw`. HTML
+  pages only: `audience` on **93%** (20,386 / 21,957), `site_topic` on **27%**
+  (the page's own header badge, not listing-card badges — so many document
+  detail pages have an audience badge but no topic badge). PDFs have no badges.
+
+```bash
+python scripts/backfill_doc_types.py  --dry-run   # coverage report only
+python scripts/backfill_doc_types.py              # download export + write d.doc_type
+python scripts/backfill_doc_badges.py --dry-run   # audience/site_topic histograms
+python scripts/backfill_doc_badges.py             # write d.audience + d.site_topic
+```
+
+These are **additive metadata** — surfaced by `scripts/inspect_graph.py
+overview` and available for future steering, but not yet wired into a
+`doc_type_priority`-style knob (gated on a benchmark failure that needs them,
+per the complexity rule).
 
 ### Mechanism A — filter + quota (candidate stage)
 

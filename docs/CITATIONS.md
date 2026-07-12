@@ -30,9 +30,11 @@ exactly the pre-attribution behavior.
 Provenance behind it: `HierarchicalPGRetriever` now surfaces the Document node's
 `title / topic_path / committee / reference_number / source_type` plus a real
 `chunk_id`, and every citation carries a **category** from
-`harness/retrieval/doc_categories.py` (`scientific_guideline | qa | epar |
-medicine_page | other`, classified from URL/topic path — there is no doc-type
-property on the nodes).
+`harness/retrieval/doc_categories.py` (13 categories — `scientific_guideline`,
+`qa`, `regulatory_overview`, `epar`, `medicine_page`, `regulatory_procedure`,
+`herbal`, `glossary`, `meeting_doc`, `news`, `presentation`, `veterinary`,
+`other` — classified from URL/topic path; there is no doc-type property on the
+nodes).
 
 ## 2. In the chat
 

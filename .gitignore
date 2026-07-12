@@ -233,3 +233,7 @@ mlartifacts/
 .mlflow.log
 .files/
 public/elements/
+
+# Local scratch / cached large downloads (e.g. the EMA website-data JSON export
+# fetched by scripts/backfill_doc_types.py) — never commit raw artifacts.
+.tmp/

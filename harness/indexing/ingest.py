@@ -22,6 +22,7 @@ from pymongo import MongoClient
 from config import MONGO_DB, MONGO_URI
 from corpus.metadata.text_metadata import text_metadata
 from corpus.metadata.url_metadata import url_metadata
+from harness.indexing.badges import extract_badges
 from harness.indexing.chunking import chunk_document, doc_id_for
 from harness.indexing.links import ExtractedLink, extract_links
 from harness.indexing.profiles import ChunkingConfig, IndexProfile, ScopeConfig
@@ -115,6 +116,9 @@ def build_ingested_doc(
         html = html_lookup(url)
         if html:
             links = extract_links(html, url)
+            badges = extract_badges(html)
+            metadata["audience"] = badges.audience
+            metadata["site_topic"] = badges.site_topic
 
     return IngestedDoc(
         doc_id=doc_id_for(url),
