@@ -9,6 +9,7 @@ full source-category steering stack ([`docs/RETRIEVAL.md`](../RETRIEVAL.md) §7)
 | [`01_source_categories.ipynb`](01_source_categories.ipynb) | the category vocabulary + classifier, the persisted `:Document.category`, the one-off backfill | Neo4j (classifier cells run offline) |
 | [`02_steered_retrieval.ipynb`](02_steered_retrieval.ipynb) | **Option A** per-call filters + per-profile quotas, **Option B** `LINKS_TO` expansion — driven at the retriever level, no LLM | Neo4j + embed model |
 | [`03_routing_and_full_agent.ipynb`](03_routing_and_full_agent.ipynb) | **Option C** routing tables, the `ema_search` tool standalone, the full `steered_agent` recipe end-to-end | Neo4j + embed model; `ANTHROPIC_API_KEY` for the agent section only |
+| [`04_topic_subgraphs_eval.ipynb`](04_topic_subgraphs_eval.ipynb) | the **topic-subgraphs evaluation**, unpacked: the benchmark questions, the hub walk + `topic_context` tool live, how `run_eval.py` asks/judges, and the reported result tables reproduced from `mlflow.db` | Mongo + Neo4j + embed model (§2); `mlflow.db` with the 2026-07-13 runs (§5); API key only for the optional §3 |
 
 ## Prerequisites
 

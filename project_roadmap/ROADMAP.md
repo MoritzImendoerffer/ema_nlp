@@ -8,7 +8,7 @@
 > refactor branch in 2026-05; a new recipe-based runner has since been rebuilt on this
 > branch — see the status table below.)*
 
-> 🧭 **Current state (2026-07-04) — reconcile the plan below with what's actually built.**
+> 🧭 **Current state (2026-07-13) — reconcile the plan below with what's actually built.**
 > This roadmap was written **benchmark-first**. Since then the project's runtime became a
 > **single-engine agentic RAG**: one LlamaIndex `FunctionAgent` configured by **recipes**
 > (`harness/configs/recipes/*.yaml` — system prompt + tools + output schema + retrieval +
@@ -27,13 +27,15 @@
 > | 1.5 Leakage verification | ◻ planned | methodology in [`LEAKAGE.md`](LEAKAGE.md) |
 > | 1.7 Narrative corpus | ✅ done (re-platformed) | now the Neo4j `PropertyGraphIndex`, not pgvector |
 > | 2 Benchmark | 🟡 drafted | `benchmark/benchmark.jsonl` — 45 items (20 T1 / 10 T2 / 10 T3 / 5 T4); contamination screen still TODO |
-> | 3 Baseline RAG + eval harness | 🟡 partial | retrieval + the recipe-configured agent are live; a **recipe × benchmark eval runner** is rebuilt on this branch (`harness/eval/runner.py`, `scripts/run_eval.py` — one MLflow run per question type, `mlflow.genai` judges); runtime verification + closed-book/lift scoring still TODO |
+> | 3 Baseline RAG + eval harness | 🟡 partial | retrieval + the recipe-configured agent are live; the **recipe × benchmark eval runner** (`harness/eval/runner.py`, `scripts/run_eval.py`) is **runtime-verified 2026-07-13** — first recorded recipe comparison: `topic_agent` 5.000/5.000 vs `steered_agent` 4.700/4.900 on T2 (see [`docs/eval/2026-07-13_topic_subgraphs.md`](../docs/eval/2026-07-13_topic_subgraphs.md) + notebook [`docs/examples/04_topic_subgraphs_eval.ipynb`](../docs/examples/04_topic_subgraphs_eval.ipynb)); **closed-book baselines + lift scoring still TODO** ([`docs/next/closed_book_lift.md`](../docs/next/closed_book_lift.md)) |
 > | 4 Ablations | ◻ planned | A/B/C methodology unchanged; **Ablation B's agent already exists** (`harness/agents/`) — it becomes "test SME process-rewards on the agent", not "build the agent"; A1's acronym dictionary is built (`harness/configs/retrieval/acronyms.yaml`) |
 > | 5 Writeup | ◻ planned | |
 >
 > Bottom line: the **methodology** (T1–T4, lift, contamination, the three ablations) is unchanged and
-> still the plan; the eval vehicle exists again — closed-book baselines and the lift metric are the
-> next missing pieces for benchmark work.
+> still the plan; the eval vehicle exists **and has run live** (first per-type recipe comparison in
+> MLflow, 2026-07-13) — closed-book baselines and the lift metric are the next missing pieces for
+> benchmark work. Forward plans live in [`docs/next/`](../docs/next/README.md); results reports in
+> `docs/eval/`.
 
 **Project goal.** Build a shareable Q&A benchmark from EMA human-regulatory content, plus reference RAG implementations of increasing sophistication, to test where subject-matter expert (SME) effort actually pays off in agentic RAG.
 
@@ -202,7 +204,7 @@ See `LEAKAGE.md` for the full treatment: why this matters, what's at risk, what 
 
 ## Phase 3 — Baseline RAG and evaluation harness (≈ 1 week)
 
-> **Status (2026-07-04).** A recipe-based eval harness is **rebuilt on this branch**: `harness/eval/runner.py` + `scripts/run_eval.py` (recipe × benchmark → per-type MLflow runs; `mlflow.genai` faithfulness/correctness judges; MLflow is the system of record for results). The retrieval side it sits on is live: **recipes** (`harness/configs/recipes/*.yaml`, one `FunctionAgent` engine — the former 7-workflow registry was deleted 2026-06-25) over the hierarchical Neo4j retriever. Still TODO for the full Phase 3 protocol: closed-book baselines and lift reporting. See [`docs/RETRIEVAL.md`](../docs/RETRIEVAL.md) and [`docs/RECIPES.md`](../docs/RECIPES.md). Section 3.1's "flat retrieval / FAISS / Qdrant" description is the original v1 plan, superseded by the Neo4j store.
+> **Status (2026-07-13).** A recipe-based eval harness is **rebuilt and runtime-verified on this branch**: `harness/eval/runner.py` + `scripts/run_eval.py` (recipe × benchmark → per-type MLflow runs; `mlflow.genai` faithfulness/correctness judges on Claude Opus; MLflow is the system of record for results). First recorded comparison (2026-07-13): the topic-subgraphs `topic_agent` recipe vs the `steered_agent` baseline — see `docs/eval/2026-07-13_topic_subgraphs.md` for the full report and `docs/examples/04_topic_subgraphs_eval.ipynb` for a runnable walkthrough (questions, mechanics, per-item scores). The retrieval side it sits on is live: **recipes** (`harness/configs/recipes/*.yaml`, one `FunctionAgent` engine — the former 7-workflow registry was deleted 2026-06-25) over the hierarchical Neo4j retriever. Still TODO for the full Phase 3 protocol: closed-book baselines and lift reporting. See [`docs/RETRIEVAL.md`](../docs/RETRIEVAL.md) and [`docs/RECIPES.md`](../docs/RECIPES.md). Section 3.1's "flat retrieval / FAISS / Qdrant" description is the original v1 plan, superseded by the Neo4j store.
 
 **Purpose.** The control arm. Everything else is measured against this.
 
