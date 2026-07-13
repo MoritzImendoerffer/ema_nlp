@@ -1,0 +1,32 @@
+# Steered agent + precomputed topic subgraphs (docs/next/topic_subgraphs.md).
+# Everything in steered_agent (category quotas, LINKS_TO expansion, routing
+# prior) PLUS the `topic_context` tool: the pageable, EMA-curated topic map for
+# scoping/comparison (T2) and exhaustive-enumeration questions, with an
+# optional token-budgeted best-chunk context.
+#
+# PREREQUISITES beyond steered_agent:
+#   - hub membership stamped + propagated:
+#       python scripts/manage_topic_hubs.py build
+#       python scripts/propagate_metadata_to_graph.py
+#     (only CONFIRMED hubs in configs/hubs/default.yaml are built)
+recipe:
+  label: "Regulatory agent + topic subgraphs"
+  description: "Steered agent plus precomputed topic-subgraph context: complete curated topic catalogs (pageable) with a budgeted best-chunk text option."
+  orchestration:
+    system_prompt: agent_topic.md
+    tools: [ema_search, resolve_substance, topic_context]
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_steered
+    pipeline: none
+    routing: default
+    subgraph:
+      hubs: default          # configs/hubs/<name>.yaml ($EMA_CONFIG_DIR shadows)
+      context: chunks        # map = catalog only | chunks = + budgeted passages
+      max_tokens: 4000       # budget for the chunk context (page 1 only)
+      page_size: 25          # catalog groups per page
+  generation:
+    model: claude_opus
+    temperature: 0.0
+  judge:
+    enabled: false

@@ -18,9 +18,13 @@ pipeline is inspectable and any stage can be re-run by hand.
                     (embeds chunks — hours on GPU for the full corpus; resumable,
                     re-run to continue after a crash. Ingest joins
                     document_metadata, so all labels are stamped at build time.)
-    5. propagate    scripts/propagate_metadata_to_graph.py    -> Neo4j SET
-                    (labels-only patch of an EXISTING graph; not needed after a
-                    fresh build — kept out of the default steps)
+    5. subgraphs    scripts/manage_topic_hubs.py build        -> document_metadata
+                    (topic-subgraph membership stamps for CONFIRMED hubs;
+                    optional — run after any build/links change, then propagate.
+                    Kept out of the default steps.)
+    6. propagate    scripts/propagate_metadata_to_graph.py    -> Neo4j SET
+                    (labels+membership patch of an EXISTING graph; not needed
+                    after a fresh build — kept out of the default steps)
 
 Prerequisites: ``scripts/start_services.sh`` (Mongo + Neo4j up), credentials in
 ``~/.myenvs/ema_nlp.env``. See docs/RETRIEVAL.md §2 + §6.
@@ -49,7 +53,7 @@ from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent
 
-STEPS = ["parse-html", "parse-pdfs", "enrich", "build", "propagate"]
+STEPS = ["parse-html", "parse-pdfs", "enrich", "build", "subgraphs", "propagate"]
 DEFAULT_STEPS = ["parse-html", "parse-pdfs", "enrich", "build"]
 
 
@@ -131,6 +135,8 @@ def main() -> None:
             if args.pause_seconds is not None:
                 cmd += [f"--pause-seconds={args.pause_seconds}"]
             _run(cmd, dry_run=args.dry_run)
+        elif step == "subgraphs":
+            _run([py, "scripts/manage_topic_hubs.py", "build"], dry_run=args.dry_run)
         elif step == "propagate":
             _run([py, "scripts/propagate_metadata_to_graph.py"], dry_run=args.dry_run)
     print("\npipeline complete." if not args.dry_run else "\n(dry run — nothing executed)")

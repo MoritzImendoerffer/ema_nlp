@@ -60,6 +60,15 @@ def build_recipe(
 
         router = load_router(recipe.routing)
 
+    # The topic-subgraph layer (docs/next/topic_subgraphs.md) exists iff the
+    # recipe's toolset names topic_context; the hubs file is loaded here (fail
+    # loudly at build time, not on the first tool call).
+    hubs = None
+    if "topic_context" in recipe.tools:
+        from harness.retrieval.hubs import load_hubs
+
+        hubs = load_hubs(recipe.subgraph.hubs)
+
     # The recipe carries the agent-shaped fields inline (prompt/tools/schema), so we
     # construct an AgentConfig from it rather than loading a separate agent YAML.
     agent_config = AgentConfig(
@@ -75,6 +84,8 @@ def build_recipe(
         agent_config=agent_config,
         pipeline_config=pipeline_config,
         router=router,
+        hubs=hubs,
+        subgraph=recipe.subgraph,
     )
     log.info(
         "built recipe %r: tools=%s pipeline=%s routing=%s model=%s k=%s",

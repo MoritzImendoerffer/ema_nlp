@@ -50,7 +50,9 @@ class _FakeRetriever(BaseRetriever):
 
 
 def test_registry_lists_builtin_tools():
-    assert list_tools() == ["corrective_search", "ema_search", "resolve_substance"]
+    assert list_tools() == [
+        "corrective_search", "ema_search", "resolve_substance", "topic_context",
+    ]
 
 
 def test_get_unknown_tool_raises():

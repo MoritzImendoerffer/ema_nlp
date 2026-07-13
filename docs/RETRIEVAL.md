@@ -423,6 +423,50 @@ all offline (fake store, no Neo4j).
 backfill (01), retriever-level filters/quotas/expansion (02), routing + the full
 `steered_agent` recipe end-to-end (03).
 
+### 7.1 Precomputed topic subgraphs (`topic_context`)
+
+> Status 2026-07-13: **implemented + offline-tested; NOT yet built or verified
+> live** (membership stamping + the T2 eval need the GPU host — steps 5–6 of
+> [`docs/next/topic_subgraphs.md`](next/topic_subgraphs.md), which is the full design).
+
+Top-k retrieval structurally cannot answer scoping/comparison (T2) or
+exhaustive-enumeration questions — it returns the *best-matching* members of a
+set, never provably all of them. EMA's topic **hub pages are curated indices**,
+so their qualified `LINKS_TO` fan-out (hub → detail page → PDF, 2 hops) *is* the
+exhaustive member list. The design precomputes that walk offline and makes query
+time a property lookup:
+
+- **Seed list** `harness/configs/hubs/default.yaml` (pure data, SME-editable;
+  `$EMA_CONFIG_DIR/hubs/` shadows) — per-hub `walk` bounds: `hops` + a node
+  qualifier that is always **`categories` OR `doc_types`** (PDFs have
+  `doc_type`, HTML detail pages only `category`) + `exclude_audience`. Loader:
+  `harness/retrieval/hubs.py` (strict; only `status: confirmed` hubs build).
+- **Curation CLI** `scripts/manage_topic_hubs.py`:
+  `propose` (explainable qualified-fanout score — curated link contexts ×2,
+  archive/news-title + Corporate/Veterinary penalties; appends
+  `status: proposed` entries) → human `confirm` → `report` (size + composition
+  histograms *before* going live) → `build` (walks confirmed hubs, stamps
+  `topic_hubs: [keys]` into Mongo `document_metadata` as a third field group
+  with `provenance.topic_hubs = {source: hub_walk, stamped_at, config_hash}`).
+  `scripts/update_graph.py --steps subgraphs,propagate` sequences it; ingest
+  joins the rows on rebuild. Build side: `harness/indexing/subgraphs.py`.
+  Membership is **stale after any LINKS_TO rebuild** — re-run `build`.
+- **Query time** (`harness/retrieval/subgraphs.py` + the **`topic_context`
+  tool**): retrieved nodes carry `topic_hubs`; the agent calls
+  `topic_context(topic=<hub key or a hit's URL>, query=..., page=N)` and gets
+  the **topic map** — the complete member catalog (PDF revisions grouped under
+  their detail page), query-ranked, in fixed pages with an honest total +
+  `truncated` flag. `retrieval.subgraph: {context: chunks, max_tokens, page_size}`
+  (recipe keys) adds best-chunk-per-member text under an explicit token budget,
+  stamped `retrieval_origin="topic_subgraph"` and fed to the same capture sink
+  as `ema_search` (citations + judges see it). Multi-membership resolves to the
+  hub whose seed page best matches the query. Recipe: `topic_agent`
+  (= `steered_agent` + the tool + `agent_topic.md` prompt).
+
+Tests: `tests/test_retrieval_hubs.py`, `tests/test_indexing_subgraphs.py`,
+`tests/test_tools_topic_context.py` (all offline). Browser curation queries:
+`deploy/neo4j/inspect_queries.cypher` §5.
+
 ---
 
 ## 8. Adding another index kind

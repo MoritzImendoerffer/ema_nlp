@@ -12,12 +12,19 @@ graph (lost on rebuild). One row per URL:
       provenance: { doc_type: {source, stamped_at},
                     badges:   {source, stamped_at} } }
 
+A third field group (2026-07-13, docs/next/topic_subgraphs.md) stamps
+precomputed topic-subgraph membership the same way:
+
+    { topic_hubs: [hub_key, ...],        # list — docs belong to several topics
+      provenance.topic_hubs: {source: "hub_walk", stamped_at, config_hash} }
+
 Producers: ``scripts/enrich_document_metadata.py`` (re-runnable after each
-scrape). Consumers: ``harness.indexing.ingest`` joins the row at ingest so new
-graph builds stamp all three labels on ``:Document`` nodes;
+scrape) for the labels; ``scripts/manage_topic_hubs.py build`` for memberships.
+Consumers: ``harness.indexing.ingest`` joins the row at ingest so new
+graph builds stamp all label groups on ``:Document`` nodes;
 ``scripts/propagate_metadata_to_graph.py`` patches an existing graph without a
-rebuild. The two label groups are upserted independently (field-scoped ``$set``)
-so the badge pass and the doc_type pass compose on the same row in any order.
+rebuild. The field groups are upserted independently (field-scoped ``$set``)
+so the passes compose on the same row in any order.
 
 Provenance carries the stamp time per label group — the JSON export and the
 scrape snapshot drift independently, and a stale label should be datable.
@@ -43,6 +50,7 @@ MetadataLookup = Callable[[str], dict[str, Any] | None]
 
 _BADGE_SOURCE = "web_items.html_raw"
 _DOC_TYPE_SOURCE = "ema_json_export"
+_HUB_WALK_SOURCE = "hub_walk"
 
 
 def _collection(client: MongoClient[Any]) -> Any:
@@ -148,6 +156,68 @@ def upsert_doc_types(
                                 "stamped_at": at,
                             },
                         }
+                    },
+                    upsert=True,
+                )
+            )
+            if len(ops) >= batch_size:
+                written += _flush(col, ops)
+                ops = []
+        written += _flush(col, ops)
+        return written
+    finally:
+        if owned:
+            c.close()
+
+
+def upsert_topic_hubs(
+    url_to_keys: Mapping[str, list[str]],
+    *,
+    hub_keys: Iterable[str],
+    config_hash: str,
+    client: MongoClient[Any] | None = None,
+    stamped_at: datetime | None = None,
+    batch_size: int = 1000,
+) -> int:
+    """Upsert topic-subgraph memberships (``url -> [hub keys]``) as a field group.
+
+    ``hub_keys`` names the hubs this build (re)computed: those keys are first
+    ``$pull``-ed from every row so a document that *lost* membership on a
+    re-walk is cleared rather than left stale — while stamps of hubs NOT being
+    rebuilt survive untouched (a single-hub rebuild must not wipe the others).
+    ``config_hash`` (from ``HubsConfig.config_hash()``) + ``stamped_at`` make a
+    stale membership (built before a walk-param or LINKS_TO change) detectable.
+    Returns the number of membership rows written.
+    """
+    owned = client is None
+    c: MongoClient[Any] = MongoClient(MONGO_URI) if owned else client  # type: ignore[assignment]
+    at = stamped_at or datetime.now(UTC)
+    keys = sorted(set(hub_keys))
+    provenance = {"source": _HUB_WALK_SOURCE, "stamped_at": at, "config_hash": config_hash}
+    written = 0
+    try:
+        col = _collection(c)
+        col.update_many(
+            {"topic_hubs": {"$in": keys}},
+            {"$pull": {"topic_hubs": {"$in": keys}}},
+        )
+        ops: list[UpdateOne] = []
+        for url, member_keys in url_to_keys.items():
+            stale = [k for k in member_keys if k not in keys]
+            if stale:
+                raise ValueError(
+                    f"membership for {url} names hub key(s) {stale} not in this "
+                    f"build's hub_keys {keys} — the pull pass would leave them stale"
+                )
+            ops.append(
+                UpdateOne(
+                    {"url": url},
+                    {
+                        "$set": {
+                            "doc_id": doc_id_for(url),
+                            "provenance.topic_hubs": provenance,
+                        },
+                        "$addToSet": {"topic_hubs": {"$each": sorted(member_keys)}},
                     },
                     upsert=True,
                 )

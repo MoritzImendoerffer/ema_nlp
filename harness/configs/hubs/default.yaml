@@ -1,0 +1,43 @@
+# Topic-hub seed list — pure DATA, SME-editable (docs/next/topic_subgraphs.md §4.1).
+#
+# Each hub is an EMA topic *hub page* (a curated index) whose qualified LINKS_TO
+# fan-out (hops hops: hub → detail page → PDF) defines an exhaustive, EMA-curated
+# topic subgraph. `scripts/manage_topic_hubs.py build` walks CONFIRMED hubs and
+# stamps membership (`topic_hubs: [keys]`) into Mongo `document_metadata` +
+# (via propagate / ingest) onto `:Document.topic_hubs`. Proposed hubs (from
+# `manage_topic_hubs.py propose`, an agent, or an SME) sit here with
+# `status: proposed` until a human flips them to `confirmed`.
+#
+# Per hub:
+#   key:          stable snake_case identifier — the membership stamp value
+#   seed_url:     the hub page URL; MUST resolve to a :Document in the graph
+#                 (checked at build/report time — EMA reorganizations silently
+#                 break URLs, so a dangling seed is a hard error, not a skip)
+#   status:       confirmed | proposed   (only confirmed hubs are built)
+#   proposed_by:  sme | agent | discovery
+#   walk:         per-hub walk bounds — hubs differ wildly in shape
+#     hops:              LINKS_TO hops from the seed (2 = hub → detail page → PDF)
+#     categories:        qualifier — a node on the walk must match one of these
+#                        :Document.category values ...
+#     doc_types:         ... OR one of these :Document.doc_type values (PDFs have
+#                        doc_type, HTML detail pages only category — every
+#                        qualifier is category-OR-doc_type, never doc_type alone)
+#     exclude_audience:  drop nodes whose audience badge is one of these
+#
+# An $EMA_CONFIG_DIR/hubs/default.yaml shadows this file (same rule as routing).
+# After ANY LINKS_TO rebuild, memberships are stale — re-run the build (the
+# stamped config_hash + stamped_at make violations detectable).
+
+hubs:
+  # T2 reachability verified live 2026-07-13 (docs/next/topic_subgraphs.md §2):
+  # this hub reaches all 3 gold documents behind the 10 T2 benchmark items at
+  # 1 hop; its qualified 2-hop subgraph is a coherent ~100-doc bundle.
+  - key: referral_procedures
+    seed_url: https://www.ema.europa.eu/en/human-regulatory-overview/post-authorisation/referral-procedures-human-medicines
+    status: confirmed
+    proposed_by: sme
+    walk:
+      hops: 2
+      categories: [qa, scientific_guideline, regulatory_procedure, regulatory_overview]
+      doc_types: []
+      exclude_audience: [Veterinary, Corporate]

@@ -5,6 +5,7 @@ LlamaIndex retriever. See ``docs/TARGET_ARCHITECTURE.md`` §4.4.
 """
 
 from harness.retrieval.config import RetrievalPipelineConfig, load_pipeline_config
+from harness.retrieval.hubs import HubsConfig, HubSpec, HubWalk, load_hubs
 from harness.retrieval.native_pg import (
     build_cypher_template_retriever,
     build_native_composed_retriever,
@@ -25,6 +26,7 @@ from harness.retrieval.steering import (
     sort_by_category_priority,
     stratify_by_category,
 )
+from harness.retrieval.subgraphs import SubgraphPolicy, TopicSubgraphReader
 from harness.retrieval.transforms import (
     get_transform,
     list_transforms,
@@ -32,10 +34,15 @@ from harness.retrieval.transforms import (
 )
 
 __all__ = [
+    "HubSpec",
+    "HubWalk",
+    "HubsConfig",
     "QueryRouter",
     "RetrievalPipelineConfig",
     "RouteDecision",
     "RoutingRule",
+    "SubgraphPolicy",
+    "TopicSubgraphReader",
     "apply_postprocessors",
     "build_cypher_template_retriever",
     "build_native_composed_retriever",
@@ -45,6 +52,7 @@ __all__ = [
     "get_transform",
     "list_postprocessors",
     "list_transforms",
+    "load_hubs",
     "load_pipeline_config",
     "load_router",
     "node_category",

@@ -183,6 +183,12 @@ def _entity_for(d: IngestedDoc) -> EntityNode:
                 "doc_type": d.metadata.get("doc_type"),
                 "audience": d.metadata.get("audience"),
                 "site_topic": d.metadata.get("site_topic"),
+                # Joined from document_metadata like the labels above; None
+                # (dropped by _clean) until a hub build stamped the row. The
+                # revision (from text_metadata) feeds the topic map's
+                # latest-per-module grouping.
+                "topic_hubs": d.metadata.get("topic_hubs") or None,
+                "revision": d.metadata.get("revision"),
                 "category": classify_source(
                     d.source_url or "", d.metadata.get("topic_path") or ""
                 ),
@@ -488,7 +494,7 @@ def open_index(profile: IndexProfile | None = None) -> PropertyGraphIndex:
 # that citations, reference cards, and exports need — not just a URL.
 _DOC_PROJECTION = (
     "{.id, .source_url, .title, .topic_path, .committee, .reference_number, "
-    ".source_type, .category, .doc_type, .audience, .site_topic}"
+    ".source_type, .category, .doc_type, .audience, .site_topic, .topic_hubs}"
 )
 
 def _edge_label(edge_types: list[str]) -> str:
@@ -591,6 +597,17 @@ class HierarchicalPGRetriever(BaseRetriever):
         self._categories = list(categories) if categories else None
         super().__init__()
 
+    @property
+    def store(self) -> Neo4jPropertyGraphStore:
+        """The backing graph store (used by tools that need their own queries,
+        e.g. ``topic_context``'s subgraph reader)."""
+        return self._store
+
+    @property
+    def embed_model(self) -> Any:
+        """The retriever's query embedder (shared with ``topic_context`` ranking)."""
+        return self._embed
+
     def with_categories(self, categories: list[str] | None) -> HierarchicalPGRetriever:
         """A view of this retriever restricted to ``categories`` (shares the store).
 
@@ -632,6 +649,9 @@ class HierarchicalPGRetriever(BaseRetriever):
             "doc_type": doc.get("doc_type"),
             "audience": doc.get("audience"),
             "site_topic": doc.get("site_topic"),
+            # Precomputed topic-subgraph memberships (docs/next/topic_subgraphs.md)
+            # — [] until scripts/manage_topic_hubs.py build + propagate ran.
+            "topic_hubs": list(doc.get("topic_hubs") or []),
             # chunk_id = the node actually returned (parent after small-to-big
             # merge); matched_chunk = the leaf the vector/similarity hit landed on.
             "chunk_id": chunk_id,

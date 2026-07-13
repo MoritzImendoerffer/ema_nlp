@@ -30,6 +30,8 @@ def assemble_agent(
     acronyms: dict[str, str] | None = None,
     fetcher: Any = None,
     router: Any = None,
+    hubs: Any = None,
+    subgraph: Any = None,
 ) -> Any:
     """Wire a FunctionAgent whose ``ema_search`` runs the config-driven pipeline.
 
@@ -38,7 +40,9 @@ def assemble_agent(
     normally derived from a recipe by ``build_recipe``) supplies the
     toolset/prompt/schema — there is no separate agent YAML (F6). ``router`` (a
     ``QueryRouter`` from the recipe's ``retrieval.routing`` table, or None) gives
-    ``ema_search`` its per-query source-category prior.
+    ``ema_search`` its per-query source-category prior. ``hubs`` (a loaded
+    ``HubsConfig``) + ``subgraph`` (a ``SubgraphPolicy``) configure the
+    ``topic_context`` tool when the toolset names it.
     """
     transform = None
     postprocessors: list = []
@@ -61,6 +65,8 @@ def assemble_agent(
         postprocessors=postprocessors,
         fetcher=fetcher,
         router=router,
+        hubs=hubs,
+        subgraph=subgraph,
     )
 
 

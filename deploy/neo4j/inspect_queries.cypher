@@ -93,3 +93,48 @@ ORDER BY context LIMIT 50;
 MATCH (d:Document)
 WHERE NOT (d)-[:HAS_CHUNK]->(:Chunk)
 RETURN count(d) AS docs_without_chunks;
+
+// ── 5. Topic subgraphs: hub candidates + subgraph preview ───────────────────
+// (docs/next/topic_subgraphs.md — curation surface for manage_topic_hubs.py)
+
+// Hub candidates: regulatory_overview pages ranked by qualified out-fanout
+// (curated link contexts weighted x2; archive/news titles are a red flag —
+// the propose CLI penalizes them, here you just eyeball).
+MATCH (h:Document {category: 'regulatory_overview'})-[e:LINKS_TO]->(t:Document)
+WHERE t.category IN ['qa', 'scientific_guideline', 'regulatory_procedure', 'regulatory_overview']
+   OR t.doc_type IS NOT NULL
+WITH h,
+     sum(CASE WHEN e.link_context IN ['file_component', 'card_or_listing'] THEN 1 ELSE 0 END) AS curated,
+     sum(CASE WHEN e.link_context = 'inline' THEN 1 ELSE 0 END) AS inline
+WHERE curated + inline >= 5
+RETURN h.title AS title, curated, inline, 2 * curated + inline AS score, h.source_url AS url
+ORDER BY score DESC LIMIT 30;
+
+// Membership coverage per hub key (after build + propagate)
+MATCH (d:Document) WHERE d.topic_hubs IS NOT NULL
+UNWIND d.topic_hubs AS hub
+RETURN hub, count(*) AS members ORDER BY members DESC;
+
+// One hub's stamped subgraph — composition (edit the key)
+MATCH (d:Document) WHERE 'referral_procedures' IN d.topic_hubs
+RETURN d.category AS category, d.doc_type AS doc_type, count(*) AS n
+ORDER BY n DESC;
+
+// Visual: a hub's members and the link edges between them (edit the key)
+MATCH (a:Document) WHERE 'referral_procedures' IN a.topic_hubs
+OPTIONAL MATCH p = (a)-[:LINKS_TO]->(b:Document)
+WHERE 'referral_procedures' IN b.topic_hubs
+RETURN a, p LIMIT 300;
+
+// Preview a candidate hub's qualified 2-hop walk BEFORE confirming it
+// (edit the seed filter + qualifier to match the proposed walk)
+MATCH (s:Document)
+WHERE toLower(s.source_url) CONTAINS 'referral-procedures-human-medicines'
+MATCH p = (s)-[:LINKS_TO*1..2]->(t:Document)
+WHERE ALL(n IN nodes(p)[1..] WHERE
+      (n.category IN ['qa', 'scientific_guideline', 'regulatory_procedure', 'regulatory_overview']
+       OR n.doc_type IN [])
+      AND NOT coalesce(n.audience, '') IN ['Veterinary', 'Corporate'])
+WITH DISTINCT t
+RETURN t.category AS category, t.doc_type AS doc_type, count(*) AS n
+ORDER BY n DESC;

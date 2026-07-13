@@ -122,6 +122,9 @@ def build_ingested_doc(
         metadata["doc_type"] = meta_row.get("doc_type")
         metadata["audience"] = meta_row.get("audience")
         metadata["site_topic"] = meta_row.get("site_topic")
+        # Topic-subgraph membership (scripts/manage_topic_hubs.py build) rides
+        # the same join, so a graph rebuild keeps the stamps.
+        metadata["topic_hubs"] = meta_row.get("topic_hubs") or None
     base_meta = {
         "source_type": source_type,
         "committee": tm.committee,

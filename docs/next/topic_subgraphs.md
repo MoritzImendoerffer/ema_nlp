@@ -1,9 +1,17 @@
 # Plan: precomputed topic subgraphs — hub-seeded, metadata-qualified, budget-guarded context
 
-*Status: 📋 planned (2026-07-13) — feasibility **verified live** (§2 evidence); ready to
-execute. Complements [`metadata_steering.md`](metadata_steering.md) (which refines the
-signal for existing top-k steering); this plan adds the capability top-k structurally
-cannot provide: exhaustive, curated topic context.*
+*Status: 🚧 **steps 1–4 implemented + offline-tested** (2026-07-13, branch
+`claude/agentic-rag-foundation`) — config+loader (`configs/hubs/default.yaml`,
+`harness/retrieval/hubs.py`), membership build (`harness/indexing/subgraphs.py`,
+`upsert_topic_hubs`, `scripts/manage_topic_hubs.py`, `update_graph.py` step
+`subgraphs`, propagate), node metadata (`topic_hubs` on projection/ingest/entity),
+and the `topic_context` tool + `retrieval.subgraph` recipe keys + `topic_agent`
+recipe. **Steps 5–6 (live build + T2 eval) remain — GPU host.** Feasibility was
+**verified live** (§2 evidence). Complements
+[`metadata_steering.md`](metadata_steering.md) (which refines the signal for existing
+top-k steering); this plan adds the capability top-k structurally cannot provide:
+exhaustive, curated topic context. See `docs/RETRIEVAL.md` §7.1 for the shipped
+surface.*
 
 ## 1. Why
 

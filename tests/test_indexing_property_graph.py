@@ -232,6 +232,7 @@ def test_retriever_meta_carries_document_provenance():
                 "committee": "CHMP",
                 "reference_number": "EMA/CHMP/123/2021",
                 "source_type": "pdf",
+                "topic_hubs": ["referral_procedures"],
             },
             "parent": {"id": "parent-1", "text": "parent text (bigger window)"},
         },
@@ -248,6 +249,7 @@ def test_retriever_meta_carries_document_provenance():
     class _FakeStore:
         def structured_query(self, query, param_map=None):
             assert "d {.id, .source_url, .title, .topic_path" in query
+            assert ".topic_hubs}" in query  # membership rides the doc projection
             return rows
 
     class _FakeEmbed:
@@ -265,10 +267,12 @@ def test_retriever_meta_carries_document_provenance():
     assert meta["committee"] == "CHMP"
     assert meta["reference_number"] == "EMA/CHMP/123/2021"
     assert meta["category"] == "scientific_guideline"
+    assert meta["topic_hubs"] == ["referral_procedures"]
 
     meta2 = out[1].node.metadata
     assert meta2["source_url"] == "" and meta2["title"] == ""  # nulls never become "None"
     assert meta2["category"] == "other"
+    assert meta2["topic_hubs"] == []  # unstamped graph -> [], never None
 
 
 def test_entity_nodes_carry_persisted_category():
@@ -277,6 +281,18 @@ def test_entity_nodes_carry_persisted_category():
     by_url = {e.properties["source_url"]: e.properties for e in ents}
     assert by_url[guideline_url]["category"] == "scientific_guideline"
     assert by_url[_URL_A]["category"] == "other"
+
+
+def test_entity_nodes_carry_topic_hubs_when_joined():
+    """topic_hubs (the document_metadata join) persists on :Document; absent = no key."""
+    doc = _doc(_URL_A)
+    doc.metadata["topic_hubs"] = ["referral_procedures"]
+    doc.metadata["revision"] = "4"
+    ents, _chunks, _rels = to_graph([doc, _doc(_URL_B)])
+    by_url = {e.properties["source_url"]: e.properties for e in ents}
+    assert by_url[_URL_A]["topic_hubs"] == ["referral_procedures"]
+    assert by_url[_URL_A]["revision"] == "4"
+    assert "topic_hubs" not in by_url[_URL_B]  # None is _clean-ed, never persisted
 
 
 # --- HierarchicalPGRetriever steering (fake store, no Neo4j) ------------------
