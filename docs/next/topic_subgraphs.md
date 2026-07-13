@@ -6,8 +6,17 @@
 `upsert_topic_hubs`, `scripts/manage_topic_hubs.py`, `update_graph.py` step
 `subgraphs`, propagate), node metadata (`topic_hubs` on projection/ingest/entity),
 and the `topic_context` tool + `retrieval.subgraph` recipe keys + `topic_agent`
-recipe. **Steps 5–6 (live build + T2 eval) remain — GPU host.** Feasibility was
-**verified live** (§2 evidence). Complements
+recipe. **Step 5 ran live** (2026-07-13, GPU host): the referral hub walks to 49
+members, all 3 T2 gold docs among them (the §2 check re-run through shipped
+code — PASSED); membership stamped (config_hash `bd29a77fd0b6`) + propagated;
+`topic_context` verified live. **Step 6 T2 eval ran**: `topic_agent`
+**5.000/5.000** (correctness/faithfulness, 10 items; the agent called
+`topic_context` on 6/10) vs `steered_agent` **4.700/4.900** — both baseline
+drops were exactly the predicted cross-sibling completeness failures (fee
+questions answered from one Article-3x sibling). **Remaining: the T1/T3/T4
+no-regression sweep** — aborted on API credit exhaustion; rerun
+`scripts/run_eval.py --recipe {topic_agent,steered_agent} --types T1 T3 T4`
+after a top-up. Feasibility was **verified live** (§2 evidence). Complements
 [`metadata_steering.md`](metadata_steering.md) (which refines the signal for existing
 top-k steering); this plan adds the capability top-k structurally cannot provide:
 exhaustive, curated topic context. See `docs/RETRIEVAL.md` §7.1 for the shipped
