@@ -5,6 +5,14 @@ Each source document becomes an :class:`IngestedDoc`:
   - hierarchical chunk nodes (from ``chunking.chunk_document`` — parent/child kept)
   - ``links_to`` edges (from ``links.extract_links`` over the page's raw HTML)
 
+Authoritative labels (``doc_type`` / ``audience`` / ``site_topic``) are joined
+per URL from the Mongo ``document_metadata`` collection
+(``harness.indexing.document_metadata``, populated by
+``scripts/enrich_document_metadata.py``). When a page has no row there —
+enrichment not run, or a brand-new URL — badges fall back to live extraction
+from the page's raw HTML (``doc_type`` has no live fallback; it comes from the
+EMA JSON export only).
+
 This layer is pure data → IR; it needs no Neo4j and is unit-testable with
 mongomock. ``harness.indexing.property_graph`` (LIR-007) maps the IR into a
 Neo4j ``PropertyGraphIndex``.
@@ -12,6 +20,7 @@ Neo4j ``PropertyGraphIndex``.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -24,8 +33,11 @@ from corpus.metadata.text_metadata import text_metadata
 from corpus.metadata.url_metadata import url_metadata
 from harness.indexing.badges import extract_badges
 from harness.indexing.chunking import chunk_document, doc_id_for
+from harness.indexing.document_metadata import MetadataLookup, mongo_metadata_lookup
 from harness.indexing.links import ExtractedLink, extract_links
 from harness.indexing.profiles import ChunkingConfig, IndexProfile, ScopeConfig
+
+_log = logging.getLogger(__name__)
 
 PARSED_COLLECTION = "parsed_documents"
 WEB_ITEMS_COLLECTION = "web_items"
@@ -84,6 +96,7 @@ def build_ingested_doc(
     *,
     chunking: ChunkingConfig,
     html_lookup: HtmlLookup,
+    metadata_lookup: MetadataLookup | None = None,
 ) -> IngestedDoc:
     url = pd["url"]
     text = pd.get("text", "") or ""
@@ -101,6 +114,17 @@ def build_ingested_doc(
         "last_updated": tm.last_updated.isoformat() if tm.last_updated else None,
         "parser": pd.get("parser"),
     }
+    # Authoritative labels come from the enrichment collection when present;
+    # its values (including nulls) win over live derivation so the stored row
+    # is the single source of truth.
+    meta_row = metadata_lookup(url) if metadata_lookup else None
+    if meta_row is not None:
+        metadata["doc_type"] = meta_row.get("doc_type")
+        metadata["audience"] = meta_row.get("audience")
+        metadata["site_topic"] = meta_row.get("site_topic")
+        # Topic-subgraph membership (scripts/manage_topic_hubs.py build) rides
+        # the same join, so a graph rebuild keeps the stamps.
+        metadata["topic_hubs"] = meta_row.get("topic_hubs") or None
     base_meta = {
         "source_type": source_type,
         "committee": tm.committee,
@@ -116,9 +140,10 @@ def build_ingested_doc(
         html = html_lookup(url)
         if html:
             links = extract_links(html, url)
-            badges = extract_badges(html)
-            metadata["audience"] = badges.audience
-            metadata["site_topic"] = badges.site_topic
+            if meta_row is None:  # not enriched: derive badges live
+                badges = extract_badges(html)
+                metadata["audience"] = badges.audience
+                metadata["site_topic"] = badges.site_topic
 
     return IngestedDoc(
         doc_id=doc_id_for(url),
@@ -176,6 +201,7 @@ def ingest(
     *,
     mongo_client: MongoClient[Any] | None = None,
     html_lookup: HtmlLookup | None = None,
+    metadata_lookup: MetadataLookup | None = None,
 ) -> list[IngestedDoc]:
     """Build the IR (list of IngestedDoc) for ``profile`` from Mongo."""
     scope = profile.index.scope
@@ -184,9 +210,22 @@ def ingest(
     client: MongoClient[Any] = MongoClient(MONGO_URI) if owned else mongo_client  # type: ignore[assignment]
     try:
         lookup = html_lookup or mongo_html_lookup(client)
+        meta_lookup = metadata_lookup or mongo_metadata_lookup(client)
+        meta_misses = 0
+
+        def counted_meta_lookup(url: str) -> dict[str, Any] | None:
+            nonlocal meta_misses
+            row = meta_lookup(url)
+            if row is None:
+                meta_misses += 1
+            return row
+
         out: list[IngestedDoc] = []
         for row in iter_source_rows(scope, client=client):
-            doc = build_ingested_doc(row, chunking=chunking, html_lookup=lookup)
+            doc = build_ingested_doc(
+                row, chunking=chunking, html_lookup=lookup,
+                metadata_lookup=counted_meta_lookup,
+            )
             if not doc.chunk_nodes:  # empty / too-short text
                 continue
             if scope.committee and doc.metadata.get("committee") not in scope.committee:
@@ -194,6 +233,12 @@ def ingest(
             out.append(doc)
             if scope.limit and len(out) >= scope.limit:
                 break
+        if meta_misses:
+            _log.warning(
+                "document_metadata rows missing for %d URLs — doc_type absent there, "
+                "badges derived live; run scripts/enrich_document_metadata.py",
+                meta_misses,
+            )
         return out
     finally:
         if owned:

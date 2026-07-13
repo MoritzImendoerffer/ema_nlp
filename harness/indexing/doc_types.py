@@ -13,7 +13,11 @@ lists every published document with a curated ``type`` (85 values —
 keyed by ``document_url``. Hashing that URL with ``doc_id_for`` joins it to our
 ``:Document.id``: measured 2026-07-12, the ``documents`` export covers 96.6% of
 our 57,925 PDF nodes (HTML pages are not in this export — they carry the
-``ema-bg-*`` badges instead; see ``harness.indexing.badges``).
+``ema-bg-*`` badges instead; see ``harness.indexing.badges``). The parsed map
+is persisted per-URL in Mongo ``document_metadata``
+(``harness.indexing.document_metadata``, written by
+``scripts/enrich_document_metadata.py``) and joined at ingest / propagated to
+an existing graph from there.
 
 The export is *almost* JSON but ships malformed: array elements are separated by
 whitespace instead of commas, and some ``name`` values contain unescaped quotes
@@ -26,8 +30,6 @@ from __future__ import annotations
 
 import re
 
-from harness.indexing.chunking import doc_id_for
-
 DOCUMENTS_JSON_URL = (
     "https://www.ema.europa.eu/en/documents/report/documents-output-json-report_en.json"
 )
@@ -37,12 +39,13 @@ _URL_RE = re.compile(r'"document_url"\s*:\s*"([^"]*)"')
 _TYPE_RE = re.compile(r'"type"\s*:\s*"([^"]*)"')
 
 
-def parse_document_types(raw: str) -> dict[str, str]:
-    """Map ``doc_id -> type`` from the raw EMA documents JSON export text.
+def parse_document_types_by_url(raw: str) -> dict[str, str]:
+    """Map ``document_url -> type`` from the raw EMA documents JSON export text.
 
     Tolerant of the export's malformed structure (see module docstring). Records
     without a ``document_url`` are skipped; on a duplicate URL the last type
-    wins. ``type`` may be an empty string when the export omits it.
+    wins. ``type`` may be an empty string when the export omits it. Hash the URL
+    with ``doc_id_for`` when a ``:Document.id``-keyed map is needed.
     """
     out: dict[str, str] = {}
     for rec in _RECORD_RE.findall(raw):
@@ -53,5 +56,5 @@ def parse_document_types(raw: str) -> dict[str, str]:
         if not url:
             continue
         m_type = _TYPE_RE.search(rec)
-        out[doc_id_for(url)] = m_type.group(1).strip() if m_type else ""
+        out[url] = m_type.group(1).strip() if m_type else ""
     return out

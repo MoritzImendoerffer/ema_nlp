@@ -19,6 +19,7 @@ from typing import Any
 import yaml
 
 from harness.config_paths import find_config
+from harness.retrieval.subgraphs import SubgraphPolicy
 
 log = logging.getLogger(__name__)
 
@@ -112,6 +113,7 @@ class Recipe:
     index_profile: str = "neo4j_hier"
     pipeline: str | None = None  # configs/retrieval/<name>.yaml, or None = plain retrieve
     routing: str | None = None  # configs/routing/<name>.yaml, or None = no query routing
+    subgraph: SubgraphPolicy = field(default_factory=SubgraphPolicy)
     fewshot: FewshotPolicy = field(default_factory=FewshotPolicy)
     # generation
     model: str = "claude_opus"  # models.yaml model name
@@ -169,6 +171,18 @@ class Recipe:
             "pipeline": self.pipeline or "none",
             "routing": self.routing or "none",
         }
+        # The topic-subgraph layer runs iff the topic_context tool is in the
+        # toolset; stamp its guardrails exactly then — a recipe without the
+        # tool reads as a plain "none", never implying the layer ran.
+        if "topic_context" in self.tools:
+            retrieval["subgraph"] = {
+                "hubs": self.subgraph.hubs,
+                "context": self.subgraph.context,
+                "max_tokens": self.subgraph.max_tokens,
+                "page_size": self.subgraph.page_size,
+            }
+        else:
+            retrieval["subgraph"] = "none"
         if retrieval_k is not None:
             retrieval["k"] = retrieval_k
 
@@ -199,17 +213,26 @@ def _recipe_from_dict(name: str, d: dict[str, Any]) -> Recipe:
     retr = d.get("retrieval", {}) or {}
     gen = d.get("generation", {}) or {}
 
+    tools = list(orch.get("tools", ["ema_search"]))
+    if retr.get("subgraph") and "topic_context" not in tools:
+        # The subgraph keys only configure the topic_context tool — a recipe
+        # that sets them without the tool declares a layer that cannot run.
+        raise ValueError(
+            f"recipe {name!r} sets retrieval.subgraph but 'topic_context' is not in "
+            f"orchestration.tools {tools} — add the tool or drop the keys"
+        )
     return Recipe(
         name=name,
         label=str(d.get("label", "")),
         description=str(d.get("description", "")),
         default=bool(d.get("default", False)),
         system_prompt=orch.get("system_prompt", "agent_regulatory.md"),
-        tools=list(orch.get("tools", ["ema_search"])),
+        tools=tools,
         output_schema=orch.get("output_schema", "RegulatoryAnswer"),
         index_profile=retr.get("index_profile", "neo4j_hier"),
         pipeline=_normalize_pipeline(retr.get("pipeline")),
         routing=_normalize_pipeline(retr.get("routing")),
+        subgraph=SubgraphPolicy.from_dict(retr.get("subgraph")),
         fewshot=FewshotPolicy.from_dict(retr.get("fewshot")),
         model=gen.get("model", "claude_opus"),
         temperature=float(gen.get("temperature", 0.0)),

@@ -1,7 +1,6 @@
-"""Unit tests for harness.indexing.doc_types (EMA JSON export → doc_type join)."""
+"""Unit tests for harness.indexing.doc_types (EMA JSON export → doc_type parse)."""
 
-from harness.indexing.chunking import doc_id_for
-from harness.indexing.doc_types import parse_document_types
+from harness.indexing.doc_types import parse_document_types_by_url
 
 # Mirrors the real export's quirks: records separated by WHITESPACE not commas,
 # and a `name` with an unescaped inner quote — a whole-file json.loads would fail.
@@ -17,32 +16,28 @@ _EXPORT = """
 """
 
 
-def test_parses_type_by_doc_id_despite_malformed_json():
-    got = parse_document_types(_EXPORT)
+def test_parses_type_by_url_despite_malformed_json():
+    got = parse_document_types_by_url(_EXPORT)
     url1 = "https://www.ema.europa.eu/en/documents/assessment-report/keytruda_en.pdf"
     url2 = "https://www.ema.europa.eu/en/documents/product-information/keytruda-epar-product-information_en.pdf"
-    assert got[doc_id_for(url1)] == "assessment-report"
-    assert got[doc_id_for(url2)] == "product-information"
+    assert got[url1] == "assessment-report"
+    assert got[url2] == "product-information"
 
 
 def test_records_without_url_are_skipped():
     # only the two records carrying a document_url survive
-    assert len(parse_document_types(_EXPORT)) == 2
+    assert len(parse_document_types_by_url(_EXPORT)) == 2
 
 
 def test_missing_type_is_empty_string():
-    export = (
-        '{"data":['
-        '{"id":"9","document_url":"https://www.ema.europa.eu/en/documents/other/x_en.pdf"}'
-        "]}"
-    )
     url = "https://www.ema.europa.eu/en/documents/other/x_en.pdf"
-    assert parse_document_types(export) == {doc_id_for(url): ""}
+    export = f'{{"data":[{{"id":"9","document_url":"{url}"}}]}}'
+    assert parse_document_types_by_url(export) == {url: ""}
 
 
 def test_empty_input():
-    assert parse_document_types("") == {}
-    assert parse_document_types('{"data":[]}') == {}
+    assert parse_document_types_by_url("") == {}
+    assert parse_document_types_by_url('{"data":[]}') == {}
 
 
 def test_duplicate_url_last_type_wins():
@@ -51,4 +46,4 @@ def test_duplicate_url_last_type_wins():
         f'{{"data":[{{"type":"report","document_url":"{url}"}} '
         f'{{"type":"overview","document_url":"{url}"}}]}}'
     )
-    assert parse_document_types(export) == {doc_id_for(url): "overview"}
+    assert parse_document_types_by_url(export) == {url: "overview"}

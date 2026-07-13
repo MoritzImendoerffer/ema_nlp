@@ -110,6 +110,14 @@ def get_llm_for_model(model_name: str, temperature_override: float | None = None
     raise ValueError(f"Unknown provider '{provider}' for model '{model_name}'.")
 
 
+# Model-id prefixes the Anthropic API rejects `temperature` for (HTTP 400
+# "`temperature` is deprecated for this model" — the Claude 5 family). The
+# installed llama-index ANTHROPIC_NO_TEMP_MODELS list covers only opus-4-7/4-8,
+# so the wrapper strips it for these too. Prefix match (not substring): a
+# substring "-5" would wrongly hit claude-haiku-4-5.
+_NO_TEMPERATURE_PREFIXES = ("claude-sonnet-5", "claude-fable-5", "claude-mythos-5")
+
+
 def _make_anthropic(model_id: str, temperature: float, max_tokens: int) -> LLM:
     try:
         from llama_index.llms.anthropic import Anthropic
@@ -138,7 +146,41 @@ def _make_anthropic(model_id: str, temperature: float, max_tokens: int) -> LLM:
            loses the row's trace (``eval_item.trace is None`` crash). Converting
            ``raw`` to plain JSON-able data right after each call makes responses
            serialization-safe; per-object ``model_dump()`` works fine individually.
+
+        Plus two API-evolution shims for the Claude 5 family (2026-07-13),
+        which the installed library's static model tables predate:
+
+        3. Claude 5 models deprecate the ``temperature`` request field (400 on
+           any value); ``_model_kwargs`` drops it for
+           :data:`_NO_TEMPERATURE_PREFIXES` matches.
+        4. ``metadata`` falls back to correct Claude-5 values when the
+           library's ``anthropic_modelname_to_contextsize`` raises "Unknown
+           model" — without this the agent path dies on the lookup, and the
+           library's ``is_function_calling_model`` ("-3"/"-4" substring check)
+           would silently disable tool calling for Claude 5 names.
         """
+
+        @property
+        def _model_kwargs(self) -> dict:
+            kwargs = super()._model_kwargs
+            if str(self.model).startswith(_NO_TEMPERATURE_PREFIXES):
+                kwargs.pop("temperature", None)
+            return kwargs
+
+        @property
+        def metadata(self) -> Any:
+            try:
+                return super().metadata
+            except ValueError:  # model newer than the library's static table
+                from llama_index.core.llms import LLMMetadata
+
+                return LLMMetadata(
+                    context_window=200_000,  # Claude 5 family context window
+                    num_output=self.max_tokens,
+                    is_chat_model=True,
+                    model_name=self.model,
+                    is_function_calling_model=True,
+                )
 
         @staticmethod
         def _plain(value: Any) -> Any:

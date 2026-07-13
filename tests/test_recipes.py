@@ -204,3 +204,34 @@ def test_routing_defaults_to_none_and_stamps_honestly():
     r = get_recipe("naive_rag")
     assert r.routing is None
     assert r.resolved_attributes()["ema.retrieval.routing"] == "none"
+
+
+def test_topic_agent_recipe_parses_subgraph_policy():
+    r = get_recipe("topic_agent")
+    assert "topic_context" in r.tools
+    assert r.subgraph.context == "chunks"
+    assert r.subgraph.max_tokens == 4000
+    assert r.subgraph.page_size == 25
+    attrs = r.resolved_attributes()
+    assert attrs["ema.retrieval.subgraph.context"] == "chunks"
+    assert attrs["ema.retrieval.subgraph.hubs"] == "default"
+    assert attrs["ema.retrieval.subgraph.max_tokens"] == 4000
+
+
+def test_subgraph_stamps_none_without_the_tool():
+    r = get_recipe("steered_agent")
+    assert r.resolved_attributes()["ema.retrieval.subgraph"] == "none"
+
+
+def test_subgraph_keys_without_tool_rejected():
+    # The keys only configure topic_context — declaring them without the tool
+    # would stamp a layer that cannot run.
+    with pytest.raises(ValueError, match="topic_context"):
+        _recipe_from_dict("x", {"retrieval": {"subgraph": {"context": "map"}}})
+
+
+def test_subgraph_unknown_context_rejected():
+    from harness.retrieval.subgraphs import SubgraphPolicy
+
+    with pytest.raises(ValueError, match="subgraph.context"):
+        SubgraphPolicy.from_dict({"context": "summaries"})

@@ -59,6 +59,19 @@ def capture_search_nodes() -> Iterator[list]:
         _NODE_SINK.reset(token)
 
 
+def sink_nodes(nodes: list) -> None:
+    """Append retrieved nodes to the active :func:`capture_search_nodes` sink.
+
+    No-op when no capture scope is active. Shared by every retrieval-shaped
+    tool (``ema_search``, ``corrective_search``, ``topic_context``) so the
+    runner's citation provenance sees ALL evidence the agent pulled, whichever
+    tool fetched it.
+    """
+    sink = _NODE_SINK.get()
+    if sink is not None:
+        sink.extend(nodes)
+
+
 def passages_from_nodes(nodes: list) -> list[str]:
     """Full passage texts from captured ``NodeWithScore`` objects (empties dropped).
 
@@ -196,9 +209,7 @@ def build_ema_search_tool(
         elif categories and mode == "prefer":
             nodes = sort_by_category_priority(nodes, categories)
 
-        sink = _NODE_SINK.get()
-        if sink is not None:
-            sink.extend(nodes)
+        sink_nodes(nodes)
         body = format_nodes(nodes)
         return "\n".join(notes) + ("\n\n" if notes else "") + body
 

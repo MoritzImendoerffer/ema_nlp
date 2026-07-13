@@ -9,6 +9,7 @@ import mongomock
 import pytest
 
 from config import MONGO_DB
+from harness.indexing.document_metadata import upsert_badges, upsert_doc_types
 from harness.indexing.ingest import PARSED_COLLECTION, ingest
 from harness.indexing.profiles import (
     ChunkingConfig,
@@ -24,6 +25,7 @@ _HTML_RAW = f"""
 <html><body>
   <header><nav><a href="/en/about-us/cookies">chrome (ignored)</a></nav></header>
   <main class="main-content-wrapper">
+    <span class="ema-bg-category"><span class="label">Human</span></span>
     <p>See <a href="{_PDF_URL}">the QA PDF</a> and an
        <a href="https://www.fda.gov/x">external</a> reference.</p>
   </main>
@@ -126,3 +128,26 @@ def test_limit_caps_results(client):
 def test_committee_scope_filter(client):
     docs = ingest(_profile(committee=["CHMP"]), mongo_client=client, html_lookup=_html_lookup)
     assert [d.source_url for d in docs] == [_PDF_URL]   # only the CHMP doc survives
+
+
+# --- document_metadata join (doc_type / audience / site_topic) ---------------
+
+
+def test_metadata_row_joined_onto_doc(client):
+    upsert_doc_types({_PDF_URL: "scientific-guideline"}, client=client)
+    upsert_badges(
+        [{"url": _HTML_URL, "audience": "Veterinary", "site_topic": "Pharmacovigilance"}],
+        client=client,
+    )
+    by_url = {d.source_url: d for d in ingest(_profile(), mongo_client=client, html_lookup=_html_lookup)}
+    assert by_url[_PDF_URL].metadata["doc_type"] == "scientific-guideline"
+    # the stored row wins over the live badge in the fixture HTML ("Human")
+    assert by_url[_HTML_URL].metadata["audience"] == "Veterinary"
+    assert by_url[_HTML_URL].metadata["site_topic"] == "Pharmacovigilance"
+
+
+def test_without_enrichment_badges_fall_back_to_live_extraction(client):
+    by_url = {d.source_url: d for d in ingest(_profile(), mongo_client=client, html_lookup=_html_lookup)}
+    assert by_url[_HTML_URL].metadata["audience"] == "Human"   # from _HTML_RAW badge
+    assert by_url[_HTML_URL].metadata["site_topic"] is None
+    assert by_url[_PDF_URL].metadata.get("doc_type") is None   # no live source for doc_type
