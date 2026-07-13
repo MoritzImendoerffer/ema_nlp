@@ -1,16 +1,20 @@
 # Recipes — the config-driven retrieve→generate engine
 
-A **recipe** is the single, config-file description of one pipeline. Every "workflow" in
-the app is now one agent-centric recipe: a LlamaIndex `FunctionAgent` configured by YAML +
-an instruction-led prompt. Recipes are what the Chainlit dropdown lists, what `build_recipe`
-assembles, and what gets stamped (honestly) on every MLflow trace.
+A **recipe** is one YAML file that describes one pipeline. It configures the single engine —
+a LlamaIndex `FunctionAgent` — with a system prompt, a tool list, and retrieval/generation
+settings. Recipes are what the Chainlit dropdown lists, what `build_recipe` assembles, and
+what gets stamped (honestly) on every MLflow trace.
 
-Design principle: **orchestration is prescribed by the recipe (prompt + config); the agent
-does not improvise it.** RAG techniques are realized as *tools + instructions* (see
-[`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md)); the recipe says which tools the agent has and how
-the prompt tells it to use them. Adherence is verified *retrospectively* (the MLflow trace
-shows which tools ran; the optional judge layer scores the answer) rather than enforced by
-hand-rolled control flow.
+The design principle: **the recipe prescribes the orchestration; the agent does not
+improvise it.** RAG techniques are realized as *tools + instructions* (see
+[`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md)) — the recipe lists the agent's tools, and the
+prompt tells it when to use them. Adherence is checked *afterwards* (the MLflow trace shows
+which tools actually ran; the optional judge layer scores the answer), not enforced by
+hand-written control flow.
+
+> **Try it live:** notebook [`docs/examples/03_routing_and_full_agent.ipynb`](examples/03_routing_and_full_agent.ipynb)
+> §3 builds a recipe with `build_recipe` and runs it headless — the same path the chat UI
+> uses, from plain Python.
 
 ## Where recipes live
 

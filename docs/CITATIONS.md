@@ -1,11 +1,6 @@
 # Citations: attribution, SME review, export, and source-type priority
 
-*(Landed 2026-07-07 — approved plan `PLAN_citations_export_sme_review.md`; the
-"chat UI vs dedicated review tool" question was settled by a deep-research pass:
-MLflow's Review App is Databricks-gated, Argilla is in maintenance mode,
-Label Studio/Langfuse would add a second service without two-sided span
-highlighting — so the review surface lives in the chat app and feedback goes
-straight to MLflow.)*
+The review surface lives in the chat app, and feedback goes straight to MLflow.[^why]
 
 ## 1. The attribution model (`harness/attribution.py`)
 
@@ -139,3 +134,8 @@ The full ordered checklist (retriever provenance, eval-runner smoke, the UI walk
 markers, review panel, verdict→assessment, export, resume — and the
 `doc_type_priority` live check) is
 [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md) **§8, "The 2026-07-07 walk"**.
+
+[^why]: Landed 2026-07-07 (plan `PLAN_citations_export_sme_review.md`). Why in the chat app
+    rather than a dedicated tool: MLflow's Review App is Databricks-gated, Argilla is in
+    maintenance mode, and Label Studio / Langfuse would add a second service without two-sided
+    span highlighting.

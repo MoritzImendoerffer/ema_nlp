@@ -1,18 +1,13 @@
 # Retrieval — hierarchical PropertyGraphIndex on Neo4j
 
-Operator's guide to the LlamaIndex-first retrieval stack introduced in the
-`refactor/llamaindex-retrieval-pipeline` work (work unit
-`2026-05-30_20_llamaindex-retrieval-refactor`). It replaces the former
-Postgres + pgvector path (and the even older FAISS-over-`corpus.jsonl` path),
-both of which are removed.
+The operator's guide to the retrieval stack. `harness/indexing/` builds a hierarchical
+LlamaIndex `PropertyGraphIndex` in Neo4j, and `HierarchicalPGRetriever` serves results over
+the **full graph**: 79,882 `:Document` nodes, 5.82M leaf-embedded chunks, and 99,520
+`LINKS_TO` edges. The recipe engine and the chat UI both read through this retriever.[^refactor]
 
-> **Refactor status (2026-06-04). Complete.** `harness/indexing/` builds a
-> hierarchical `PropertyGraphIndex` in Neo4j and the `HierarchicalPGRetriever`
-> returns results over the **full graph** (79,882 `:Document`, 5.82M leaf-embedded
-> chunks, 99,520 `LINKS_TO` edges). The recipe engine (`harness/recipes/` → a
-> `FunctionAgent`) and the chat UI (`app.py`) consume the LlamaIndex retriever
-> (LIR-009/010), and the old pgvector/FAISS stack has been deleted (LIR-012). Track in
-> [the work unit](../.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json).
+> **Try it live:** the notebooks in [`docs/examples/`](examples/README.md) drive this whole
+> stack headless — source categories + backfill (01), retriever filters/quotas/expansion (02),
+> routing + the full `steered_agent` recipe (03), and the topic-subgraphs eval (04).
 
 ---
 
@@ -289,15 +284,12 @@ expansion targeting operate on — run the backfill once before enabling them.**
 
 ### Authoritative enrichment — `doc_type`, `audience`, `site_topic`
 
-`category` is a coarse URL-derived label. Two EMA-published sources add
-authoritative, finer metadata. Since 2026-07-13 the labels are **canonical in
-Mongo `document_metadata`** (one row per URL, with per-label-group provenance
-timestamps) — the graph is a projection of that row, never the only holder:
-`scripts/enrich_document_metadata.py` derives the labels post-scrape, ingest
+`category` is a coarse, URL-derived label. Two EMA-published sources add finer,
+authoritative metadata. These labels are canonical in Mongo `document_metadata` (one row per
+URL, with provenance timestamps); the graph is a projection of that row. Three scripts keep
+them in sync: `scripts/enrich_document_metadata.py` derives the labels after a scrape, ingest
 joins them so **new builds stamp all three on `:Document`**, and
-`scripts/propagate_metadata_to_graph.py` patches an existing graph without a
-rebuild. *(This replaced the graph-only `backfill_doc_{types,badges}.py`
-scripts, under which a graph rebuild silently lost `doc_type`.)*
+`scripts/propagate_metadata_to_graph.py` patches an existing graph without a rebuild.[^backfill]
 
 - **`:Document.doc_type`** — EMA's own document type (85 values, e.g.
   `assessment-report`, `product-information`, `scientific-guideline`), from
@@ -425,9 +417,11 @@ backfill (01), retriever-level filters/quotas/expansion (02), routing + the full
 
 ### 7.1 Precomputed topic subgraphs (`topic_context`)
 
-> Status 2026-07-13: **implemented + offline-tested; NOT yet built or verified
-> live** (membership stamping + the T2 eval need the GPU host — steps 5–6 of
-> [`docs/next/topic_subgraphs.md`](next/topic_subgraphs.md), which is the full design).
+> Status 2026-07-13: **built and evaluated live.** Membership is stamped on the graph and the
+> `topic_context` tool is verified; the T2 head-to-head ran (`topic_agent` 5.000/5.000 vs the
+> `steered_agent` baseline 4.700/4.900). Full design + results:
+> [`docs/next/topic_subgraphs.md`](next/topic_subgraphs.md) and
+> [`docs/eval/2026-07-13_topic_subgraphs.md`](eval/2026-07-13_topic_subgraphs.md).
 
 Top-k retrieval structurally cannot answer scoping/comparison (T2) or
 exhaustive-enumeration questions — it returns the *best-matching* members of a
@@ -523,3 +517,11 @@ to an LLM extractor; the build passes `llm=MockLLM()` to avoid it. Use
 **Mongo unreachable / `parsed_documents` empty.** Bring up Mongo
 (`scripts/start_services.sh`); seed the verify subset with
 `scripts/backfill_parsed_documents_subset.py`.
+
+[^refactor]: This LlamaIndex-first stack (work unit `2026-05-30_20_llamaindex-retrieval-refactor`,
+    completed 2026-06-04) replaced a Postgres + pgvector path and a still-earlier
+    FAISS-over-`corpus.jsonl` path, both now deleted. Track it in
+    [the work unit](../.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json).
+
+[^backfill]: These labels replaced the graph-only `backfill_doc_{types,badges}.py` scripts,
+    under which a graph rebuild silently lost `doc_type`.

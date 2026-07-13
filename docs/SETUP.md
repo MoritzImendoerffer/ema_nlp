@@ -5,8 +5,6 @@ How to get `ema_nlp` running on a new machine (Linux/macOS).
 > **Retrieval stack (Neo4j PropertyGraphIndex):** see [`docs/RETRIEVAL.md`](RETRIEVAL.md)
 > for provisioning, env vars, the node/graph model, build + retrieve, and
 > troubleshooting. Data services (MongoDB + Neo4j) start via `scripts/start_services.sh`.
-> *(The former Postgres+pgvector / FAISS-over-corpus retrieval was deleted in the
-> LlamaIndex/Neo4j refactor — LIR-012.)*
 
 ---
 

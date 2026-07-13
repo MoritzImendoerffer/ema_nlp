@@ -13,6 +13,11 @@ Reading order after this file:
 [`ARCHITECTURE.md`](ARCHITECTURE.md) (module map + stores) →
 [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md) (the GPU-host walk that is the next step).
 
+**Prefer to learn by running code?** The runnable notebooks in
+[`docs/examples/`](examples/README.md) drive this whole stack headless — source categories,
+retriever steering, routing, the full agent, and the topic-subgraphs eval — one concept per
+notebook.
+
 ---
 
 ## 1. What this project is (in three sentences)
@@ -87,9 +92,8 @@ flowchart TB
     end
 ```
 
-Three things intentionally *not* in the picture because they don't exist: no second
-retrieval store (pgvector/FAISS document indexes were deleted), no per-technique workflow
-engines (deleted 2026-06-25), no second observability system (Phoenix removed 2026-06-22).
+Three things are intentionally *not* in the picture, because they no longer exist: a second
+retrieval store, per-technique workflow engines, and a second observability system.[^deleted]
 
 ---
 
@@ -325,3 +329,7 @@ click-through — results + the three defects it caught are in
 Known frictions on the GPU host: the 3090 can wedge its GSP firmware under sustained CUDA
 load (throttle long builds; see machine memory), and `git push` may need a credentialed
 machine.
+
+[^deleted]: The Postgres/pgvector and FAISS document indexes were deleted in the Neo4j
+    refactor; the per-technique workflow engines were deleted 2026-06-25; Arize Phoenix was
+    removed 2026-06-22 (MLflow is now the only tracing + feedback backend).

@@ -2,16 +2,11 @@
 
 A Q&A benchmark and reference RAG implementations built from European Medicines Agency (EMA) human-regulatory content.
 
-**Goal:** Build a shareable benchmark from EMA Q&A documents and measure where expert effort actually pays off in agentic RAG pipelines — corpus quality, retrieval filtering, agent planning, and prompting strategy.
+**Goal:** build a shareable benchmark from EMA Q&A documents and measure where expert effort actually pays off in agentic RAG pipelines — corpus quality, retrieval filtering, agent planning, and prompting strategy.
 
-> ✅ **Retrieval refactor complete** (branch `refactor/llamaindex-retrieval-pipeline`).
-> The retrieval layer was rebuilt **LlamaIndex-first**: a hierarchical
-> `PropertyGraphIndex` on **Neo4j** replaced the former Postgres + pgvector and FAISS
-> paths, which are now deleted. The full graph is built (79,882 docs) and the
-> recipe engine + chat UI consume the retriever.
-> See **[docs/RETRIEVAL.md](docs/RETRIEVAL.md)** and the work unit
-> [`2026-05-30_20_llamaindex-retrieval-refactor`](.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json).
-> Pre-refactor state is preserved on `main` and `archive/pre-llamaindex-refactor`.
+> **Retrieval runs on Neo4j.** All ~80,000 EMA documents are chunked, embedded, and stored
+> as a hierarchical LlamaIndex `PropertyGraphIndex` in Neo4j; the recipe engine and the chat
+> UI read from it. See **[docs/RETRIEVAL.md](docs/RETRIEVAL.md)**.[^refactor]
 
 ## Deliverables
 
@@ -29,6 +24,7 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 "life of a question", and where everything lives. Then, in reading order:
 
 - **[Recipes →](docs/RECIPES.md)** — configure pipelines via YAML, with worked examples (simple RAG, reproducing the CRAG paper, the kitchen sink)
+- **[Examples (notebooks) →](docs/examples/README.md)** — runnable Jupyter notebooks that drive the pipeline headless, one concept at a time
 - **[Retrieval →](docs/RETRIEVAL.md)** — Neo4j PropertyGraphIndex: node/graph model, config profiles, build + retrieve
 - **[Citations →](docs/CITATIONS.md)** — claim-span attribution, the SME review panel, per-citation feedback, Markdown/HTML export
 - **[Architecture →](docs/ARCHITECTURE.md)** — module map, data flow, MongoDB collections
@@ -40,26 +36,27 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 
 ## Current status
 
-**Phase 1 — corpus extraction complete.** `corpus/corpus.jsonl`: 26,251 Q&A records (17,505 HTML accordion + 8,746 PDF). 65,263 parsed PDFs in MongoDB `parsed_pdfs`.
+**In one line:** the system works end-to-end — ask a question in the chat and get a cited,
+structured answer over ~80,000 EMA documents. What is still missing is the *benchmark
+result*: the closed-book baseline and the **lift** metric that turn "it works" into "here
+are the numbers".
 
-**Phase 2 — benchmark drafted.** `benchmark/benchmark.jsonl`: 45 items (20×T1, 10×T2, 10×T3, 5×T4).
+| Phase | Status | Where it stands |
+|---|---|---|
+| 1 · Corpus | ✅ done | `corpus/corpus.jsonl` — 26,251 Q&A pairs (17,505 HTML accordion + 8,746 PDF) |
+| 2 · Benchmark | 🟡 drafted | `benchmark/benchmark.jsonl` — 45 questions (20 T1 / 10 T2 / 10 T3 / 5 T4); the contamination screen is still to do |
+| 3 · Retrieval + eval | 🟡 partial | retrieval, the answering engine, and the eval runner are live and MLflow-traced; the closed-book baseline + lift metric are the next build |
+| 4 · Ablations | ◻ planned | methodology is fixed; the agent for Ablation B already exists |
 
-**Retrieval refactor (complete).** Retrieval is LlamaIndex-first on Neo4j:
-- ✅ `harness/indexing/` — config profiles + registry, hierarchical chunker, link extractor, Mongo→IR ingestion, Neo4j PropertyGraphIndex build + `HierarchicalPGRetriever` (small-to-big + `links_to`). 36 unit tests; built live over the full corpus (79,882 docs).
-- ✅ The recipe engine + chat UI consume the retriever (LIR-009/010, workflows since retired); the old pgvector/FAISS stack is deleted (LIR-012).
-- ✅ The **eval suite is rebuilt** (2026-07-04): `harness/eval/runner.py` + `scripts/run_eval.py` run a recipe over `benchmark/benchmark.jsonl` — one MLflow run per question type (T1–T4) with `mlflow.genai` judges. *(The pre-refactor suite remains archived on `archive/pre-llamaindex-refactor`; ablations + the lift metric are still TODO.)*
+**How answering works.** There is one engine: a LlamaIndex `FunctionAgent`. A **recipe** — a
+single YAML file — configures it: system prompt, tools, retrieval, model. Different RAG
+techniques are different recipes, not different code. Naive RAG is the agent with one
+`ema_search` tool; CRAG adds a `corrective_search` tool (a bounded grade-and-rewrite loop);
+ReAct is the agent's own tool loop. Answers are structured (a `RegulatoryAnswer`) and carry
+clickable `[n]` citations, an SME review panel, and Markdown/HTML export. Every turn is one
+MLflow trace, stamped with the exact recipe that produced it.[^engine]
 
-**Recipe engine — single-engine agentic RAG (branch `claude/agentic-rag-foundation`).** There is **one engine**: a LlamaIndex `FunctionAgent`. The UI/eval select a **recipe** (`harness/configs/recipes/*.yaml` + `$EMA_CONFIG_DIR`) = orchestration (system prompt + tools + output schema) + retrieval (index profile + optional pipeline + few-shot) + generation + an optional inline judge. RAG *techniques are tools + instructions* — Naive RAG → `ema_search`; **CRAG → `corrective_search`** (a bounded grade/rewrite loop); ReAct → the agent's tool loop. Structured `RegulatoryAnswer` output, MLflow autolog + `mlflow.genai` judges, and typed ontology enrichment live under `harness/{schemas,tools,agents,retrieval,recipes,obs,ontology,eval}/`. A single Chainlit **recipe dropdown** drives it; the resolved recipe is stamped honestly on every MLflow trace (Arize Phoenix was fully removed in the 2026-06-22 migration). **The legacy `harness/workflows/*` Workflow engine was retired (2026-06-25).** Start here: **[docs/RECIPES.md](docs/RECIPES.md)** + **[docs/RAG_TECHNIQUES.md](docs/RAG_TECHNIQUES.md)**; design in **[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md)**.
-
-**Citations, SME review & export (2026-07-07).** Answers carry clickable `[n]` citation
-markers anchored to **verbatim claim spans** (`harness/attribution.py`); each answer has a
-persistent **🔍 citation-review panel** (side-by-side answer/source view; per-citation
-supports/partial/no verdicts + source-type preference, logged as MLflow assessments) and a
-**⬇ Export** action producing config-driven Markdown/HTML (self-contained, two-way
-span↔reference highlighting). A deterministic `doc_type_priority` reranker makes source-type
-preferences (guidelines before EPARs) enforceable per recipe. See **[docs/CITATIONS.md](docs/CITATIONS.md)**.
-
-See `.claude/work/` for work unit logs.
+See `docs/next/` for what gets built next, and `.claude/work/` for work-unit logs.
 
 ## Stack
 
@@ -104,3 +101,7 @@ See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the detailed flow and *
 ## License
 
 Code: MIT. Corpus and benchmark data: CC-BY-4.0 (EMA content reproduced under EMA terms; cite both this repo and EMA).
+
+[^refactor]: The Neo4j store replaced an earlier Postgres + pgvector store and a still-earlier FAISS index over `corpus.jsonl`, both now deleted. Pre-refactor state is preserved on `main` and `archive/pre-llamaindex-refactor`; the change is tracked in work unit [`2026-05-30_20_llamaindex-retrieval-refactor`](.claude/work/2026-05-30_20_llamaindex-retrieval-refactor/state.json).
+
+[^engine]: The agent is the only engine (branch `claude/agentic-rag-foundation`). It replaced a 7-workflow engine (deleted 2026-06-25) and Arize Phoenix tracing (removed 2026-06-22, in favour of MLflow). The eval runner was rebuilt on 2026-07-04 and first ran live on 2026-07-13. Full detail: [docs/RECIPES.md](docs/RECIPES.md), [docs/RAG_TECHNIQUES.md](docs/RAG_TECHNIQUES.md), [docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md).

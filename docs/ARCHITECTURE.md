@@ -2,12 +2,8 @@
 
 How the project stores, processes, and retrieves data — from raw scrape to chat answer.
 
-> ✅ **Retrieval refactor landed.** Retrieval is LlamaIndex-first on **Neo4j**
-> (hierarchical `PropertyGraphIndex`), replacing the former Postgres+pgvector and FAISS
-> paths. The offline pipeline (`harness/indexing/`) is built and the full graph indexed;
-> the workflow + chat-UI re-seam (LIR-009/010) and old-stack deletion (LIR-012) are
-> **complete** — `harness/retrieve*.py`, `harness/embed*.py`, and `harness/pg/` are gone.
-> See **[RETRIEVAL.md](RETRIEVAL.md)**.
+> **Retrieval is LlamaIndex-first on Neo4j** — a hierarchical `PropertyGraphIndex` built by
+> `harness/indexing/` over the full corpus. See **[RETRIEVAL.md](RETRIEVAL.md)**.[^refactor]
 
 ---
 
@@ -147,12 +143,10 @@ cards, attaches the **🔍 citation-review panel** (per-citation SME verdicts �
 autolog + `harness.obs.tracing.traced`) and the feedback stack (`query_cache.py`,
 `fewshot_inject.py`) are **kept**. Citations/review/export details: [CITATIONS.md](CITATIONS.md).
 
-> **Refactor status (LIR-010 done, 2026-06-02):** `app.py` now loads the Neo4j
-> `PropertyGraphIndex` via `EMA_INDEX_PROFILE` and builds a `HierarchicalPGRetriever`
-> (the old `EMA_RETRIEVER` faiss/pgvector switch is removed); source cards render
-> narrative-chunk snippets and citations key on node `source_url`. The full graph
-> (79,882 docs) is built and live MLflow tracing + 👍/👎 feedback run in `app.py`. The
-> recipe's `FunctionAgent` is traced by `mlflow.llama_index.autolog()` under one per-turn span.
+> `app.py` loads the Neo4j `PropertyGraphIndex` via `EMA_INDEX_PROFILE` and builds a
+> `HierarchicalPGRetriever`; source cards render narrative-chunk snippets and citations key on
+> node `source_url`. The full graph (79,882 docs) is live, and the recipe's `FunctionAgent` is
+> traced by `mlflow.llama_index.autolog()` under one per-turn span, with 👍/👎 feedback.[^retriever]
 
 ---
 
@@ -221,3 +215,9 @@ PY
 # Run the indexing unit tests (no infra)
 pytest tests/test_indexing_*.py
 ```
+
+[^refactor]: This replaced the former Postgres + pgvector and FAISS paths; the old modules
+    (`harness/retrieve*.py`, `harness/embed*.py`, `harness/pg/`) are deleted.
+
+[^retriever]: The old `EMA_RETRIEVER=faiss|pgvector` switch was removed when `app.py` moved to
+    the Neo4j retriever (LIR-010, 2026-06-02).

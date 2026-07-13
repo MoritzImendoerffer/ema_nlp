@@ -1,16 +1,15 @@
 # RAG techniques as agent tools + instructions
 
-This project is moving to a **single agent-centric engine**: every "workflow" is a
-LlamaIndex `FunctionAgent` configured by a *recipe* (system prompt + tool list +
-output schema + retrieval/judge policy — see [`RECIPES.md`](RECIPES.md)). RAG
-*techniques* are not separate engines; they are realized as **tools** the agent calls
-plus **instructions** in the recipe prompt that prescribe *when/how* to call them. The
-agent does not improvise the orchestration freely — the recipe's tools + prompt dictate it,
-and adherence is checked *retrospectively* (trace inspection + the optional judge
-layer), not enforced by hand-rolled control flow.
+This project uses a **single agent-centric engine**: every pipeline is a LlamaIndex
+`FunctionAgent` configured by a *recipe* (system prompt + tool list + output schema +
+retrieval/judge policy — see [`RECIPES.md`](RECIPES.md)). RAG *techniques* are not separate
+engines; each is a **tool** the agent calls plus **instructions** in the recipe prompt that
+say *when and how* to call it. The agent does not improvise the orchestration — the recipe's
+tools and prompt dictate it, and adherence is checked afterwards (trace inspection + the
+optional judge layer), not enforced by hand-written control flow.
 
-This doc documents the three techniques we package this way, with references, so each
-can be (re)implemented as a tool. The design rule for a technique-tool:
+This doc describes the three techniques we package this way, with references, so each can be
+(re)implemented as a tool. The design rule for a technique-tool:
 
 > **Package the deterministic core inside the tool; let the agent generate.** A tool
 > returns *processed context* (passages, plus any grading/notes), never the final
@@ -37,6 +36,10 @@ NLP Tasks*, NeurIPS 2020 (vol. 33, pp. 9459–9474). arXiv:[2005.11401](https://
 - Recipe: the lightest recipe (`naive_rag`) is the agent given **one tool** (`ema_search`)
   and a prompt that says *call it exactly once, then answer only from the passages*. This
   keeps the simple path cheap and predictable — the right default / benchmark baseline.
+
+> **Try it live:** notebook [`02_steered_retrieval.ipynb`](examples/02_steered_retrieval.ipynb)
+> drives the retriever directly, and [`03_routing_and_full_agent.ipynb`](examples/03_routing_and_full_agent.ipynb)
+> §2 calls the `ema_search` tool standalone (no LLM) — both headless.
 
 ---
 

@@ -1,31 +1,25 @@
 # Plan: precomputed topic subgraphs — hub-seeded, metadata-qualified, budget-guarded context
 
-*Status: 🚧 **steps 1–4 implemented + offline-tested** (2026-07-13, branch
-`claude/agentic-rag-foundation`) — config+loader (`configs/hubs/default.yaml`,
-`harness/retrieval/hubs.py`), membership build (`harness/indexing/subgraphs.py`,
-`upsert_topic_hubs`, `scripts/manage_topic_hubs.py`, `update_graph.py` step
-`subgraphs`, propagate), node metadata (`topic_hubs` on projection/ingest/entity),
-and the `topic_context` tool + `retrieval.subgraph` recipe keys + `topic_agent`
-recipe. **Step 5 ran live** (2026-07-13, GPU host): the referral hub walks to 49
-members, all 3 T2 gold docs among them (the §2 check re-run through shipped
-code — PASSED); membership stamped (config_hash `bd29a77fd0b6`) + propagated;
-`topic_context` verified live. **Step 6 T2 eval ran**: `topic_agent`
-**5.000/5.000** (correctness/faithfulness, 10 items; the agent called
-`topic_context` on 6/10) vs `steered_agent` **4.700/4.900** — both baseline
-drops were exactly the predicted cross-sibling completeness failures (fee
-questions answered from one Article-3x sibling). **The `topic_agent` cross-type sweep also ran**
-(Sonnet 5 generation, Opus judges): T1 4.26/4.53, T3 4.60/4.60, T4 3.80/5.00 — no
-collapse; the T1/T3 drops concentrate in *worksharing* questions, where no subgraph
-exists yet. Full report incl. per-item detail + caveats:
-[`docs/eval/2026-07-13_topic_subgraphs.md`](../eval/2026-07-13_topic_subgraphs.md).
-**Remaining:** the `steered_agent` T1/T3/T4 baseline
-(`scripts/run_eval.py --recipe steered_agent --types T1 T3 T4 --model claude_sonnet`)
-for the formal no-regression verdict; more hubs (worksharing, GVP) + cross-family T2
-items for breadth. Feasibility was **verified live** (§2 evidence). Complements
-[`metadata_steering.md`](metadata_steering.md) (which refines the signal for existing
-top-k steering); this plan adds the capability top-k structurally cannot provide:
-exhaustive, curated topic context. See `docs/RETRIEVAL.md` §7.1 for the shipped
-surface.*
+> **Status (2026-07-13): built and evaluated live** (branch `claude/agentic-rag-foundation`).
+> Steps 1–4 are implemented and offline-tested; steps 5–6 ran on the GPU host.
+>
+> - **Built (step 5):** the referral hub walks to 49 members, including all 3 T2 gold docs
+>   (the §2 check, re-run through the shipped code — PASSED). Membership is stamped and
+>   propagated, and `topic_context` is verified live.
+> - **Evaluated (step 6):** on T2, `topic_agent` scored **5.000/5.000** (correctness /
+>   faithfulness; it called `topic_context` on 6 of 10 items) vs `steered_agent`
+>   **4.700/4.900**. Both baseline misses were the predicted cross-sibling failures (a fee
+>   question answered from one Article-3x sibling). The cross-type sweep showed no collapse
+>   (T1 4.26/4.53, T3 4.60/4.60, T4 3.80/5.00); the T1/T3 drops sit in *worksharing*
+>   questions, where no subgraph exists yet.
+> - **Remaining:** the `steered_agent` T1/T3/T4 baseline for a formal no-regression verdict,
+>   plus more hubs and cross-family T2 items for breadth — see
+>   [`topic_subgraphs_followups.md`](topic_subgraphs_followups.md).
+>
+> Full report: [`docs/eval/2026-07-13_topic_subgraphs.md`](../eval/2026-07-13_topic_subgraphs.md).
+> Shipped surface: `docs/RETRIEVAL.md` §7.1. This plan adds what top-k structurally cannot —
+> exhaustive, curated topic context; [`metadata_steering.md`](metadata_steering.md) instead
+> refines the signal for existing top-k steering.
 
 ## 1. Why
 

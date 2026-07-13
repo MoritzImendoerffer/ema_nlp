@@ -1,19 +1,15 @@
 # Agentic RAG — usage guide (how-to)
 
-> **Update (recipe engine):** the live UI/eval now select a **recipe** — one agent-centric
-> pipeline defined in `harness/configs/recipes/*.yaml` (+ `$EMA_CONFIG_DIR`) — rather than a raw
-> "workflow strategy". See [`RECIPES.md`](RECIPES.md) and [`RAG_TECHNIQUES.md`](RAG_TECHNIQUES.md).
-> The agent internals described below (tool registry, structured output, judges, ontology) are
-> unchanged and still apply; references to "the `agent` strategy" and the old workflow+prompt
+> **Note:** the live UI and eval select a **recipe** (`harness/configs/recipes/*.yaml`), not a
+> raw "workflow strategy" — see [`RECIPES.md`](RECIPES.md). The agent internals below (tool
+> registry, structured output, judges, ontology) are unchanged; only the old workflow/prompt
 > selectors are superseded by the recipe dropdown.
 
-A practical, task-by-task guide to the **agentic layer** on branch
-`claude/agentic-rag-foundation`: a LlamaIndex `FunctionAgent` + tool registry that returns a
-structured, cited `RegulatoryAnswer`, plus its MLflow run-recording/tracing, `mlflow.genai`
-judges, and typed ontology enrichment. The agent is the **single engine** — the old LlamaIndex
-Workflow strategies were retired 2026-06-25; a **recipe** (`harness/configs/recipes/*.yaml`)
-configures which tools/prompt/schema the agent runs with. The live Chainlit app is traced by
-**MLflow** (autolog), the same as everything else.
+A practical, task-by-task guide to the **agentic layer**: a LlamaIndex `FunctionAgent` + tool
+registry that returns a structured, cited `RegulatoryAnswer`, plus its MLflow
+run-recording/tracing, `mlflow.genai` judges, and typed ontology enrichment. The agent is the
+single engine; a **recipe** (`harness/configs/recipes/*.yaml`) configures which tools, prompt,
+and schema it runs with. The live Chainlit app is MLflow-traced (autolog), like everything else.
 
 - **Design / rationale:** [`TARGET_ARCHITECTURE.md`](TARGET_ARCHITECTURE.md)
 - **Verification runbook + results (T1–T6; §8 = the pending 2026-07-07 walk):** [`RUNTIME_VERIFICATION.md`](RUNTIME_VERIFICATION.md)
