@@ -23,3 +23,18 @@ def test_older_models_keep_temperature():
     llm = _make_anthropic("claude-haiku-4-5-20251001", 0.0, 1024)
     # prefix match, not substring: the "4-5" in haiku's id must not trigger the strip
     assert llm._model_kwargs["temperature"] == 0.0
+
+
+def test_claude5_metadata_falls_back_when_library_table_is_stale():
+    llm = _make_anthropic("claude-sonnet-5", 0.0, 1024)
+    meta = llm.metadata  # library lookup raises "Unknown model" -> shim values
+    assert meta.context_window == 200_000
+    assert meta.is_function_calling_model is True  # "-3"/"-4" check must not disable tools
+    assert meta.num_output == 1024
+
+
+def test_known_model_metadata_untouched():
+    llm = _make_anthropic("claude-opus-4-7", 0.0, 2048)
+    meta = llm.metadata
+    assert meta.is_function_calling_model is True
+    assert meta.num_output == 2048
