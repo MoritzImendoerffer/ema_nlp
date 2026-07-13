@@ -16,6 +16,13 @@ models:
     max_tokens: 1024
     temperature: 0.0
 
+  claude_sonnet:
+    description: "Claude Sonnet 5 — mid-tier; reliable tool use at a fraction of Opus cost"
+    provider: anthropic
+    model_id: claude-sonnet-5
+    max_tokens: 4096
+    temperature: 0.0
+
   claude_opus:
     description: "Claude Opus 4.7 — frontier reasoning; agent, judge, and reviewer roles"
     provider: anthropic
