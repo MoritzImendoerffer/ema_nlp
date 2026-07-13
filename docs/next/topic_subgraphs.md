@@ -13,10 +13,15 @@ code — PASSED); membership stamped (config_hash `bd29a77fd0b6`) + propagated;
 **5.000/5.000** (correctness/faithfulness, 10 items; the agent called
 `topic_context` on 6/10) vs `steered_agent` **4.700/4.900** — both baseline
 drops were exactly the predicted cross-sibling completeness failures (fee
-questions answered from one Article-3x sibling). **Remaining: the T1/T3/T4
-no-regression sweep** — aborted on API credit exhaustion; rerun
-`scripts/run_eval.py --recipe {topic_agent,steered_agent} --types T1 T3 T4`
-after a top-up. Feasibility was **verified live** (§2 evidence). Complements
+questions answered from one Article-3x sibling). **The `topic_agent` cross-type sweep also ran**
+(Sonnet 5 generation, Opus judges): T1 4.26/4.53, T3 4.60/4.60, T4 3.80/5.00 — no
+collapse; the T1/T3 drops concentrate in *worksharing* questions, where no subgraph
+exists yet. Full report incl. per-item detail + caveats:
+[`docs/eval/2026-07-13_topic_subgraphs.md`](../eval/2026-07-13_topic_subgraphs.md).
+**Remaining:** the `steered_agent` T1/T3/T4 baseline
+(`scripts/run_eval.py --recipe steered_agent --types T1 T3 T4 --model claude_sonnet`)
+for the formal no-regression verdict; more hubs (worksharing, GVP) + cross-family T2
+items for breadth. Feasibility was **verified live** (§2 evidence). Complements
 [`metadata_steering.md`](metadata_steering.md) (which refines the signal for existing
 top-k steering); this plan adds the capability top-k structurally cannot provide:
 exhaustive, curated topic context. See `docs/RETRIEVAL.md` §7.1 for the shipped
