@@ -28,9 +28,15 @@ until a benchmark failure actually calls for it.
 
 ## 2. What already exists to build on
 
-- **The properties**, persisted + backfilled: `scripts/backfill_doc_{types,badges}.py`
-  (re-runnable), stamped at ingest for new builds
-  (`harness/indexing/{doc_types,badges}.py` → `ingest.py` → `property_graph._entity_for`).
+- **The properties**, canonical in Mongo `document_metadata` since 2026-07-13
+  (`harness/indexing/document_metadata.py`): `scripts/enrich_document_metadata.py` derives
+  them post-scrape (badges from `web_items.html_raw`, `doc_type` from the JSON export);
+  ingest joins the row so new builds stamp all three on `:Document`
+  (`ingest.py` → `property_graph._entity_for`), and
+  `scripts/propagate_metadata_to_graph.py` patches an existing graph without a rebuild.
+  Retrieved nodes carry all three in `node.metadata`. *(The former graph-only
+  `backfill_doc_{types,badges}.py` are deleted — under them, `doc_type` was not stamped at
+  ingest at all and a rebuild silently lost it.)*
 - **The steering machinery** they would plug into, all category-based today:
   - `HierarchicalPGRetriever` category filter + `category_quota` (Cypher, Option A);
   - `LINKS_TO` expansion with `expand_categories` targeting (Option B);
@@ -82,8 +88,8 @@ legitimate use of the link graph, but a separate build with its own accuracy che
 ## 4. Implementation steps (per use, independently shippable)
 
 1. **(A)** add `DOC_TYPE_TO_CATEGORY` map + `classify_source(..., doc_type=None)` override
-   in `doc_categories.py`; thread `doc_type` through `_entity_for`; re-run the category
-   backfill. Unit-test the map + fallback precedence.
+   in `doc_categories.py`; re-run the category backfill. (`doc_type` is already threaded
+   through `_entity_for` since 2026-07-13.) Unit-test the map + fallback precedence.
 2. **(B)** add a `veterinary`/`corporate` short-circuit keyed on `audience` ahead of the
    URL rules; unit-test that a vet page with no "veterinary" in the URL still classifies.
 3. **(C)** generalize `HierarchicalPGRetriever`'s category filter to a named property

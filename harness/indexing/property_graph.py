@@ -180,6 +180,7 @@ def _entity_for(d: IngestedDoc) -> EntityNode:
                 "committee": d.metadata.get("committee"),
                 "topic_path": d.metadata.get("topic_path"),
                 "reference_number": d.metadata.get("reference_number"),
+                "doc_type": d.metadata.get("doc_type"),
                 "audience": d.metadata.get("audience"),
                 "site_topic": d.metadata.get("site_topic"),
                 "category": classify_source(
@@ -487,7 +488,7 @@ def open_index(profile: IndexProfile | None = None) -> PropertyGraphIndex:
 # that citations, reference cards, and exports need — not just a URL.
 _DOC_PROJECTION = (
     "{.id, .source_url, .title, .topic_path, .committee, .reference_number, "
-    ".source_type, .category}"
+    ".source_type, .category, .doc_type, .audience, .site_topic}"
 )
 
 def _edge_label(edge_types: list[str]) -> str:
@@ -626,6 +627,11 @@ class HierarchicalPGRetriever(BaseRetriever):
             "reference_number": doc.get("reference_number") or "",
             "source_type": doc.get("source_type") or "",
             "category": doc.get("category") or classify_source(source_url, topic_path),
+            # Authoritative EMA labels (None when the doc has none) — see
+            # docs/RETRIEVAL.md §7 "Authoritative enrichment".
+            "doc_type": doc.get("doc_type"),
+            "audience": doc.get("audience"),
+            "site_topic": doc.get("site_topic"),
             # chunk_id = the node actually returned (parent after small-to-big
             # merge); matched_chunk = the leaf the vector/similarity hit landed on.
             "chunk_id": chunk_id,
