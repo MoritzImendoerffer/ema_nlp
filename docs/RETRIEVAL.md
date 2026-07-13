@@ -463,6 +463,12 @@ The live build + retrieval are integration-verified against Neo4j (not in CI).
 project container on alt ports (`NEO4J_HTTP_PORT=7475 NEO4J_BOLT_PORT=7688 docker
 compose -f deploy/neo4j/docker-compose.yml up -d`) and set `NEO4J_URI=bolt://localhost:7688`.
 
+**Neo4j Browser loads but won't connect (remote/SSH).** The UI is HTTP `:7474` but the
+database connection is bolt `:7687` *from your local machine* — tunnel **both** ports
+(`ssh -L 7474:localhost:7474 -L 7687:localhost:7687 moritz@marvin-gpu`) and connect with
+`bolt://localhost:7687` (not `neo4j://` — routing discovery can bypass the tunnel). See
+`deploy/neo4j/README.md` "Connecting to the Neo4j Browser".
+
 **Retrieval returns 0 nodes.** The `:Chunk` vector index is missing — `build_index`
 creates it (`ensure_chunk_vector_index`); confirm with `SHOW VECTOR INDEXES`.
 
