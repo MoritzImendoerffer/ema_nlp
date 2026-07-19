@@ -170,7 +170,12 @@ button.link { background: none; border: none; color: #2456a3; cursor: pointer;
   // ── sigma ──────────────────────────────────────────────────────────────────
   const SigmaCtor = typeof Sigma === "function" ? Sigma : Sigma.Sigma;
   const EDGE_ZOOM_CUTOFF = 0.45;  // camera.ratio above this → edges only near focus
-  const renderer = new SigmaCtor(graph, document.getElementById("graph"), {
+  // `let` + null guard in edgeReducer: sigma calls the reducers during its
+  // initial render inside the constructor, before the assignment completes —
+  // a `const` self-reference there is a TDZ crash (only reached when the graph
+  // actually has edges, so tiny smoke builds never caught it).
+  let renderer = null;
+  renderer = new SigmaCtor(graph, document.getElementById("graph"), {
     hideEdgesOnMove: true,
     hideLabelsOnMove: true,
     labelRenderedSizeThreshold: 7,
@@ -198,7 +203,9 @@ button.link { background: none; border: none; color: #2456a3; cursor: pointer;
           return { ...attrs, color: "#7a8aa0", size: 1.2, zIndex: 1 };
         if (state.neighborhood) return { ...attrs, hidden: true };
       }
-      if (renderer.getCamera().ratio > EDGE_ZOOM_CUTOFF) return { ...attrs, hidden: true };
+      // renderer is null during the constructor's own first render — the camera
+      // starts fully zoomed out (ratio 1 > cutoff), so hidden is the right call.
+      if (!renderer || renderer.getCamera().ratio > EDGE_ZOOM_CUTOFF) return { ...attrs, hidden: true };
       return attrs;
     },
   });
