@@ -36,6 +36,11 @@ EMA_DATA_DIR = Path(os.getenv("EMA_DATA_DIR", "~/Nextcloud/Datasets/ema_nlp")).e
 CORPUS_PATH = Path(os.getenv("EMA_CORPUS_PATH", str(EMA_DATA_DIR / "corpus" / "corpus.jsonl"))).expanduser()
 INDEX_DIR = Path(os.getenv("EMA_INDEX_PATH", str(EMA_DATA_DIR / "index"))).expanduser()
 
+# Eval/visualization artifacts (KB map, chain HTMLs, eval outputs). Lives in the
+# Nextcloud dataset folder so results sync across machines (same folder layout
+# everywhere) — override with EMA_RESULTS_DIR.
+RESULTS_DIR = Path(os.getenv("EMA_RESULTS_DIR", str(EMA_DATA_DIR / "results"))).expanduser()
+
 # IDMP Onologies
 rdf_path = nx_datafolder.joinpath("Pistoia-Alliance-Ontologies/IDMP-O/1.3.0").expanduser()
 rdf_file_name = "IdentificationOfMedicinalProductsOntology.rdf"

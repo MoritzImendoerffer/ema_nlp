@@ -16,7 +16,7 @@ clicking through raw MLflow spans):
 ```bash
 pip install -e ".[viz]"                      # python-igraph (layout, offline only)
 python scripts/build_graph_map.py --limit 2000   # smoke build (~seconds)
-python scripts/build_graph_map.py --out results/graph_map/ema_kb_map.html
+python scripts/build_graph_map.py                # full build → $EMA_RESULTS_DIR/graph_map/
 ```
 
 One self-contained HTML file (no CDN, no server — open it anywhere, mail it).
@@ -41,9 +41,12 @@ cutoff or when incident to the hovered/selected node (the LightRAG trick), plus
 `hideEdgesOnMove`.
 
 Payload size estimate: ~190 B/node raw → ~4–6 MB HTML for the full graph.
-The build prints exact numbers. Regenerate after a graph rebuild; artifacts go
-under `results/` (gitignored). Full build verified on marvin-gpu (2026-07-19):
-79,882 docs / 99,520 links → 5.1 MB HTML, layout ~90 s.
+The build prints exact numbers. Regenerate after a graph rebuild. Artifacts go
+to `config.RESULTS_DIR` (default `~/Nextcloud/Datasets/ema_nlp/results/`,
+override `$EMA_RESULTS_DIR`) — Nextcloud syncs them across machines, so a map
+built on marvin-gpu opens on the laptop without copying. Full build verified
+on marvin-gpu (2026-07-19): 79,882 docs / 99,520 links → 5.1 MB HTML, layout
+~90 s.
 
 ## 2. NeoDash
 
@@ -142,10 +145,10 @@ Gotchas:
   for exactly this reason), pick free local ports and connect to those instead:
   `ssh -L 17687:localhost:7687 -L 17474:localhost:7474 …` → browser to
   `http://localhost:17474`, connect dialog port `17687`.
-- **Static artifacts need no tunnel** — the KB map and chain exports are
-  self-contained single files; `scp` them (or let Nextcloud sync them) and open
-  locally:
-  `scp moritz@marvin-gpu:github_repos/ema_nlp/results/graph_map/ema_kb_map.html .`
+- **Static artifacts need no tunnel at all** — the KB map and chain exports
+  are written to `config.RESULTS_DIR` (`~/Nextcloud/Datasets/ema_nlp/results/`
+  by default), which Nextcloud syncs to every machine. Just open the synced
+  file locally.
 - MLflow on :5000 is only up while `run_ui.sh` (or a manual
   `mlflow server`) is running on the host.
 - **NeoDash "doesn't fit" on a laptop** — not a tunnel problem. The NeoDash

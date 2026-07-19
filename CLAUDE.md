@@ -159,7 +159,7 @@ See **"Current project phase"** above (Phase 1 done, Phase 2 drafted, Phase 3 pa
 - Q&A corpus record schema is defined in `project_roadmap/ROADMAP.md` Phase 1.1
 - Benchmark item schema is defined in `project_roadmap/ROADMAP.md` Phase 2.3
 - LLM prompts live in files, not as string literals in code
-- Each eval run config goes under `harness/configs/`; results under `results/<run_id>/` with config dumped alongside
+- Each eval run config goes under `harness/configs/`; result artifacts go to `config.RESULTS_DIR` (default `~/Nextcloud/Datasets/ema_nlp/results/`, override `$EMA_RESULTS_DIR`) — Nextcloud-synced across machines, never committed. MLflow remains the system of record for eval metrics.
 - Raw scraped data (large artifacts) must not be committed
 
 ## Work history

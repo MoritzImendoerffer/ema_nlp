@@ -8,12 +8,13 @@ answerable for any recorded turn, including whole eval runs.
 
 Usage::
 
-    python scripts/render_trace.py <trace_id> [--out results/chains]
+    python scripts/render_trace.py <trace_id> [--out <dir>]
     python scripts/render_trace.py --run-id <mlflow_run_id>   # all traces of an eval run
     python scripts/render_trace.py <trace_id> --tracking-uri sqlite:///mlflow.db
 
 Defaults: tracking URI from $MLFLOW_TRACKING_URI (else the repo's mlflow.db),
-output under results/chains/.
+output under ``config.RESULTS_DIR / chains/`` (the Nextcloud-synced results
+folder, so rendered chains show up on every machine).
 """
 
 from __future__ import annotations
@@ -49,10 +50,16 @@ def _traces(args: argparse.Namespace) -> list:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import config
+
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("trace_id", nargs="?", help="MLflow trace id (tr-…)")
     parser.add_argument("--run-id", help="Render every trace of this MLflow run (eval runs)")
-    parser.add_argument("--out", default="results/chains", help="Output directory")
+    parser.add_argument(
+        "--out",
+        default=str(config.RESULTS_DIR / "chains"),
+        help="output directory (default: Nextcloud-synced results dir)",
+    )
     parser.add_argument("--tracking-uri", default=None, help="MLflow tracking URI")
     parser.add_argument("--export-config", default="default", help="configs/export/<name>.yaml")
     parser.add_argument("--max-traces", type=int, default=100)

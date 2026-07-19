@@ -10,9 +10,13 @@ vendored sigma.js/graphology and the gzip+base64 payload inlined. The result
 opens anywhere offline — no CDN, no server.
 
 Usage:
-    python scripts/build_graph_map.py --out results/graph_map/ema_kb_map.html
+    python scripts/build_graph_map.py                     # → $EMA_RESULTS_DIR/graph_map/
     python scripts/build_graph_map.py --limit 2000        # fast smoke build
     python scripts/build_graph_map.py --raw-json          # uncompressed embed (debug)
+    python scripts/build_graph_map.py --out /tmp/map.html # explicit output path
+
+Output defaults to ``config.RESULTS_DIR / graph_map/ema_kb_map.html`` — the
+Nextcloud-synced results folder, so the map shows up on every machine.
 
 Requires the ``viz`` extra for the layout step: ``pip install -e ".[viz]"``.
 Connection via NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD (config.py dotenv),
@@ -260,8 +264,14 @@ def emit_html(payload: dict[str, Any], out: Path, *, raw_json: bool = False) -> 
 
 
 def main(argv: list[str] | None = None) -> int:
+    import config
+
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", default="results/graph_map/ema_kb_map.html")
+    parser.add_argument(
+        "--out",
+        default=str(config.RESULTS_DIR / "graph_map" / "ema_kb_map.html"),
+        help="output HTML path (default: Nextcloud-synced results dir)",
+    )
     parser.add_argument("--limit", type=int, default=0, help="subsample N docs (smoke build)")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--raw-json", action="store_true", help="uncompressed embed (debug)")
