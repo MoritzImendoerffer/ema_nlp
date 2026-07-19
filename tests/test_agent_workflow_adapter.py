@@ -61,7 +61,6 @@ def test_adapter_without_fewshot_passes_question_only():
 def test_adapter_result_carries_attribution_and_references():
     """ainvoke joins citations to full captured passages and exposes the
     attribution model (spans + numbered references) for UI/export/SME view."""
-    import asyncio
 
     from harness.agents.workflow_adapter import AgentWorkflowAdapter
     from harness.schemas import Citation, Claim, RegulatoryAnswer
@@ -101,3 +100,32 @@ def test_adapter_result_carries_attribution_and_references():
     assert result["references"][0]["n"] == 1
     assert result["references"][0]["full_text"] == full_passage
     assert result["references"][0]["quote_start"] >= 0  # quote located in the passage
+
+
+def test_adapter_result_carries_chain_steps():
+    from harness.tools.events import record_tool_event
+
+    class _ToolCallingSession:
+        """Simulates the agent invoking a retrieval tool mid-run."""
+
+        async def arun(self, query: str, **_):
+            record_tool_event(
+                tool="ema_search",
+                args={"query": query, "source_category": ""},
+                notes=[],
+                nodes=[],
+                output="body",
+            )
+            return RegulatoryAnswer(answer="ok")
+
+    out = asyncio.run(AgentWorkflowAdapter(_ToolCallingSession()).ainvoke({"question": "q"}))
+    assert len(out["chain_steps"]) == 1
+    assert out["chain_steps"][0]["tool"] == "ema_search"
+    assert out["chain_steps"][0]["seq"] == 1
+
+
+def test_adapter_chain_steps_empty_when_no_tools_ran():
+    out = asyncio.run(
+        AgentWorkflowAdapter(_FakeSession(RegulatoryAnswer(answer="ok"))).ainvoke({"question": "q"})
+    )
+    assert out["chain_steps"] == []

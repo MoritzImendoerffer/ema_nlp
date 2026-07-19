@@ -19,7 +19,7 @@ cd deploy/neo4j && docker compose up -d   # Neo4j only
 
 ## Credentials / env
 
-Set in `~/.myenvs/ema_nlp.env` (never commit real credentials):
+Set in `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` (never commit real credentials):
 
 ```bash
 NEO4J_URI=bolt://localhost:7687
@@ -40,7 +40,7 @@ browser runs on*. Both ports must be reachable.
 
 **Locally (on the host running the container):** open http://localhost:7474 and
 in the connect form use Connect URL `bolt://localhost:7687`, username `neo4j`,
-password = `$NEO4J_PASSWORD` from `~/.myenvs/ema_nlp.env`.
+password = `$NEO4J_PASSWORD` from `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env`.
 
 **Remotely via SSH tunnel:** forward **both** ports — tunneling only 7474 loads
 the UI but the bolt connection then fails (symptom: console log lines like
@@ -89,3 +89,41 @@ Two tools, same queries:
 - Data persists in the `ema_neo4j_data` Docker volume. `docker compose down -v`
   wipes it (full re-index needed afterward).
 - The healthcheck runs `cypher-shell 'RETURN 1'`; it needs neither APOC nor data.
+
+## NeoDash dashboards (:5005)
+
+The compose stack includes [NeoDash](https://neo4j.com/labs/neodash/) 2.4 —
+parameterized dashboards over live Cypher, no server-side plugin (it runs in
+the browser and connects straight to Bolt).
+
+```bash
+docker compose up -d neodash              # comes up with the stack anyway
+python scripts/seed_neodash.py            # load the committed dashboard into Neo4j
+```
+
+Then open http://localhost:5005 and connect with `NEO4J_USER` /
+`NEO4J_PASSWORD` (typed into the connect dialog — never baked into compose).
+**In the dialog set Protocol to `bolt`, not `neo4j`** — the `neo4j://` scheme
+does cluster routing discovery, which a single Community instance behind a
+Docker port remap cannot answer ("No routing servers available"). Host
+`localhost`, port `7687` — or the remapped Bolt port on hosts that override
+`NEO4J_BOLT_PORT` (e.g. `7688` where a native Neo4j holds the default). Then
+pick **EMA KB** under *Load → Neo4j*. Four pages, all
+derived from `inspect_queries.cypher` (Community-safe, APOC-only):
+
+1. **Census** — doc/chunk/edge value cards, docs-by-category, top doc_type,
+   enrichment coverage by source_type.
+2. **Link audit** — link_context/kind histograms, top in-degree targets,
+   most-repeated anchors (the boilerplate fingerprint).
+3. **Topic hubs** — members per hub, hub picker → composition + member list.
+4. **Doc drill-down** — URL-substring parameter → property card, links
+   to/from with anchors, 2-hop link neighbourhood as a graph.
+
+After editing in the UI: save to Neo4j from NeoDash, then
+`python scripts/seed_neodash.py --dump` and commit the refreshed
+`neodash_dashboard.json`. A read-only standalone mode is stubbed in
+`docker-compose.yml` comments.
+
+For a *full map* of the graph (all ~80k documents + LINKS_TO edges in one
+WebGL page) use `scripts/build_graph_map.py` instead — see
+`docs/VISUALIZATION.md`.

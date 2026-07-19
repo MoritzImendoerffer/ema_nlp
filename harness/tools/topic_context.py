@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+from datetime import UTC
 from typing import Any
 
 from llama_index.core.tools import FunctionTool
@@ -261,16 +262,39 @@ def build_topic_context_tool(
             page: Catalog page number (fixed page size; the header says how
                 many pages exist).
         """
+        import time
+        from datetime import datetime
+
+        from harness.tools.events import record_tool_event
+
+        started_at = datetime.now(UTC).isoformat()
+        t0 = time.perf_counter()
+
+        def _record(out: str, nodes: list, notes: list[str]) -> str:
+            # Chain-event capture: even a map-only page (no chunk nodes) is a step
+            # in how the run's context evolved.
+            record_tool_event(
+                tool="topic_context",
+                args={"topic": topic, "query": query, "page": int(page)},
+                notes=notes,
+                nodes=nodes,
+                output=out,
+                started_at=started_at,
+                duration_ms=(time.perf_counter() - t0) * 1000.0,
+            )
+            return out
+
         notes: list[str] = []
         key = _resolve_topic(topic, query, notes)
         if key is None:
-            return "\n".join(notes)
+            return _record("\n".join(notes), [], notes)
         members = reader.members(key)
         if not members:
-            return (
+            msg = (
                 f"[topic {key!r} has no built subgraph — membership has not been "
                 "stamped (scripts/manage_topic_hubs.py build) or the hub is not confirmed]"
             )
+            return _record(msg, [], notes + [msg])
         groups = group_members(members)
         if query:
             scores = reader.member_scores(key, reader.query_embedding(query))
@@ -287,16 +311,17 @@ def build_topic_context_tool(
             groups, key=key, page=page, page_size=policy.page_size, total_members=len(members)
         )
         out = "\n".join(notes + [body]) if notes else body
+        chunk_nodes: list = []
         if policy.context == "chunks" and int(page) <= 1:
             if query:
-                chunk_text, nodes = _budgeted_chunks(key, query)
+                chunk_text, chunk_nodes = _budgeted_chunks(key, query)
                 from harness.tools.search import sink_nodes
 
-                sink_nodes(nodes)
+                sink_nodes(chunk_nodes)
                 out += "\n\n" + chunk_text
             else:
                 out += "\n\n[no query given — returning the map only; pass query= for text context]"
-        return out
+        return _record(out, chunk_nodes, notes + [f"[topic: {key}]"])
 
     known = ", ".join(h.key for h in hubs.confirmed()) or "(none built yet)"
     return FunctionTool.from_defaults(

@@ -21,6 +21,7 @@ Like ``ema_search`` it is synchronous and feeds retrieved nodes into the shared
 from __future__ import annotations
 
 import logging
+from datetime import UTC
 from typing import Any
 
 from llama_index.core.tools import FunctionTool
@@ -91,6 +92,13 @@ def build_corrective_search_tool(
     def corrective_search(query: str) -> str:
         """Corrective retrieval: search, grade relevance, and rewrite+retry (bounded)
         when the passages don't fully cover the question. Returns corrected passages."""
+        import time
+        from datetime import datetime
+
+        from harness.tools.events import record_tool_event
+
+        started_at = datetime.now(UTC).isoformat()
+        t0 = time.perf_counter()
         grade_llm = _get_grader()
         q = query
         nodes = _retrieve(q)
@@ -120,7 +128,20 @@ def build_corrective_search_tool(
         if sink is not None:
             sink.extend(nodes)
 
-        return format_nodes(nodes) + grade_note(cycles, per_doc, missing)
+        out = format_nodes(nodes) + grade_note(cycles, per_doc, missing)
+        notes = [grade_note(cycles, per_doc, missing).strip()]
+        if q != query:
+            notes.append(f"[final query after rewrite: {q}]")
+        record_tool_event(
+            tool="corrective_search",
+            args={"query": query},
+            notes=notes,
+            nodes=nodes,
+            output=out,
+            started_at=started_at,
+            duration_ms=(time.perf_counter() - t0) * 1000.0,
+        )
+        return out
 
     return FunctionTool.from_defaults(
         fn=corrective_search,

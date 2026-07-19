@@ -33,6 +33,9 @@ class ExportBundle:
     trace_url: str = ""
     msg_num: int = 0
     asked_at: str = ""  # ISO timestamp, stamped by the caller
+    # Ordered retrieval-tool events (ChainStep.to_dict() dicts from
+    # harness.tools.events) — empty for turns predating chain capture.
+    chain: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -49,4 +52,5 @@ class ExportBundle:
             "trace_url": self.trace_url,
             "msg_num": self.msg_num,
             "asked_at": self.asked_at,
+            "chain": list(self.chain),
         }

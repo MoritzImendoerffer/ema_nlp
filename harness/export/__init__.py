@@ -11,6 +11,7 @@ See ``docs/CITATIONS.md``.
 
 from harness.export.base import Exporter, ExportOptions, load_export_options
 from harness.export.bundle import ExportBundle
+from harness.export.chain_html import ChainHtmlExporter
 from harness.export.html import HtmlExporter
 from harness.export.markdown import MarkdownExporter
 from harness.export.registry import get_exporter, list_exporters, register_exporter
@@ -31,6 +32,7 @@ def export_turn(
 
 
 __all__ = [
+    "ChainHtmlExporter",
     "ExportBundle",
     "Exporter",
     "ExportOptions",

@@ -17,6 +17,7 @@ import contextvars
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC
 from typing import Any
 
 from llama_index.core.tools import FunctionTool
@@ -167,8 +168,14 @@ def build_ema_search_tool(
             source_category: Optional comma-separated source categories to
                 restrict the search to (see the tool description for the list).
         """
-        from harness.retrieval.steering import parse_categories, sort_by_category_priority
+        import time
+        from datetime import datetime
 
+        from harness.retrieval.steering import parse_categories, sort_by_category_priority
+        from harness.tools.events import record_tool_event
+
+        started_at = datetime.now(UTC).isoformat()
+        t0 = time.perf_counter()
         notes: list[str] = []
         categories: list[str] | None = None
         mode = "filter"
@@ -176,7 +183,18 @@ def build_ema_search_tool(
             try:
                 categories = parse_categories(source_category) or None
             except ValueError as exc:
-                return str(exc)  # agent-visible: names the valid categories
+                # Agent-visible error naming the valid categories; still a chain step —
+                # a rejected steering attempt is part of how the run evolved.
+                record_tool_event(
+                    tool="ema_search",
+                    args={"query": query, "source_category": source_category},
+                    notes=[f"[invalid source_category: {exc}]"],
+                    nodes=[],
+                    output=str(exc),
+                    started_at=started_at,
+                    duration_ms=(time.perf_counter() - t0) * 1000.0,
+                )
+                return str(exc)
             if categories:
                 notes.append(f"[category filter: {', '.join(categories)}]")
         elif router is not None:
@@ -211,7 +229,17 @@ def build_ema_search_tool(
 
         sink_nodes(nodes)
         body = format_nodes(nodes)
-        return "\n".join(notes) + ("\n\n" if notes else "") + body
+        out = "\n".join(notes) + ("\n\n" if notes else "") + body
+        record_tool_event(
+            tool="ema_search",
+            args={"query": query, "source_category": source_category},
+            notes=notes,
+            nodes=nodes,
+            output=out,
+            started_at=started_at,
+            duration_ms=(time.perf_counter() - t0) * 1000.0,
+        )
+        return out
 
     from harness.retrieval.doc_categories import CATEGORIES
 

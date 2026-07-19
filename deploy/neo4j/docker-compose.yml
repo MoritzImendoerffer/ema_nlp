@@ -5,7 +5,7 @@
 # so no separate vector store is needed.
 #
 # Credentials come from the environment (NEO4J_USER / NEO4J_PASSWORD); set them in
-# ~/.myenvs/ema_nlp.env — NEO4J_PASSWORD is required and never hardcoded here.
+# ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env — NEO4J_PASSWORD is required and never hardcoded here.
 # Compose fails to start if it is unset. Bolt on :7687 (driver), HTTP browser on :7474.
 services:
   neo4j:
@@ -18,7 +18,7 @@ services:
       - "${NEO4J_HTTP_PORT:-7474}:7474"   # HTTP browser
       - "${NEO4J_BOLT_PORT:-7687}:7687"   # Bolt (driver / LlamaIndex)
     environment:
-      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in ~/.myenvs/ema_nlp.env}"
+      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env}"
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
       NEO4J_server_memory_heap_max__size: "2G"
@@ -26,7 +26,7 @@ services:
       # Non-NEO4J_-prefixed copies for the healthcheck (Neo4j ignores these;
       # the cypher-shell check needs the live credentials even if overridden).
       HC_USER: "${NEO4J_USER:-neo4j}"
-      HC_PASSWORD: "${NEO4J_PASSWORD:?set NEO4J_PASSWORD in ~/.myenvs/ema_nlp.env}"
+      HC_PASSWORD: "${NEO4J_PASSWORD:?set NEO4J_PASSWORD in ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env}"
     volumes:
       - ema_neo4j_data:/data
       - ema_neo4j_logs:/logs
@@ -37,6 +37,31 @@ services:
       timeout: 10s
       retries: 18
       start_period: 30s
+
+  # NeoDash — parameterized dashboards over live Cypher (no server-side plugin).
+  # Open http://localhost:5005, connect to localhost:7687 with NEO4J_USER /
+  # NEO4J_PASSWORD (entered in the browser — NeoDash runs client-side, so no
+  # credential is baked in here). Load the committed dashboard with
+  # `python scripts/seed_neodash.py` and pick "EMA KB" under Load → Neo4j.
+  #
+  # For a locked-down read-only viewer later, switch to standalone mode by
+  # uncommenting (docs: https://neo4j.com/labs/neodash/2.4/user-guide/):
+  #   standalone: "true"
+  #   standaloneProtocol: "bolt"
+  #   standaloneHost: "localhost"
+  #   standalonePort: "7687"
+  #   standaloneDatabase: "neo4j"
+  #   standaloneDashboardName: "EMA KB"
+  #   ssoEnabled: "false"
+  neodash:
+    image: neo4jlabs/neodash:2.4.11
+    container_name: ema_neodash
+    restart: unless-stopped
+    ports:
+      - "${NEODASH_PORT:-5005}:5005"
+    depends_on:
+      neo4j:
+        condition: service_healthy
 
 volumes:
   ema_neo4j_data:

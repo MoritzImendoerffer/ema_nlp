@@ -36,11 +36,9 @@ from typing import Any
 
 import chainlit as cl
 import numpy as np
-from dotenv import load_dotenv
 
+import config  # noqa: F401  (loads ema_nlp.env — search chain in config.py)
 from harness.obs import default_experiment
-
-load_dotenv(Path.home() / ".myenvs" / "ema_nlp.env", override=False)
 
 # MLflow tracking server (writes traces/feedback) + UI URL (the "View traces" link).
 # run_ui.sh starts `mlflow server` on :5000 backed by sqlite; both default there.
@@ -214,7 +212,7 @@ def auth_callback(username: str, password: str) -> cl.User | None:
     expected = os.getenv("UI_PASSWORD")
     if not expected:
         raise RuntimeError(
-            "UI_PASSWORD is not set. Configure it in ~/.myenvs/ema_nlp.env "
+            "UI_PASSWORD is not set. Configure it in ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env "
             "(never hardcode credentials)."
         )
     if password == expected:
@@ -921,6 +919,7 @@ async def _run_pipeline(query: str, msg_num: int) -> None:
             trace_url=(traces_link if not TRACING_DISABLED else ""),
             msg_num=msg_num,
             asked_at=datetime.now().isoformat(timespec="seconds"),
+            chain=list(result.get("chain_steps") or []),
         )
         bundles = cl.user_session.get("turn_bundles") or {}
         bundles[run_id] = bundle

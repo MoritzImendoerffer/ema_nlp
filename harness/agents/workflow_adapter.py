@@ -72,6 +72,7 @@ class AgentWorkflowAdapter:
     async def ainvoke(self, payload: dict) -> dict:
         from harness.attribution import build_attribution
         from harness.obs.tracing import record_answer_on_span, tag_current_trace, traced
+        from harness.tools.events import capture_chain_events
         from harness.tools.search import capture_search_nodes, passages_from_nodes
 
         question = payload.get("question", "")
@@ -87,7 +88,9 @@ class AgentWorkflowAdapter:
             # Capture the FULL retrieved passages (not just the truncated citation quotes)
             # so a downstream judge can grade faithfulness against the real context. The
             # inner capture in arun_agent reuses this sink (see capture_search_nodes).
-            with capture_search_nodes() as evidence:
+            # Chain events record the ordered tool-call story (which tool, args,
+            # routing notes, per-node origin) alongside the flat node evidence.
+            with capture_search_nodes() as evidence, capture_chain_events() as chain_steps:
                 answer: RegulatoryAnswer = await self._session.arun(user_msg)
             record_answer_on_span(span, question=question, answer=answer)
             context_passages = passages_from_nodes(evidence)
@@ -113,6 +116,9 @@ class AgentWorkflowAdapter:
                 # with full passages (see harness.attribution).
                 "attribution": attribution,
                 "references": [r.to_dict() for r in attribution.references],
+                # Ordered retrieval-tool events (see harness.tools.events) — the
+                # chain_html export's data; dicts so the bundle stays JSON-ready.
+                "chain_steps": [s.to_dict() for s in chain_steps],
             }
 
     def invoke(self, payload: dict) -> dict:

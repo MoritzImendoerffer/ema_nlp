@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EMA knowledge-base map</title>
+<style>
+:root { --border: #d0d7de; --panel: #ffffffee; color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%;
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: #1f2328; }
+#graph { position: absolute; inset: 0; background: #fcfcfb; }
+.panel { position: absolute; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: .7rem .9rem; box-shadow: 0 2px 8px #0002;
+  max-height: calc(100% - 2rem); overflow-y: auto; }
+#controls { top: 1rem; left: 1rem; width: 17rem; }
+#detail { top: 1rem; right: 1rem; width: 22rem; display: none; }
+#status { bottom: 1rem; left: 1rem; font-size: .8rem; color: #57606a; padding: .3rem .6rem; }
+h1 { font-size: 1rem; margin: 0 0 .5rem; }
+h2 { font-size: .82rem; margin: .8rem 0 .3rem; text-transform: uppercase;
+     letter-spacing: .03em; color: #57606a; }
+#search { width: 100%; padding: .35rem .5rem; border: 1px solid var(--border);
+  border-radius: 6px; font: inherit; }
+#hits { list-style: none; margin: .3rem 0 0; padding: 0; font-size: .82rem; }
+#hits li { padding: .2rem .3rem; border-radius: 4px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#hits li:hover { background: #eef2f6; }
+label.cat { display: flex; align-items: center; gap: .4rem; font-size: .82rem;
+  padding: .1rem 0; cursor: pointer; }
+.swatch { width: .8rem; height: .8rem; border-radius: 3px; flex: none;
+  border: 1px solid #0002; }
+.count { color: #57606a; margin-left: auto; font-size: .75rem; }
+select { width: 100%; margin: .15rem 0; padding: .25rem; border: 1px solid var(--border);
+  border-radius: 6px; font: inherit; font-size: .82rem; }
+button.link { background: none; border: none; color: #2456a3; cursor: pointer;
+  padding: 0; font: inherit; font-size: .8rem; }
+.badge { display: inline-block; border: 1px solid var(--border); border-radius: 999px;
+  padding: 0 .5em; font-size: .72rem; margin-right: .25rem; }
+#detail h1 { font-size: .95rem; }
+#detail .meta { color: #57606a; font-size: .78rem; margin: .2rem 0; }
+#neighbors { list-style: none; margin: .3rem 0 0; padding: 0; font-size: .8rem; }
+#neighbors li { padding: .15rem .3rem; border-radius: 4px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#neighbors li:hover { background: #eef2f6; }
+#loading { position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; font-size: 1rem; color: #57606a; background: #fcfcfb; }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+<div id="loading">Decompressing graph data…</div>
+
+<div class="panel" id="controls">
+  <h1>EMA knowledge-base map</h1>
+  <input id="search" type="search" placeholder="Search document titles…" autocomplete="off">
+  <ul id="hits"></ul>
+  <h2>Categories</h2>
+  <div id="cats"></div>
+  <p><button class="link" id="cats-all">all</button> · <button class="link" id="cats-none">none</button></p>
+  <h2>Filters</h2>
+  <select id="f-doctype"><option value="">doc_type: any</option></select>
+  <select id="f-audience"><option value="">audience: any</option></select>
+  <select id="f-sitetopic"><option value="">site_topic: any</option></select>
+</div>
+
+<div class="panel" id="detail">
+  <button class="link" id="detail-close" style="float:right">✕ close</button>
+  <h1 id="d-title"></h1>
+  <div id="d-badges"></div>
+  <div class="meta" id="d-topic"></div>
+  <div class="meta" id="d-url"></div>
+  <h2>Neighbors (links)</h2>
+  <ul id="neighbors"></ul>
+</div>
+
+<div class="panel" id="status"></div>
+
+<script type="text/plain" id="graph-data" data-encoding="__DATA_ENCODING__">__DATA_PAYLOAD__</script>
+<script>/*__VENDOR_JS__*/</script>
+<script>
+(async function () {
+  "use strict";
+  // ── decode payload ─────────────────────────────────────────────────────────
+  const el = document.getElementById("graph-data");
+  let data;
+  if (el.dataset.encoding === "gzip-base64") {
+    const b64 = el.textContent.trim();
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+    data = JSON.parse(await new Response(stream).text());
+  } else {
+    data = JSON.parse(el.textContent);
+  }
+  const N = data.meta.node_count;
+  const cols = data.nodes;
+
+  // ── category colors ────────────────────────────────────────────────────────
+  // Eight validated categorical hues (fixed order) for the information-carrying
+  // categories; deliberately muted neutrals for the dominant epar mass and the
+  // rare tail — identity there comes from the legend + filters, not hue.
+  const CAT_COLORS = {
+    medicine_page: "#2a78d6", scientific_guideline: "#008300", qa: "#e87ba4",
+    regulatory_overview: "#eda100", regulatory_procedure: "#1baf7a", news: "#eb6834",
+    meeting_doc: "#4a3aa7", presentation: "#e34948",
+    epar: "#9aa7b8", herbal: "#7d8f6d", glossary: "#a08d7a",
+    veterinary: "#9c7f96", other: "#8b939c",
+  };
+  const FALLBACK = "#8b939c";
+  const catColor = data.categories.map(c => CAT_COLORS[c] || FALLBACK);
+
+  // ── build graphology graph ─────────────────────────────────────────────────
+  const Graph = graphology.Graph || graphology;
+  const graph = new Graph({ type: "directed", allowSelfLoops: false });
+  const catCounts = new Array(data.categories.length).fill(0);
+  let uncategorized = 0;
+  for (let i = 0; i < N; i++) {
+    const ci = cols.cat[i];
+    if (ci >= 0) catCounts[ci]++; else uncategorized++;
+    graph.addNode(i, {
+      x: cols.x[i], y: -cols.y[i],  // sigma's y grows up; layout's grows down
+      size: Math.min(1.2 + 1.1 * Math.sqrt(cols.in_deg[i]), 14),
+      color: ci >= 0 ? catColor[ci] : FALLBACK,
+      label: cols.title[i] || null,
+    });
+  }
+  for (let e = 0; e < data.edges.length; e += 2) {
+    const s = data.edges[e], t = data.edges[e + 1];
+    if (!graph.hasEdge(s, t)) graph.addEdge(s, t, { size: 0.4, color: "#d8dde3" });
+  }
+
+  // ── UI state ───────────────────────────────────────────────────────────────
+  const state = {
+    activeCats: new Set(data.categories.map((_, i) => i).concat([-1])),
+    docType: -1, audience: -1, siteTopic: -1,   // -1 = any
+    hovered: null, selected: null,
+    neighborhood: null,  // Set of node keys adjacent to selected/hovered
+  };
+  const nodeVisible = i =>
+    state.activeCats.has(cols.cat[i]) &&
+    (state.docType < 0 || cols.dt[i] === state.docType) &&
+    (state.audience < 0 || cols.aud[i] === state.audience) &&
+    (state.siteTopic < 0 || cols.st[i] === state.siteTopic);
+
+  // ── sigma ──────────────────────────────────────────────────────────────────
+  const SigmaCtor = typeof Sigma === "function" ? Sigma : Sigma.Sigma;
+  const EDGE_ZOOM_CUTOFF = 0.45;  // camera.ratio above this → edges only near focus
+  const renderer = new SigmaCtor(graph, document.getElementById("graph"), {
+    hideEdgesOnMove: true,
+    hideLabelsOnMove: true,
+    labelRenderedSizeThreshold: 7,
+    labelDensity: 0.6,
+    renderLabels: true,
+    minCameraRatio: 0.002,
+    maxCameraRatio: 3,
+    nodeReducer(key, attrs) {
+      const i = +key;
+      if (!nodeVisible(i)) return { ...attrs, hidden: true, label: null };
+      if (state.neighborhood) {
+        const focus = key === state.selected || key === state.hovered;
+        if (!focus && !state.neighborhood.has(key))
+          return { ...attrs, color: "#e4e7ea", label: null, zIndex: 0 };
+        return { ...attrs, zIndex: 2, highlighted: focus };
+      }
+      return attrs;
+    },
+    edgeReducer(key, attrs) {
+      const [s, t] = graph.extremities(key);
+      if (!nodeVisible(+s) || !nodeVisible(+t)) return { ...attrs, hidden: true };
+      const focus = state.selected ?? state.hovered;
+      if (focus !== null && focus !== undefined) {
+        if (s === focus || t === focus)
+          return { ...attrs, color: "#7a8aa0", size: 1.2, zIndex: 1 };
+        if (state.neighborhood) return { ...attrs, hidden: true };
+      }
+      if (renderer.getCamera().ratio > EDGE_ZOOM_CUTOFF) return { ...attrs, hidden: true };
+      return attrs;
+    },
+  });
+
+  function setFocus(key) {
+    if (key === null || key === undefined) {
+      state.neighborhood = null;
+    } else {
+      state.neighborhood = new Set(graph.neighbors(key).map(String));
+    }
+    renderer.refresh();
+  }
+
+  // ── legend / filters ───────────────────────────────────────────────────────
+  const catsDiv = document.getElementById("cats");
+  const catEntries = data.categories
+    .map((name, i) => ({ name, i, n: catCounts[i] }))
+    .sort((a, b) => b.n - a.n);
+  if (uncategorized) catEntries.push({ name: "(uncategorized)", i: -1, n: uncategorized });
+  for (const { name, i, n } of catEntries) {
+    const label = document.createElement("label");
+    label.className = "cat";
+    label.innerHTML =
+      `<input type="checkbox" checked data-cat="${i}">` +
+      `<span class="swatch" style="background:${i >= 0 ? catColor[i] : FALLBACK}"></span>` +
+      `<span>${name}</span><span class="count">${n.toLocaleString()}</span>`;
+    catsDiv.appendChild(label);
+  }
+  catsDiv.addEventListener("change", ev => {
+    const i = +ev.target.dataset.cat;
+    ev.target.checked ? state.activeCats.add(i) : state.activeCats.delete(i);
+    renderer.refresh();
+  });
+  document.getElementById("cats-all").onclick = () => {
+    catsDiv.querySelectorAll("input").forEach(cb => { cb.checked = true; state.activeCats.add(+cb.dataset.cat); });
+    renderer.refresh();
+  };
+  document.getElementById("cats-none").onclick = () => {
+    catsDiv.querySelectorAll("input").forEach(cb => { cb.checked = false; });
+    state.activeCats.clear(); renderer.refresh();
+  };
+
+  function fillSelect(id, table, colName, stateKey) {
+    const sel = document.getElementById(id);
+    const counts = new Map();
+    for (let i = 0; i < N; i++) {
+      const v = cols[colName][i];
+      if (v >= 0) counts.set(v, (counts.get(v) || 0) + 1);
+    }
+    [...counts.entries()].sort((a, b) => b[1] - a[1]).forEach(([v, n]) => {
+      const opt = document.createElement("option");
+      opt.value = v; opt.textContent = `${table[v]} (${n.toLocaleString()})`;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener("change", () => {
+      state[stateKey] = sel.value === "" ? -1 : +sel.value;
+      renderer.refresh();
+    });
+  }
+  fillSelect("f-doctype", data.doc_types, "dt", "docType");
+  fillSelect("f-audience", data.audiences, "aud", "audience");
+  fillSelect("f-sitetopic", data.site_topics, "st", "siteTopic");
+
+  // ── search ─────────────────────────────────────────────────────────────────
+  const lowerTitles = cols.title.map(t => (t || "").toLowerCase());
+  const hitsEl = document.getElementById("hits");
+  let searchTimer = null;
+  document.getElementById("search").addEventListener("input", ev => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      const q = ev.target.value.trim().toLowerCase();
+      hitsEl.innerHTML = "";
+      if (q.length < 2) return;
+      const hits = [];
+      for (let i = 0; i < N && hits.length < 20; i++)
+        if (lowerTitles[i].includes(q) && nodeVisible(i)) hits.push(i);
+      for (const i of hits) {
+        const li = document.createElement("li");
+        li.textContent = cols.title[i] || cols.url[i];
+        li.onclick = () => selectNode(String(i), true);
+        hitsEl.appendChild(li);
+      }
+    }, 150);
+  });
+
+  // ── detail panel ───────────────────────────────────────────────────────────
+  const detail = document.getElementById("detail");
+  function selectNode(key, fly) {
+    state.selected = key;
+    setFocus(key);
+    const i = +key;
+    document.getElementById("d-title").textContent = cols.title[i] || "(untitled)";
+    const badges = [];
+    if (cols.cat[i] >= 0) badges.push(data.categories[cols.cat[i]]);
+    if (cols.dt[i] >= 0) badges.push(data.doc_types[cols.dt[i]]);
+    if (cols.aud[i] >= 0) badges.push(data.audiences[cols.aud[i]]);
+    if (cols.st[i] >= 0) badges.push(data.site_topics[cols.st[i]]);
+    const badgesDiv = document.getElementById("d-badges");
+    badgesDiv.innerHTML = "";
+    for (const b of badges) {
+      const span = document.createElement("span");
+      span.className = "badge"; span.textContent = b;
+      badgesDiv.appendChild(span);
+    }
+    document.getElementById("d-topic").textContent = cols.topic[i] || "";
+    const url = data.meta.url_prefix + cols.url[i];
+    const a = document.createElement("a");
+    a.href = url; a.textContent = url; a.target = "_blank"; a.rel = "noopener";
+    const urlDiv = document.getElementById("d-url");
+    urlDiv.innerHTML = ""; urlDiv.appendChild(a);
+    const nb = document.getElementById("neighbors");
+    nb.innerHTML = "";
+    graph.neighbors(key).slice(0, 50).forEach(nk => {
+      const li = document.createElement("li");
+      li.textContent = cols.title[+nk] || cols.url[+nk];
+      li.onclick = () => selectNode(nk, true);
+      nb.appendChild(li);
+    });
+    detail.style.display = "block";
+    if (fly) {
+      const pos = renderer.getNodeDisplayData(key);
+      if (pos) renderer.getCamera().animate({ x: pos.x, y: pos.y, ratio: 0.03 }, { duration: 500 });
+    }
+  }
+  document.getElementById("detail-close").onclick = () => {
+    detail.style.display = "none";
+    state.selected = null;
+    setFocus(state.hovered ?? null);
+  };
+
+  renderer.on("clickNode", ({ node }) => selectNode(node, false));
+  renderer.on("clickStage", () => {
+    if (state.selected !== null) {
+      detail.style.display = "none"; state.selected = null; setFocus(null);
+    }
+  });
+  renderer.on("enterNode", ({ node }) => {
+    state.hovered = node;
+    if (state.selected === null) setFocus(node);
+  });
+  renderer.on("leaveNode", () => {
+    state.hovered = null;
+    if (state.selected === null) setFocus(null);
+  });
+
+  document.getElementById("status").textContent =
+    `${data.meta.node_count.toLocaleString()} documents · ` +
+    `${data.meta.edge_count.toLocaleString()} links · scroll to zoom, drag to pan; ` +
+    `edges appear when zoomed in or on hover`;
+  document.getElementById("loading").remove();
+})();
+</script>
+</body>
+</html>

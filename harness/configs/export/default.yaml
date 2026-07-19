@@ -6,9 +6,11 @@
 # Unknown keys or unregistered formats are HARD errors — the export must never
 # silently claim a format that cannot run.
 export:
-  formats: [markdown, html]
+  formats: [markdown, html, chain_html]
   include_config: true          # resolved ema.* recipe configuration table
   include_judge: true           # inline judge scores, when the recipe ran them
   include_full_passages: true   # full retrieved passages (vs 240-char quotes)
   include_trace_link: true      # link to the MLflow trace
+  include_chain_output: false   # chain_html: raw tool output per timeline step
+  include_chain_graph: true     # chain_html: mini subgraph of the docs touched
   filename_template: "ema_answer_{msg_num}_{run8}"

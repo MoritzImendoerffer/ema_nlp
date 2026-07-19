@@ -59,7 +59,7 @@ def _bundle() -> ExportBundle:
 # ── registry + options ────────────────────────────────────────────────────────
 
 def test_builtin_exporters_registered():
-    assert list_exporters() == ["html", "markdown"]
+    assert list_exporters() == ["chain_html", "html", "markdown"]
 
 
 def test_get_unknown_exporter_raises():
@@ -85,8 +85,10 @@ def test_options_reject_unknown_key_and_unregistered_format():
 
 def test_load_default_export_config():
     options = load_export_options()
-    assert options.formats == ["markdown", "html"]
+    assert options.formats == ["markdown", "html", "chain_html"]
     assert options.include_full_passages is True
+    assert options.include_chain_output is False
+    assert options.include_chain_graph is True
 
 
 def test_load_export_options_honors_ema_config_dir(tmp_path, monkeypatch):
@@ -144,6 +146,10 @@ def test_html_export_selfcontained_with_highlight_sync():
 def test_export_turn_returns_all_configured_formats():
     files = export_turn(_bundle())
     names = [f[0] for f in files]
-    assert names == ["ema_answer_3_run-1234.md", "ema_answer_3_run-1234.html"]
-    assert files[0][1] == "text/markdown" and files[1][1] == "text/html"
+    assert names == [
+        "ema_answer_3_run-1234.md",
+        "ema_answer_3_run-1234.html",
+        "ema_answer_3_run-1234_chain.html",
+    ]
+    assert [f[1] for f in files] == ["text/markdown", "text/html", "text/html"]
     assert all(content for _, _, content in files)

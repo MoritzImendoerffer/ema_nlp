@@ -27,6 +27,8 @@ _KNOWN_KEYS = {
     "include_judge",
     "include_full_passages",
     "include_trace_link",
+    "include_chain_output",
+    "include_chain_graph",
     "filename_template",
 }
 
@@ -40,6 +42,8 @@ class ExportOptions:
     include_judge: bool = True
     include_full_passages: bool = True
     include_trace_link: bool = True
+    include_chain_output: bool = False  # chain_html: raw tool output per step
+    include_chain_graph: bool = True  # chain_html: mini subgraph of docs touched
     filename_template: str = "ema_answer_{msg_num}_{run8}"
 
     @classmethod
@@ -64,6 +68,8 @@ class ExportOptions:
             include_judge=bool(d.get("include_judge", True)),
             include_full_passages=bool(d.get("include_full_passages", True)),
             include_trace_link=bool(d.get("include_trace_link", True)),
+            include_chain_output=bool(d.get("include_chain_output", False)),
+            include_chain_graph=bool(d.get("include_chain_graph", True)),
             filename_template=str(d.get("filename_template", "ema_answer_{msg_num}_{run8}")),
         )
 
