@@ -42,7 +42,8 @@ cutoff or when incident to the hovered/selected node (the LightRAG trick), plus
 
 Payload size estimate: ~190 B/node raw → ~4–6 MB HTML for the full graph.
 The build prints exact numbers. Regenerate after a graph rebuild; artifacts go
-under `results/` (gitignored).
+under `results/` (gitignored). Full build verified on marvin-gpu (2026-07-19):
+79,882 docs / 99,520 links → 5.1 MB HTML, layout ~90 s.
 
 ## 2. NeoDash
 
@@ -94,11 +95,59 @@ span tree — TOOL spans give tool name/args/raw output, nested RETRIEVER spans
 give full node metadata, and the final node order is parsed from the
 `format_nodes` output string (the source of truth after rerank/steering). The
 span contract is pinned by fake-span tests (`tests/test_chain_from_trace.py`)
-and was verified empirically against mlflow 3.14. Traces predating chain
-capture still render (with whatever the spans contain); `scripts/run_eval.py`
+and was verified against real traces on mlflow 3.14 (2026-07-19, marvin-gpu):
+`--run-id` resolves the run's experiment and passes it as `locations`
+(`search_traces` otherwise only looks in experiment 0). Traces predating chain
+capture still render (with whatever the spans contain) — the question falls
+back to the `user_msg` input on autolog's `FunctionAgent.run` root span when no
+`record_answer_on_span` span exists. `scripts/run_eval.py`
 run ids feed straight into `--run-id`, which answers the docs/eval pain point —
 e.g. re-render any run from `docs/eval/2026-07-13_topic_subgraphs.md` and read
 the chains instead of pandas tables.
+
+## 5. Remote access via `ssh -L`
+
+Everything above runs on **marvin-gpu** (the host with the full Neo4j graph,
+`mlflow.db`, and the Docker services). From another machine (e.g. the laptop),
+forward the ports of whatever surface you want to open — the services bind to
+`localhost` on the host, so an SSH tunnel is the intended access path:
+
+```bash
+# NeoDash: the UI is on :5005, but NeoDash runs client-side in YOUR browser and
+# opens the database connection itself — so Bolt :7687 must be forwarded too.
+ssh -L 5005:localhost:5005 -L 7687:localhost:7687 moritz@marvin-gpu
+
+# Neo4j Browser: same client-side pattern — UI on :7474, Bolt on :7687.
+ssh -L 7474:localhost:7474 -L 7687:localhost:7687 moritz@marvin-gpu
+
+# MLflow UI (traces, eval runs, feedback assessments):
+ssh -L 5000:localhost:5000 moritz@marvin-gpu
+
+# Or all of them in one session:
+ssh -L 5005:localhost:5005 -L 7474:localhost:7474 \
+    -L 7687:localhost:7687 -L 5000:localhost:5000 moritz@marvin-gpu
+```
+
+Then open `http://localhost:<port>` locally and, in the NeoDash / Neo4j Browser
+connect dialog, use host `localhost`, port `7687`, protocol **`bolt`** (not
+`neo4j://` — routing discovery would redirect to the server's advertised
+address instead of the tunneled one; see `deploy/neo4j/README.md`). Tunneling
+only the UI port is the classic mistake: the page loads, the DB connection
+fails.
+
+Gotchas:
+
+- **Port collisions on the local machine** — if a local Neo4j already holds
+  7474/7687 (the laptop does: its project container is remapped to 7688/7475
+  for exactly this reason), pick free local ports and connect to those instead:
+  `ssh -L 17687:localhost:7687 -L 17474:localhost:7474 …` → browser to
+  `http://localhost:17474`, connect dialog port `17687`.
+- **Static artifacts need no tunnel** — the KB map and chain exports are
+  self-contained single files; `scp` them (or let Nextcloud sync them) and open
+  locally:
+  `scp moritz@marvin-gpu:github_repos/ema_nlp/results/graph_map/ema_kb_map.html .`
+- MLflow on :5000 is only up while `run_ui.sh` (or a manual
+  `mlflow server`) is running on the host.
 
 ## Design decisions
 

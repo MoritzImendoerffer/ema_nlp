@@ -190,8 +190,12 @@ def _find_answer(spans: list[Any]) -> tuple[str, Any]:
     question = ""
     for span in sorted(spans, key=lambda s: getattr(s, "start_time_ns", 0) or 0):
         inp = getattr(span, "inputs", None)
-        if not question and isinstance(inp, dict) and inp.get("question"):
-            question = str(inp["question"])
+        if not question and isinstance(inp, dict):
+            # record_answer_on_span writes "question"; autolog's FunctionAgent.run
+            # root span (the only source on pre-capture traces) writes "user_msg".
+            q = inp.get("question") or inp.get("user_msg")
+            if q:
+                question = str(q)
         out = getattr(span, "outputs", None)
         if isinstance(out, dict) and "answer" in out and "citations" in out:
             try:

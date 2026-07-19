@@ -191,6 +191,17 @@ def test_trace_without_tool_spans_yields_empty_chain():
     assert bundle.answer.answer == ""  # no RegulatoryAnswer-shaped span → empty fallback
 
 
+def test_question_falls_back_to_autolog_user_msg():
+    # Pre-chain-capture traces have no record_answer_on_span span; the only
+    # question source is autolog's FunctionAgent.run root span ("user_msg").
+    root = _span(
+        "root", "FunctionAgent.run", "AGENT",
+        inputs={"user_msg": "What is the AI for NDMA?"}, outputs={},
+    )
+    bundle = bundle_from_trace(_trace([root]))
+    assert bundle.question == "What is the AI for NDMA?"
+
+
 def test_malformed_outputs_are_tolerated():
     weird = _span(
         "t1", "FunctionTool.call", "TOOL",

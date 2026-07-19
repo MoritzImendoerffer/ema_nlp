@@ -108,7 +108,17 @@ does cluster routing discovery, which a single Community instance behind a
 Docker port remap cannot answer ("No routing servers available"). Host
 `localhost`, port `7687` — or the remapped Bolt port on hosts that override
 `NEO4J_BOLT_PORT` (e.g. `7688` where a native Neo4j holds the default). Then
-pick **EMA KB** under *Load → Neo4j*. Four pages, all
+pick **EMA KB** under *Load → Neo4j*.
+
+Remotely, tunnel **both** the UI and Bolt (NeoDash connects to Bolt from your
+browser, same as the Neo4j Browser — see "Connecting" above):
+
+```bash
+ssh -L 5005:localhost:5005 -L 7687:localhost:7687 moritz@marvin-gpu
+```
+
+More tunnel recipes (all viz surfaces, port-collision workaround):
+`docs/VISUALIZATION.md` §5. Four pages, all
 derived from `inspect_queries.cypher` (Community-safe, APOC-only):
 
 1. **Census** — doc/chunk/edge value cards, docs-by-category, top doc_type,

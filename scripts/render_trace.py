@@ -31,8 +31,13 @@ def _traces(args: argparse.Namespace) -> list:
     import mlflow
 
     if args.run_id:
+        # search_traces only looks in experiment 0 unless told where the run lives.
+        experiment_id = mlflow.get_run(args.run_id).info.experiment_id
         found = mlflow.search_traces(
-            run_id=args.run_id, return_type="list", max_results=args.max_traces
+            run_id=args.run_id,
+            locations=[experiment_id],
+            return_type="list",
+            max_results=args.max_traces,
         )
         if not found:
             raise SystemExit(f"No traces found for run_id {args.run_id!r}")
