@@ -1,4 +1,5 @@
 {
+  "uuid": "ema-kb-dashboard",
   "title": "EMA KB",
   "version": "2.4",
   "settings": {
@@ -8,7 +9,6 @@
     "parameters": {},
     "theme": "light"
   },
-  "uuid": "ema-kb-dashboard",
   "pages": [
     {
       "title": "Census",
@@ -95,7 +95,7 @@
         },
         {
           "id": "census-coverage",
-          "title": "Enrichment coverage by source_type (docs/RETRIEVAL.md \u00a77)",
+          "title": "Enrichment coverage by source_type (docs/RETRIEVAL.md §7)",
           "query": "MATCH (d:Document) RETURN d.source_type AS source_type, count(*) AS docs, count(d.category) AS with_category, count(d.doc_type) AS with_doc_type, count(d.audience) AS with_audience, count(d.site_topic) AS with_site_topic ORDER BY docs DESC",
           "type": "table",
           "x": 0,

@@ -13,10 +13,12 @@ Workflow: edit the dashboard in the NeoDash UI (http://localhost:5005), save it
 to Neo4j from the UI, then ``--dump`` and commit the JSON. ``seed`` restores it
 on any fresh instance. Connection env as in scripts/inspect_graph.py.
 
-NOTE: the exact node shape was taken from NeoDash 2.4's documented persistence
-model (title/date/user/version/content). If a UI-saved dashboard ever fails to
-round-trip, save one manually and inspect it with
-``scripts/inspect_graph.py cypher "MATCH (d:_Neodash_Dashboard) RETURN d"``.
+Node shape verified against the NeoDash 2.4.11 source (DashboardThunks.ts):
+``uuid`` is the MERGE key and what the load dialog passes to the loader — a
+node without it lists fine but fails to load ("A dashboard with UUID 'null'
+does not exist"). The uuid lives both on the node and inside ``content``
+(NeoDash writes it into the dashboard JSON before saving); the committed file
+carries it, so reseeding is idempotent.
 """
 
 from __future__ import annotations
@@ -52,12 +54,20 @@ def _driver():
 
 
 def seed(session, path: Path, user: str) -> str:
+    import uuid as uuidlib
+
     dashboard = json.loads(path.read_text(encoding="utf-8"))
     title = dashboard.get("title") or "EMA KB"
+    if not dashboard.get("uuid"):
+        # Stable per title, so reseeding never duplicates the node.
+        dashboard["uuid"] = str(uuidlib.uuid5(uuidlib.NAMESPACE_URL, f"ema-neodash:{title}"))
     session.run(
-        "MERGE (d:`_Neodash_Dashboard` {title: $title}) "
-        "SET d.date = datetime(), d.user = $user, d.version = $version, "
-        "    d.content = $content",
+        "MERGE (d:`_Neodash_Dashboard` {uuid: $uuid}) "
+        "SET d.title = $title, d.date = datetime(), d.user = $user, "
+        "    d.version = $version, d.content = $content "
+        "WITH d MATCH (stale:`_Neodash_Dashboard` {title: $title}) "
+        "WHERE stale.uuid IS NULL DETACH DELETE stale",
+        uuid=dashboard["uuid"],
         title=title,
         user=user,
         version=str(dashboard.get("version") or "2.4"),
