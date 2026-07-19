@@ -135,3 +135,43 @@ Per-item lowlights (where the points went, all Sonnet runs):
   drop the deprecated `temperature` field, and fall back to correct metadata
   (200k context, function-calling capable) when llama-index's static model table
   doesn't know the model id.
+
+## 8. Critique (2026-07-19) — how far the T2 result carries
+
+A post-hoc challenge of this report sharpened §6.2 into three limits. **Read the
+headline table as "the mechanism works", not "the approach generalizes".**
+
+1. **Circular by construction.** The `referral_procedures` hub was built *because*
+   all 10 T2 items live in that family, and the step-5 gate verified the 3 gold
+   documents were members *before* the eval ran. The eval therefore could not fail
+   for coverage reasons — it measured only "given perfect, pre-verified coverage of
+   the test set, does the agent adopt the tool and use the catalog". Valid as a
+   mechanism unit test; no evidence about unseen topics.
+2. **No statistical power + ceiling.** 5.000 vs 4.700 is 2 discordant items out of
+   10 (a paired sign test is nowhere near significance). The real evidence is
+   qualitative: both baseline failures were *predicted in advance* as cross-sibling
+   misses and the fix removed exactly those. The 1–5 judge also ceilings at 5
+   (can't distinguish "complete" from "judge-satisfying"), and Claude judging
+   Claude carries self-preference risk.
+3. **Two unproven generalization halves.** (a) *Walk transfer*: the 2-hop
+   hub→detail→PDF pattern + qualifiers is per-hub config tuned on this one hub;
+   other families (worksharing — where the sweep's failures concentrate — GVP,
+   nitrosamines) may not share the shape. (b) *Membership precision*: the gate
+   checked recall of the 3 gold docs only; nothing verified the other 46 members
+   belong. False members would inject authoritative-looking noise into
+   `topic_context`, and this eval design cannot detect that.
+
+Honest framing: this is a **curated-index strategy** — it generalizes exactly as
+far as EMA maintains hub pages with this link structure and a human confirms each
+hub. Upgrade path: build 2–3 hubs *without* consulting benchmark items, author new
+T2 items from those families blind to hub membership, run the missing
+`steered_agent` T1/T3/T4 baseline (§6.1), and add a membership-precision check.
+
+*(Also checked and cleared: the `MockLLM` / unauthenticated-HF-Hub messages seen
+when opening the index are retrieval-path artifacts — `Settings.llm = None` in
+`harness/providers.py` and `llm=MockLLM()` in `open_index` deliberately block
+LlamaIndex's OpenAI default; generation used real Anthropic models via
+`build_recipe` → `get_llm_for_model`, the eval recipes run `pipeline: none` so no
+LLM-dependent retrieval step existed, and `llm_rewrite` raises rather than
+silently degrading. The HF warning is an unauthenticated revision check on the
+locally cached embedder, not a re-download.)*

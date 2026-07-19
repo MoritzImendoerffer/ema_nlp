@@ -7,21 +7,28 @@ Settings are read from environment variables (loaded by config.py via python-dot
     EMA_LLM_MODEL      — default LLM model name  (fallback: claude-haiku-4-5-20251001)
     EMA_EMBED_MODEL    — default embed model name (fallback: BAAI/bge-large-en-v1.5)
     EMA_EMBED_PROVIDER — embed backend: "huggingface" (default, local) | "openai"
+    EMA_HF_CACHE_DIR   — HF weight cache for the embed model
+                         (fallback: $EMA_DATA_DIR/models/hf)
 
 Precedence (high → low):
   1. Per-call override argument
-  2. EMA_* env var in ~/.myenvs/ema_nlp.env
+  2. EMA_* env var in ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env
   3. Constant defaults below
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from typing import Any
 
 from llama_index.core.settings import Settings
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+from config import EMA_DATA_DIR
+
+_log = logging.getLogger(__name__)
 
 _DEFAULT_LLM = "claude-haiku-4-5-20251001"
 _DEFAULT_EMBED = "BAAI/bge-large-en-v1.5"
@@ -36,6 +43,7 @@ _DEFAULT_PROVIDER = "huggingface"
 # concurrent resumes can't race and build several models at once.
 _embed_lock = threading.Lock()
 _embed_cache: dict[tuple[str, str, str | None, int | None], Any] = {}
+_llm_disabled_logged = False
 
 
 def configure_embed_model(
@@ -69,7 +77,13 @@ def configure_embed_model(
 
                 model = OpenAIEmbedding(model=name)
             else:
-                kwargs: dict = {"model_name": name}
+                # Weights are cached on disk (default: $EMA_DATA_DIR/models/hf) and
+                # only downloaded once; later loads read from this folder. The
+                # unauthenticated-HF-Hub warning on load is a revision *check*, not
+                # a re-download — set HF_HUB_OFFLINE=1 in ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env to
+                # skip it once the weights are cached.
+                cache_dir = os.getenv("EMA_HF_CACHE_DIR") or str(EMA_DATA_DIR / "models" / "hf")
+                kwargs: dict = {"model_name": name, "cache_folder": cache_dir}
                 if device is not None:
                     kwargs["device"] = device
                 if embed_batch_size is not None:
@@ -78,7 +92,20 @@ def configure_embed_model(
             _embed_cache[key] = model
 
         Settings.embed_model = model
-        Settings.llm = None  # retrieval-only; no LLM node needed
+        # Retrieval-only path: no LLM is ever invoked here (kg_extractors=[],
+        # vector search + Cypher only). Setting Settings.llm = None makes
+        # LlamaIndex print "LLM is explicitly disabled. Using MockLLM." — that
+        # message is expected and harmless; agents/judges get their real LLM
+        # explicitly via harness.llms, never from Settings.
+        global _llm_disabled_logged
+        if not _llm_disabled_logged:
+            _llm_disabled_logged = True
+            _log.info(
+                "Settings.llm = None (retrieval-only) — LlamaIndex will report "
+                "'LLM is explicitly disabled. Using MockLLM.'; expected, no LLM "
+                "runs on the retrieval path."
+            )
+        Settings.llm = None
 
 
 def get_llm_model(override: str | None = None) -> str:
