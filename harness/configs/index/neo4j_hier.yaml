@@ -2,7 +2,7 @@
 # Selected by EMA_INDEX_PROFILE (default: neo4j_hier).
 #
 # Neo4j connection is NOT here (it's credentials) — set NEO4J_URI / NEO4J_USER /
-# NEO4J_PASSWORD in ~/.myenvs/ema_nlp.env. On this host the project container
+# NEO4J_PASSWORD in ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env. On this host the project container
 # runs on alt ports, so: NEO4J_URI=bolt://localhost:7688
 
 index:

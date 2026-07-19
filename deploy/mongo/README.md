@@ -66,7 +66,7 @@ The compose file reads (defaults in parentheses):
 | `MONGO_PORT`  | `27017`            | published on `127.0.0.1` only |
 | `MONGO_DBPATH`| `/var/lib/mongodb` | the native data directory (source of truth) |
 
-Application side, `~/.myenvs/ema_nlp.env` already has:
+Application side, `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` already has:
 
 ```
 MONGO_URI=mongodb://localhost:27017/

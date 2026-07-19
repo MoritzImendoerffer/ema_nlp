@@ -34,7 +34,7 @@ flowchart TD
 Connections: `MONGO_URI` (default `mongodb://localhost:27017/`, db `ema_scraper`);
 `NEO4J_URI` (default `bolt://localhost:7687`). Both start via
 `scripts/start_services.sh` (Docker). Paths/credentials load from
-`~/.myenvs/ema_nlp.env` via `config.py`.
+`~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` via `config.py`.
 
 ---
 
@@ -174,7 +174,7 @@ methodology (T1–T4 types, lift, contamination handling) is documented in
 
 **Local only (gitignored / derived):** `corpus/corpus.jsonl` (rebuild from Mongo); Neo4j
 data (Docker volume `ema_neo4j_data`); `~/.cache/huggingface/` (BGE model); `results/`
-(symlink to Nextcloud); `~/.myenvs/ema_nlp.env`.
+(symlink to Nextcloud); `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env`.
 
 **Nextcloud:** `~/Nextcloud/Datasets/ema_scraper/cache/` (Scrapy cache → `parsed_pdfs`),
 `mongo_sync/` (Mongo dumps), IDMP ontology RDF.

@@ -6,10 +6,10 @@
 #   2. Installs Claude Code (npm global) if missing
 #   3. Installs Python project deps (pip install -e ".[dev]")
 #   4. Optionally clones the claude-code-toolkit plugin repo
-#   5. Guides you through creating ~/.myenvs/ema_nlp.env
+#   5. Guides you through creating the ema_nlp.env file
 #
 # Credentials are NEVER stored in this repo.
-# All secrets go in ~/.myenvs/ema_nlp.env (created interactively below).
+# All secrets go in ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env (created interactively below).
 
 set -euo pipefail
 
@@ -185,8 +185,15 @@ register_mcp "serena"    serena    -- uvx --from git+https://github.com/oraios/s
 warn "MCP: Gmail / Google Drive / Google Calendar require browser authentication."
 warn "      Run 'claude' and authenticate those connectors on first use."
 
-# ── 9. ~/.myenvs/ema_nlp.env ─────────────────────────────────────────────────
-ENV_FILE="$HOME/.myenvs/ema_nlp.env"
+# ── 9. ema_nlp.env (canonical: ~/Nextcloud/Datasets/ema_nlp/) ────────────────
+# config.py searches: $EMA_ENV_FILE → ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env
+# → ~/.myenvs/ema_nlp.env (legacy). New files are created at the canonical path.
+ENV_FILE="${EMA_ENV_FILE:-$HOME/Nextcloud/Datasets/ema_nlp/ema_nlp.env}"
+LEGACY_ENV_FILE="$HOME/.myenvs/ema_nlp.env"
+if [ ! -f "$ENV_FILE" ] && [ -f "$LEGACY_ENV_FILE" ]; then
+    ok "Using legacy env file: $LEGACY_ENV_FILE (canonical location is $ENV_FILE)"
+    ENV_FILE="$LEGACY_ENV_FILE"
+fi
 echo ""
 if [ -f "$ENV_FILE" ]; then
     ok "Env file already exists: $ENV_FILE"
@@ -194,7 +201,7 @@ else
     ask "Env file not found at $ENV_FILE. Create it now? [Y/n]"
     read -r REPLY
     if [[ "${REPLY:-Y}" =~ ^[Yy]$ ]]; then
-        mkdir -p "$HOME/.myenvs"
+        mkdir -p "$(dirname "$ENV_FILE")"
 
         ask "Enter your Anthropic API key (sk-ant-...): "
         read -r API_KEY

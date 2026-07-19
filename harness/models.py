@@ -163,7 +163,7 @@ def _call_anthropic(
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        raise OSError("ANTHROPIC_API_KEY not set. Add it to ~/.myenvs/ema_nlp.env")
+        raise OSError("ANTHROPIC_API_KEY not set. Add it to ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env")
 
     client = anthropic.Anthropic(api_key=api_key)
     kwargs: dict = dict(
@@ -196,7 +196,7 @@ def _call_openai_compat(
 
     if not api_key:
         raise OSError(
-            f"{key_env} not set. Add it to ~/.myenvs/ema_nlp.env"
+            f"{key_env} not set. Add it to ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env"
         )
 
     client = OpenAI(api_key=api_key, base_url=api_base)

@@ -98,7 +98,7 @@ Read `DECISIONS.md` before planning any implementation. Short summary of the one
 - **Feedback store:** MLflow trace assessments (`mlflow.log_feedback`, the Chainlit 👍/👎) — sqlite backend (`mlflow.db`), no separate database. *(Replaced the Phoenix annotation API.)*
 - **Semantic cache:** thin FAISS index over past query embeddings (`harness/index/query_cache.faiss`) — GPTCache is abandoned, do not use it
 - **Learning from feedback:** runtime few-shot injection from rated trajectories — no model training in the live path. *(A DSPy bootstrap loop — teacher → judge-filter → `BootstrapFewShot` — is now **scaffolded** in `harness/eval/bootstrap.py` on the agentic branch; deferred until ≥ 50 rated examples + a rebuilt eval harness exist.)*
-- **Credentials:** `~/.myenvs/ema_nlp.env` via python-dotenv — never in the repo
+- **Credentials:** `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` via python-dotenv — never in the repo
 
 Open decisions not yet made are in `OPEN_QUESTIONS.md`.
 
@@ -125,7 +125,7 @@ Full phase sequence and status table: `project_roadmap/ROADMAP.md` (reconciliati
 - **`ema_scraper.link_graph` — never built.** Older docs (MIGR-018..025) describe this collection; it was never populated here. Links are extracted at ingest time from `web_items.html_raw` by `harness.indexing.links.extract_links` and become `LINKS_TO` edges in Neo4j.
 - **Neo4j** (Docker, `deploy/neo4j/`) — the retrieval store: a LlamaIndex `PropertyGraphIndex` of `:Document` + `:Chunk` nodes with `HAS_CHUNK`/`PARENT_OF`/`LINKS_TO` edges and a native vector index over chunk embeddings. Built by `harness.indexing.build_index` from Mongo `parsed_documents`. This is the retrieval target; `corpus.jsonl` is benchmark-only. See `docs/RETRIEVAL.md`. *(Replaced the former Postgres+pgvector store, deleted in LIR-012.)*
 - **Nextcloud**: `~/Nextcloud/Datasets/` — Scrapy cache (`ema_scraper/cache/`) + IDMP ontology RDF files
-- Paths are configured in `config.py`, which loads `~/.myenvs/ema_nlp.env` via python-dotenv
+- Paths are configured in `config.py`, which loads `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` via python-dotenv
 - MongoDB source adaptors: `corpus/sources/mongo_source.py` yields `QARecord` for the Q&A pipeline; `corpus/sources/parsed_documents.py` exposes the writer and index bootstrap for the parsers layer; `corpus/sources/synthetic_legacy_reader.py` (MIGR-008) bridges `parsed_pdfs` + `web_items` rows to the sync as a transition fixture until MIGR-013 backfills.
 - Retrieval is selected by `EMA_INDEX_PROFILE` (default `neo4j_hier` → `harness/configs/index/*.yaml`). See `docs/RETRIEVAL.md`. *(The old `EMA_RETRIEVER=faiss|pgvector` switch is removed.)*
 

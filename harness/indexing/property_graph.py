@@ -63,7 +63,7 @@ def neo4j_store_from_env() -> Neo4jPropertyGraphStore:
     password = os.getenv("NEO4J_PASSWORD")
     if not password:
         raise RuntimeError(
-            "NEO4J_PASSWORD is not set. Configure it in ~/.myenvs/ema_nlp.env "
+            "NEO4J_PASSWORD is not set. Configure it in ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env "
             "(never hardcode credentials)."
         )
     return Neo4jPropertyGraphStore(

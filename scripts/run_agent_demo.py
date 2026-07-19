@@ -1,7 +1,7 @@
 """Demo: end-to-end recipe-driven agentic RAG session.
 
 Run on a host with Neo4j up (``scripts/start_services.sh``) and model credentials
-in ``~/.myenvs/ema_nlp.env``::
+in ``~/Nextcloud/Datasets/ema_nlp/ema_nlp.env``::
 
     python scripts/run_agent_demo.py "What is the Acceptable Intake for NDMA?"
     python scripts/run_agent_demo.py --recipe crag_agentic "..."

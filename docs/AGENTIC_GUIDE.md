@@ -30,7 +30,7 @@ scripts/start_services.sh
 # 2. Python deps (pulls mlflow>=3, llama-index, etc.)
 uv pip install -e ".[dev]"        # or: pip install -e ".[dev]"
 
-# 3. Credentials in ~/.myenvs/ema_nlp.env (loaded via python-dotenv):
+# 3. Credentials in ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env (loaded via python-dotenv):
 #    ANTHROPIC_API_KEY      — LLM key
 #    ANTHROPIC_BASE_URL     — optional gateway (e.g. https://gw.claudeapi.com); the agent AND
 #                             the mlflow judges route through it automatically

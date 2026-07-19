@@ -27,7 +27,7 @@ pipeline is inspectable and any stage can be re-run by hand.
                     after a fresh build — kept out of the default steps)
 
 Prerequisites: ``scripts/start_services.sh`` (Mongo + Neo4j up), credentials in
-``~/.myenvs/ema_nlp.env``. See docs/RETRIEVAL.md §2 + §6.
+``~/Nextcloud/Datasets/ema_nlp/ema_nlp.env``. See docs/RETRIEVAL.md §2 + §6.
 
 Examples:
     # full pipeline after a new scrape (GPU host)

@@ -71,7 +71,7 @@ pip install "mlflow[llama-index]"       # only for autolog tracing of the agent
 # optional: pip install dspy            # only for the bootstrap loop (lazy import)
 scripts/start_services.sh               # Mongo (mongo:8.0.4) + Neo4j
 ```
-Env file `~/.myenvs/ema_nlp.env` must have `ANTHROPIC_API_KEY`, `CHAINLIT_AUTH_SECRET`,
+Env file `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` must have `ANTHROPIC_API_KEY`, `CHAINLIT_AUTH_SECRET`,
 `NEO4J_PASSWORD` (see `docs/SETUP.md`).
 
 **Verify the graph is intact (no rebuild, no LLM):**

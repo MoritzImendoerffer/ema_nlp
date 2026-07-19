@@ -18,7 +18,7 @@ pip install -e ".[dev]" jupyter    # project + a notebook runtime
 scripts/start_services.sh          # MongoDB + Neo4j (Docker), health-checked
 ```
 
-- Credentials in `~/.myenvs/ema_nlp.env` (`NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASSWORD`;
+- Credentials in `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` (`NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASSWORD`;
   `ANTHROPIC_API_KEY` for notebook 03 §3). On this host the project Neo4j container runs
   on the alt port — `NEO4J_URI=bolt://localhost:7688`; the notebooks' setup cell defaults
   to it if the env file doesn't set one.

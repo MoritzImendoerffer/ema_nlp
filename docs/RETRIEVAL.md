@@ -144,7 +144,7 @@ retrieval:
   # graph.expand_categories, graph.max_expand) — see §7; enabled in neo4j_steered.yaml
 ```
 
-Env (`~/.myenvs/ema_nlp.env`):
+Env (`~/Nextcloud/Datasets/ema_nlp/ema_nlp.env`):
 
 ```bash
 NEO4J_URI=bolt://localhost:7687        # bolt://localhost:7688 if coexisting with a native Neo4j

@@ -258,9 +258,9 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 **Why:** Eval runs produce JSON/JSONL/PNG artefacts that should not inflate the repo. All data lives on Nextcloud (synced between machines) while the symlink keeps the `results/` path alias working in dev.  
 **Ref:** [`docs/SETUP.md`](docs/SETUP.md) §7
 
-### Credentials in `~/.myenvs/ema_nlp.env`, never in the repo
+### Credentials in `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env`, never in the repo
 **Decided:** 2026-05-15  
-**What:** All secrets (`ANTHROPIC_API_KEY`, MongoDB sync settings) live in `~/.myenvs/ema_nlp.env` on each machine, loaded at import time via `python-dotenv` with `override=False`. No `.env` file in the repo, no `.env.example`.  
+**What:** All secrets (`ANTHROPIC_API_KEY`, MongoDB sync settings) live in `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` on each machine, loaded at import time via `python-dotenv` with `override=False`. No `.env` file in the repo, no `.env.example`.  
 **Why:** The repo is public. The user does not want credentials stored in or near the repo even as examples.  
 **Ref:** [`docs/SETUP.md`](docs/SETUP.md)
 

@@ -126,7 +126,7 @@ def _make_anthropic(model_id: str, temperature: float, max_tokens: int) -> LLM:
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        raise OSError("ANTHROPIC_API_KEY not set. Add it to ~/.myenvs/ema_nlp.env")
+        raise OSError("ANTHROPIC_API_KEY not set. Add it to ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env")
 
     class _Anthropic(Anthropic):
         """Anthropic wrapper hardened against two library bugs (GPU walk 2026-07-07).
@@ -271,7 +271,7 @@ def _make_together(model_id: str, temperature: float, max_tokens: int) -> LLM:
     api_key = os.getenv("TOGETHER_API_KEY")
     if not api_key:
         raise OSError(
-            "TOGETHER_API_KEY not set. Add it to ~/.myenvs/ema_nlp.env. "
+            "TOGETHER_API_KEY not set. Add it to ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env. "
             "Get a key at https://api.together.xyz"
         )
 
@@ -300,7 +300,7 @@ def _make_openai_compatible(
     api_key = os.getenv(api_key_env, "local")
     if not api_key:
         raise OSError(
-            f"{api_key_env} not set. Add it to ~/.myenvs/ema_nlp.env"
+            f"{api_key_env} not set. Add it to ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env"
         )
 
     return OpenAI(

@@ -38,14 +38,14 @@ if str(_REPO) not in sys.path:
 
 from neo4j import GraphDatabase  # noqa: E402
 
-import config  # noqa: E402,F401  (loads ~/.myenvs/ema_nlp.env)
+import config  # noqa: E402,F401  (loads ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env)
 
 
 def _driver():
     password = os.getenv("NEO4J_PASSWORD")
     if not password:
         raise RuntimeError(
-            "NEO4J_PASSWORD is not set. Configure it in ~/.myenvs/ema_nlp.env "
+            "NEO4J_PASSWORD is not set. Configure it in ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env "
             "(never hardcode credentials)."
         )
     return GraphDatabase.driver(

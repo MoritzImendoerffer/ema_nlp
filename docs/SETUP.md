@@ -36,21 +36,26 @@ The script does the following (with interactive prompts at each step):
 3. Installs Python project dependencies (`pip install -e ".[dev]"`)
 4. Clones the `claude-code-toolkit` plugin repo to `~/github_repos/claude-code-toolkit`
    (required for custom Claude Code skills; Claude Code still works without it)
-5. Creates `~/.myenvs/ema_nlp.env` interactively (see section 2)
+5. Creates `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` interactively (see section 2)
 
 ---
 
-## 2. Environment file — `~/.myenvs/ema_nlp.env`
+## 2. Environment file — `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env`
 
 **Credentials are never stored in this repository.** All secrets live in
-`~/.myenvs/ema_nlp.env` on each machine. The file is created by `setup.sh`
+`~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` on each machine. The file is created by `setup.sh`
 or you can create it manually:
 
 ```bash
-mkdir -p ~/.myenvs
-touch ~/.myenvs/ema_nlp.env
-chmod 600 ~/.myenvs/ema_nlp.env
+mkdir -p ~/Nextcloud/Datasets/ema_nlp
+touch ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env
+chmod 600 ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env
 ```
+
+`config.py` resolves the file through a search chain — `$EMA_ENV_FILE` (explicit
+override) → `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` (canonical, synced with
+the dataset folder) → `~/.myenvs/ema_nlp.env` (legacy fallback) — so machines
+that have not synced the 2026-07-19 move keep working.
 
 ### Required variables
 
@@ -158,13 +163,13 @@ All are optional — the defaults match the project's current configuration.
 
 **Precedence (high → low):**
 1. YAML run-config field (`embed_model:`, `model:`) — per-run override
-2. `EMA_*` env vars in `~/.myenvs/ema_nlp.env` — machine default
+2. `EMA_*` env vars in `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` — machine default
 3. Code constant in `harness/providers.py` — fallback (`claude-haiku-4-5-20251001` / `BAAI/bge-large-en-v1.5`)
 
 **Example: lighter setup for a laptop with limited RAM**
 
 ```bash
-# ~/.myenvs/ema_nlp.env
+# ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env
 ANTHROPIC_API_KEY=sk-ant-...
 EMA_LLM_MODEL=claude-haiku-4-5-20251001
 EMA_EMBED_MODEL=BAAI/bge-small-en-v1.5   # ~130 MB instead of ~1.3 GB
@@ -173,7 +178,7 @@ EMA_EMBED_MODEL=BAAI/bge-small-en-v1.5   # ~130 MB instead of ~1.3 GB
 **Example: third-party API gateway**
 
 ```bash
-# ~/.myenvs/ema_nlp.env
+# ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env
 ANTHROPIC_API_KEY=sk-Z7VX3f...            # key issued by the gateway
 ANTHROPIC_BASE_URL=https://gw.claudeapi.com
 EMA_LLM_MODEL=claude-sonnet-4-6
@@ -276,7 +281,7 @@ mlflow server --backend-store-uri sqlite:///mlflow.db --host 127.0.0.1 --port 50
 ```
 
 If you run MLflow on a different host (or a non-default port), point the chat UI
-at it via `~/.myenvs/ema_nlp.env`:
+at it via `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env`:
 
 ```bash
 MLFLOW_TRACKING_URI=http://localhost:5000

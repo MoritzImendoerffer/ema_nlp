@@ -25,7 +25,7 @@ def main() -> None:
     parser.add_argument("--model", default=None, help="model override (models.yaml key)")
     args = parser.parse_args()
 
-    import config  # noqa: F401  (loads ~/.myenvs/ema_nlp.env)
+    import config  # noqa: F401  (loads ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env)
     from harness.eval.runner import BENCHMARK_PATH, run_recipe_benchmark, summarize
 
     results = run_recipe_benchmark(
