@@ -60,9 +60,15 @@ CHUNK_VECTOR_INDEX = "ema_chunk_embedding"
 
 
 def neo4j_store_from_env() -> Neo4jPropertyGraphStore:
+    password = os.getenv("NEO4J_PASSWORD")
+    if not password:
+        raise RuntimeError(
+            "NEO4J_PASSWORD is not set. Configure it in ~/.myenvs/ema_nlp.env "
+            "(never hardcode credentials)."
+        )
     return Neo4jPropertyGraphStore(
         username=os.getenv("NEO4J_USER", "neo4j"),
-        password=os.getenv("NEO4J_PASSWORD", "ema_nlp_dev_pw"),
+        password=password,
         url=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
     )
 

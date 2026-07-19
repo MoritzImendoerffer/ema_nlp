@@ -149,7 +149,7 @@ Env (`~/.myenvs/ema_nlp.env`):
 ```bash
 NEO4J_URI=bolt://localhost:7687        # bolt://localhost:7688 if coexisting with a native Neo4j
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=ema_nlp_dev_pw          # >= 8 chars (Neo4j 5.x)
+NEO4J_PASSWORD=..............          # >= 8 chars (Neo4j 5.x)
 EMA_INDEX_PROFILE=neo4j_hier           # optional; this is the default
 ```
 

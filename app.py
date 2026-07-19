@@ -211,7 +211,12 @@ async def on_app_startup() -> None:
 
 @cl.password_auth_callback
 def auth_callback(username: str, password: str) -> cl.User | None:
-    expected = os.getenv("UI_PASSWORD", "dev")
+    expected = os.getenv("UI_PASSWORD")
+    if not expected:
+        raise RuntimeError(
+            "UI_PASSWORD is not set. Configure it in ~/.myenvs/ema_nlp.env "
+            "(never hardcode credentials)."
+        )
     if password == expected:
         return cl.User(identifier=username, metadata={"role": "user"})
     return None

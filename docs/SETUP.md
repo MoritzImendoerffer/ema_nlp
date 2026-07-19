@@ -85,7 +85,7 @@ CHAINLIT_AUTH_SECRET=<64-char hex string>
 # and set NEO4J_URI to match.
 # NEO4J_URI=bolt://localhost:7687
 # NEO4J_USER=neo4j
-# NEO4J_PASSWORD=ema_nlp_dev_pw
+# NEO4J_PASSWORD=<choose a strong password>
 
 # Active index profile (default: neo4j_hier -> harness/configs/index/neo4j_hier.yaml)
 # Selects the retrieval store/strategy. neo4j_hier is the only built profile;

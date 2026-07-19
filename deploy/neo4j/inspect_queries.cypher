@@ -1,5 +1,5 @@
 // Paste-ready inspection queries for the Neo4j Browser (http://localhost:7474).
-// Login: neo4j / $NEO4J_PASSWORD (~/.myenvs/ema_nlp.env; dev default ema_nlp_dev_pw).
+// Login: neo4j / $NEO4J_PASSWORD (set in ~/.myenvs/ema_nlp.env).
 // Run one statement at a time (the Browser executes the whole editor content).
 // CLI equivalents: scripts/inspect_graph.py {overview,links,doc,cypher}.
 //

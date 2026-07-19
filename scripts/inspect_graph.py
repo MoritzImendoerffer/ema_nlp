@@ -42,9 +42,15 @@ import config  # noqa: E402,F401  (loads ~/.myenvs/ema_nlp.env)
 
 
 def _driver():
+    password = os.getenv("NEO4J_PASSWORD")
+    if not password:
+        raise RuntimeError(
+            "NEO4J_PASSWORD is not set. Configure it in ~/.myenvs/ema_nlp.env "
+            "(never hardcode credentials)."
+        )
     return GraphDatabase.driver(
         os.getenv("NEO4J_URI", "bolt://localhost:7687"),
-        auth=(os.getenv("NEO4J_USER", "neo4j"), os.getenv("NEO4J_PASSWORD", "ema_nlp_dev_pw")),
+        auth=(os.getenv("NEO4J_USER", "neo4j"), password),
     )
 
 

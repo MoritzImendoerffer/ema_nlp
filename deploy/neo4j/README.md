@@ -19,12 +19,12 @@ cd deploy/neo4j && docker compose up -d   # Neo4j only
 
 ## Credentials / env
 
-Set in `~/.myenvs/ema_nlp.env` (defaults are dev-only):
+Set in `~/.myenvs/ema_nlp.env` (never commit real credentials):
 
 ```bash
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=ema_nlp_dev_pw      # >= 8 chars (Neo4j 5.x rejects shorter)
+NEO4J_PASSWORD=<choose a strong password>   # >= 8 chars (Neo4j 5.x rejects shorter)
 ```
 
 The compose file reads `NEO4J_USER` / `NEO4J_PASSWORD` at `up` time to set

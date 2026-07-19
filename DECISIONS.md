@@ -78,7 +78,7 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Switch contract:**
 - `EMA_RETRIEVER=pgvector` (default since NARR-028) — `app.py` and `harness/run_eval.py` skip `build_index` (no FAISS load), build a `RetrievalConfigPG`-backed `retrieve_fn`, and embed via `Settings.embed_model`.
 - `EMA_RETRIEVER=faiss` — legacy path; unchanged. Use only for parity smoke tests against `corpus.jsonl`.
-- `PG_DSN` (default `postgresql://ema_nlp:ema_nlp@localhost:5432/ema_nlp`) and an optional `PG_DSN_TEST` for the integration suite.
+- `PG_DSN` (e.g. `postgresql://<user>:<password>@localhost:5432/ema_nlp`, credentials from the env) and an optional `PG_DSN_TEST` for the integration suite.
 
 **Not chosen:**
 - *Qdrant / Chroma / Weaviate* — Postgres already runs locally and gives BM25 + relational joins for free; adding a fourth database server is unjustified at this scale.
