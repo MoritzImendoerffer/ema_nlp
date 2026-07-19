@@ -80,14 +80,40 @@ button.link { background: none; border: none; color: #2456a3; cursor: pointer;
 <script>
 (async function () {
   "use strict";
+  // Surface boot failures in the page — an unhandled throw would leave the
+  // "Decompressing…" message up forever with the real error only in the console.
+  const showBootError = (msg) => {
+    const box = document.getElementById("loading");
+    if (box) { box.textContent = `Failed to load map: ${msg}`; }
+  };
+  window.addEventListener("error", (e) => showBootError(e.message));
+  // The boot IIFE is async — its throws surface as rejections, not error events.
+  window.addEventListener("unhandledrejection", (e) =>
+    showBootError((e.reason && e.reason.message) || String(e.reason)));
+  const fail = (msg) => {
+    document.getElementById("loading").textContent = `Failed to load map: ${msg}`;
+    throw new Error(msg);
+  };
   // ── decode payload ─────────────────────────────────────────────────────────
   const el = document.getElementById("graph-data");
   let data;
   if (el.dataset.encoding === "gzip-base64") {
+    if (typeof DecompressionStream === "undefined") {
+      fail("this browser lacks DecompressionStream (needs Chrome 80+ / Firefox 113+ / Safari 16.4+).");
+    }
     const b64 = el.textContent.trim();
-    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
-    data = JSON.parse(await new Response(stream).text());
+    let bytes;
+    try {
+      bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    } catch (err) {
+      fail("payload is not valid base64 — the file is likely truncated (incomplete download/sync). Re-sync or rebuild, then reload.");
+    }
+    try {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+      data = JSON.parse(await new Response(stream).text());
+    } catch (err) {
+      fail(`could not decompress/parse the payload (${err.message}) — the file is likely truncated (incomplete download/sync). Re-sync or rebuild, then reload.`);
+    }
   } else {
     data = JSON.parse(el.textContent);
   }
