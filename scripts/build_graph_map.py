@@ -11,9 +11,15 @@ opens anywhere offline — no CDN, no server.
 
 Usage:
     python scripts/build_graph_map.py                     # → $EMA_RESULTS_DIR/graph_map/
+    python scripts/build_graph_map.py --tree              # radial site tree, root = ema.europa.eu
     python scripts/build_graph_map.py --limit 2000        # fast smoke build
     python scripts/build_graph_map.py --raw-json          # uncompressed embed (debug)
     python scripts/build_graph_map.py --out /tmp/map.html # explicit output path
+
+``--tree`` replaces the force layout with a radial tree: HTML docs sit at their
+breadcrumb (topic_path) slot, PDFs under the page that links to them (LINKS_TO
+— unlinked PDFs fall back to their documents/<type> bucket), synthetic
+"site section" nodes fill in the skeleton. Output: ``ema_kb_tree.html``.
 
 Output defaults to ``config.RESULTS_DIR / graph_map/ema_kb_map.html`` — the
 Nextcloud-synced results folder, so the map shows up on every machine.
@@ -72,7 +78,8 @@ def fetch_documents(session, limit: int = 0) -> list[dict[str, Any]]:
     q = (
         "MATCH (d:Document) RETURN d.id AS id, d.title AS title, "
         "d.source_url AS source_url, d.category AS category, d.doc_type AS doc_type, "
-        "d.audience AS audience, d.site_topic AS site_topic, d.topic_path AS topic_path"
+        "d.audience AS audience, d.site_topic AS site_topic, d.topic_path AS topic_path, "
+        "d.source_type AS source_type"
     )
     if limit:
         q += f" LIMIT {int(limit)}"
@@ -170,6 +177,183 @@ def compute_layout(
     return positions
 
 
+# ── Tree mode (--tree): everything under one root, ema.europa.eu ─────────────
+#
+# The site hierarchy is real for HTML pages (topic_path = breadcrumb); PDFs
+# (72% of docs) only carry a flat /documents/<type>/ bucket — their true site
+# position is "under the page that links to them", so LINKS_TO provides the
+# tree slot and the flat bucket is the fallback for unlinked PDFs.
+
+SECTION_CATEGORY = "site section"
+_SEC_PREFIX = "§"  # section node ids: §medicines/human — cannot collide with doc ids
+
+
+def _site_segments(node: dict[str, Any]) -> list[str]:
+    """Breadcrumb segments for a doc: topic_path preferred, URL path fallback."""
+    raw = str(node.get("topic_path") or "").strip()
+    if not raw.strip("/"):
+        host_path = str(node.get("source_url") or "").split("://", 1)[-1]
+        raw = host_path.split("/", 1)[1] if "/" in host_path else ""
+    segs = [s for s in raw.split("/") if s]
+    if segs and segs[0] == "en":
+        segs = segs[1:]
+    return segs
+
+
+def build_tree(
+    nodes: list[dict[str, Any]], edges: list[tuple[str, str]]
+) -> tuple[list[dict[str, Any]], dict[str, list[str]], list[tuple[str, str]]]:
+    """``(section_nodes, children, tree_edges)`` — the whole KB as one tree.
+
+    Every doc gets exactly one parent: HTML docs their breadcrumb prefix (a doc
+    whose path *is* a section becomes that section node); linked PDFs the first
+    HTML doc that LINKS_TO them; unlinked PDFs their documents/<type> bucket.
+    Synthetic ``§path`` section nodes fill in the prefixes, rooted at
+    ``ema.europa.eu``.
+    """
+    by_id = {n["id"]: n for n in nodes}
+    html_ids = {n["id"] for n in nodes if str(n.get("source_type") or "") != "pdf"}
+    segs_of = {n["id"]: _site_segments(n) for n in nodes}
+
+    # First HTML linker per PDF (deterministic: smallest doc id).
+    linker: dict[str, str] = {}
+    for s, t in sorted(edges):
+        if s in html_ids and t in by_id and t not in html_ids:
+            linker.setdefault(t, s)
+
+    # Section prefixes needed: every proper prefix of each doc's slot path.
+    doc_parent_path: dict[str, tuple[str, ...]] = {}  # doc id -> section path (fallback)
+    section_paths: set[tuple[str, ...]] = set()
+    for n in nodes:
+        nid = n["id"]
+        if nid in linker:
+            continue  # parented by a doc, not a section
+        segs = segs_of[nid]
+        # HTML breadcrumbs end with the page's own slug → parent is the prefix;
+        # a PDF's topic_path IS its shared documents/<type> bucket → parent is
+        # the full path.
+        if nid in html_ids and segs:
+            parent = tuple(segs[:-1])
+        else:
+            parent = tuple(segs)
+        doc_parent_path[nid] = parent
+        for i in range(len(parent) + 1):
+            section_paths.add(parent[:i])
+
+    # A doc whose full path equals a section prefix *becomes* that section.
+    doc_at: dict[tuple[str, ...], str] = {}
+    for nid in sorted(html_ids):
+        path = tuple(segs_of[nid])
+        if path in section_paths and path not in doc_at and path != ():
+            doc_at[path] = nid
+
+    def slot(path: tuple[str, ...]) -> str:
+        """Tree-node key for a section path: the doc occupying it, else §synthetic."""
+        return doc_at.get(path) or (_SEC_PREFIX + "/".join(path))
+
+    children: dict[str, list[str]] = {}
+    tree_edges: list[tuple[str, str]] = []
+
+    def attach(parent_key: str, child_key: str) -> None:
+        children.setdefault(parent_key, []).append(child_key)
+        tree_edges.append((parent_key, child_key))
+
+    # Section skeleton (synthetic or doc-backed), wired parent → child.
+    section_nodes: list[dict[str, Any]] = []
+    for path in sorted(section_paths):
+        key = slot(path)
+        if path:
+            attach(slot(path[:-1]), key)
+        if key.startswith(_SEC_PREFIX):
+            section_nodes.append(
+                {
+                    "id": key,
+                    "title": path[-1] if path else "ema.europa.eu",
+                    "category": SECTION_CATEGORY,
+                    "doc_type": "", "audience": "", "site_topic": "",
+                    "source_url": URL_PREFIX + "/en/" + "/".join(path),
+                    "topic_path": "/en/" + "/".join(path) + ("/" if path else ""),
+                    "source_type": "section",
+                }
+            )
+
+    # Docs: under their linking page, or their section prefix (unless they ARE it).
+    occupied = set(doc_at.values())
+    for n in nodes:
+        nid = n["id"]
+        if nid in occupied:
+            continue
+        if nid in linker:
+            attach(linker[nid], nid)
+        else:
+            attach(slot(doc_parent_path[nid]), nid)
+    return section_nodes, children, tree_edges
+
+
+def tree_layout(
+    all_nodes: list[dict[str, Any]], children: dict[str, list[str]]
+) -> dict[str, tuple[float, float]]:
+    """Radial tree positions: depth → radius, angular span ∝ subtree doc count.
+
+    Internal children get contiguous span slices (biggest first); leaf children
+    are packed into concentric arc rows inside the remaining span, so huge fans
+    (an EPAR bucket, a hub page's PDFs) stay compact instead of demanding an
+    absurd radius.
+    """
+    STEP, GAP = 150.0, 2.5  # ring distance per depth / leaf spacing in coord units
+    by_id = {n["id"]: n for n in all_nodes}
+    root = _SEC_PREFIX
+
+    weight: dict[str, int] = {}
+
+    def _weigh(key: str) -> int:
+        w = 0 if key.startswith(_SEC_PREFIX) else 1
+        w += sum(_weigh(k) for k in children.get(key, []))
+        weight[key] = max(w, 1)
+        return weight[key]
+
+    _weigh(root)
+
+    positions: dict[str, tuple[float, float]] = {}
+
+    def _place(key: str, depth: float, a0: float, a1: float) -> None:
+        mid = (a0 + a1) / 2
+        r = depth * STEP
+        positions[key] = (round(r * math.cos(mid), 2), round(r * math.sin(mid), 2))
+        kids = children.get(key, [])
+        if not kids:
+            return
+        internal = sorted(
+            (k for k in kids if children.get(k)),
+            key=lambda k: (-weight[k], str(by_id[k].get("title") or ""), k),
+        )
+        leaves = sorted(
+            (k for k in kids if not children.get(k)),
+            key=lambda k: (str(by_id[k].get("category") or ""), str(by_id[k].get("title") or ""), k),
+        )
+        total = sum(weight[k] for k in kids)
+        a = a0
+        for k in internal:
+            span = (a1 - a0) * weight[k] / total
+            _place(k, depth + 1, a, a + span)
+            a += span
+        if not leaves:
+            return
+        span = max(a1 - a, 1e-6)
+        base, i, row = (depth + 1) * STEP, 0, 0
+        while i < len(leaves):
+            r_row = base + row * GAP
+            cap = max(1, int(span * r_row / GAP))
+            for j, k in enumerate(leaves[i : i + cap]):
+                ang = a + span * (j + 0.5) / cap
+                positions[k] = (round(r_row * math.cos(ang), 2), round(r_row * math.sin(ang), 2))
+            i += cap
+            row += 1
+
+    _place(root, 0.0, 0.0, 2 * math.pi)
+    return positions
+
+
 # ── Payload ───────────────────────────────────────────────────────────────────
 
 def _string_table(values: list[str]) -> tuple[list[str], dict[str, int]]:
@@ -181,8 +365,16 @@ def build_payload(
     nodes: list[dict[str, Any]],
     edges: list[tuple[str, str]],
     positions: dict[str, tuple[float, float]],
+    *,
+    tree_edges: list[tuple[str, str]] | None = None,
+    section_sizes: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    """Columnar, string-table-compressed JSON payload for the viewer."""
+    """Columnar, string-table-compressed JSON payload for the viewer.
+
+    ``tree_edges`` render like links but don't count toward in-degree (which
+    drives node size); ``section_sizes`` gives synthetic section nodes a size
+    (child count) since they have no LINKS_TO in-degree.
+    """
     index = {n["id"]: i for i, n in enumerate(nodes)}
     in_deg = [0] * len(nodes)
     flat_edges: list[int] = []
@@ -192,6 +384,13 @@ def build_payload(
             continue
         flat_edges += [si, ti]
         in_deg[ti] += 1
+    for s, t in tree_edges or []:
+        si, ti = index.get(s), index.get(t)
+        if si is not None and ti is not None:
+            flat_edges += [si, ti]
+    for nid, size in (section_sizes or {}).items():
+        if nid in index:
+            in_deg[index[nid]] = size
 
     def col(key: str) -> list[str]:
         return [str(n.get(key) or "") for n in nodes]
@@ -275,7 +474,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=0, help="subsample N docs (smoke build)")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--raw-json", action="store_true", help="uncompressed embed (debug)")
+    parser.add_argument(
+        "--tree",
+        action="store_true",
+        help="radial site tree rooted at ema.europa.eu instead of the force layout "
+        "(HTML docs by breadcrumb, PDFs under their linking page)",
+    )
     args = parser.parse_args(argv)
+    default_out = parser.get_default("out")
+    if args.tree and args.out == default_out:
+        args.out = str(Path(default_out).with_name("ema_kb_tree.html"))
 
     t0 = time.perf_counter()
     with _driver() as driver, driver.session() as session:
@@ -284,10 +492,29 @@ def main(argv: list[str] | None = None) -> int:
     print(f"fetched {len(nodes)} docs / {len(edges)} links in {time.perf_counter() - t0:.1f}s")
 
     t1 = time.perf_counter()
-    positions = compute_layout(nodes, edges, seed=args.seed)
-    print(f"layout in {time.perf_counter() - t1:.1f}s")
+    if args.tree:
+        section_nodes, children, tree_edges = build_tree(nodes, edges)
+        all_nodes = nodes + section_nodes
+        positions = tree_layout(all_nodes, children)
+        payload = build_payload(
+            all_nodes,
+            edges,
+            positions,
+            tree_edges=tree_edges,
+            section_sizes={
+                n["id"]: len(children.get(n["id"], [])) for n in section_nodes
+            },
+        )
+        print(
+            f"tree layout in {time.perf_counter() - t1:.1f}s "
+            f"({len(section_nodes)} section nodes, {len(tree_edges)} tree edges)"
+        )
+    else:
+        positions = compute_layout(nodes, edges, seed=args.seed)
+        payload = build_payload(nodes, edges, positions)
+        print(f"layout in {time.perf_counter() - t1:.1f}s")
 
-    emit_html(build_payload(nodes, edges, positions), Path(args.out), raw_json=args.raw_json)
+    emit_html(payload, Path(args.out), raw_json=args.raw_json)
     return 0
 
 

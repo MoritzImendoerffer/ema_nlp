@@ -129,3 +129,80 @@ def test_emit_html_raw_json_mode(tmp_path):
     start = html.index(marker) + len(marker)
     end = html.index("</script>", start)
     assert json.loads(html[start:end]) == payload
+
+
+def _tree_docs():
+    """Small site: two pages (one IS a section), a linked PDF, an orphan PDF."""
+    def doc(id, topic_path, source_type, **kw):
+        base = {
+            "id": id, "title": f"Title {id}", "category": kw.get("category", "qa"),
+            "doc_type": "", "audience": "", "site_topic": "",
+            "source_url": f"{bgm.URL_PREFIX}/x/{id}", "topic_path": topic_path,
+            "source_type": source_type,
+        }
+        return base
+    return [
+        doc("sec-med", "/en/medicines/", "html"),           # occupies the medicines section
+        doc("page1", "/en/medicines/human/page1/", "html"),
+        doc("pdf-linked", "/en/documents/report/", "pdf"),
+        doc("pdf-orphan", "/en/documents/report/", "pdf"),
+    ]
+
+
+def test_build_tree_places_every_doc_once():
+    nodes = _tree_docs()
+    sections, children, tree_edges = bgm.build_tree(nodes, [("page1", "pdf-linked")])
+    # every doc appears exactly once as a child somewhere
+    placed = [c for kids in children.values() for c in kids]
+    for n in nodes:
+        assert placed.count(n["id"]) == 1, n["id"]
+    # the doc whose path IS a section occupies it — no synthetic §medicines node
+    section_ids = {s["id"] for s in sections}
+    assert "§medicines" not in section_ids
+    assert "§" in section_ids  # root exists
+    assert any(s["title"] == "ema.europa.eu" for s in sections)
+    # linked PDF hangs under its linking page, not under the documents bucket
+    assert "pdf-linked" in children["page1"]
+    # orphan PDF falls back to its documents/<type> bucket
+    assert "pdf-orphan" in children["§documents/report"]
+    # tree edges mirror the children map
+    assert sorted(tree_edges) == sorted(
+        (p, c) for p, kids in children.items() for c in kids
+    )
+
+
+def test_tree_layout_positions_every_node_deterministically():
+    nodes = _tree_docs()
+    sections, children, _ = bgm.build_tree(nodes, [("page1", "pdf-linked")])
+    all_nodes = nodes + sections
+    pos1 = bgm.tree_layout(all_nodes, children)
+    pos2 = bgm.tree_layout(all_nodes, children)
+    assert pos1 == pos2
+    assert set(pos1) == {n["id"] for n in all_nodes}
+    assert pos1["§"] == (0.0, 0.0)  # root at the origin
+    # children sit strictly farther out than the root
+    for key, (x, y) in pos1.items():
+        if key != "§":
+            assert x * x + y * y > 1, key
+
+
+def test_payload_tree_edges_do_not_inflate_in_degree():
+    nodes = _tree_docs()
+    sections, children, tree_edges = bgm.build_tree(nodes, [("page1", "pdf-linked")])
+    all_nodes = nodes + sections
+    positions = bgm.tree_layout(all_nodes, children)
+    payload = bgm.build_payload(
+        all_nodes, [("page1", "pdf-linked")], positions,
+        tree_edges=tree_edges,
+        section_sizes={s["id"]: len(children.get(s["id"], [])) for s in sections},
+    )
+    ids = payload["nodes"]["id"]
+    in_deg = payload["nodes"]["in_deg"]
+    # the linked PDF has exactly its one LINKS_TO in-degree, tree edges uncounted
+    assert in_deg[ids.index("pdf-linked")] == 1
+    # section size = child count, and "site section" is a category in the table
+    assert "site section" in payload["categories"]
+    root_i = ids.index("§"[:12])
+    assert in_deg[root_i] == len(children["§"])
+    # edge list carries both link and tree edges
+    assert payload["meta"]["edge_count"] == 1 + len(tree_edges)

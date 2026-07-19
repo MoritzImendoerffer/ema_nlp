@@ -130,6 +130,7 @@ button.link { background: none; border: none; color: #2456a3; cursor: pointer;
     meeting_doc: "#4a3aa7", presentation: "#e34948",
     epar: "#9aa7b8", herbal: "#7d8f6d", glossary: "#a08d7a",
     veterinary: "#9c7f96", other: "#8b939c",
+    "site section": "#55606e",  // synthetic tree-skeleton nodes (--tree builds)
   };
   const FALLBACK = "#8b939c";
   const catColor = data.categories.map(c => CAT_COLORS[c] || FALLBACK);
@@ -161,11 +162,16 @@ button.link { background: none; border: none; color: #2456a3; cursor: pointer;
     hovered: null, selected: null,
     neighborhood: null,  // Set of node keys adjacent to selected/hovered
   };
+  // Section skeleton nodes (--tree builds) have no doc_type/audience/site_topic —
+  // they follow only their category toggle so the tree stays visible under filters.
+  const SECTION_CAT = data.categories.indexOf("site section");
   const nodeVisible = i =>
-    state.activeCats.has(cols.cat[i]) &&
-    (state.docType < 0 || cols.dt[i] === state.docType) &&
-    (state.audience < 0 || cols.aud[i] === state.audience) &&
-    (state.siteTopic < 0 || cols.st[i] === state.siteTopic);
+    SECTION_CAT >= 0 && cols.cat[i] === SECTION_CAT
+      ? state.activeCats.has(SECTION_CAT)
+      : state.activeCats.has(cols.cat[i]) &&
+        (state.docType < 0 || cols.dt[i] === state.docType) &&
+        (state.audience < 0 || cols.aud[i] === state.audience) &&
+        (state.siteTopic < 0 || cols.st[i] === state.siteTopic);
 
   // ── sigma ──────────────────────────────────────────────────────────────────
   const SigmaCtor = typeof Sigma === "function" ? Sigma : Sigma.Sigma;

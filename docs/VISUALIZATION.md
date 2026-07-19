@@ -17,7 +17,20 @@ clicking through raw MLflow spans):
 pip install -e ".[viz]"                      # python-igraph (layout, offline only)
 python scripts/build_graph_map.py --limit 2000   # smoke build (~seconds)
 python scripts/build_graph_map.py                # full build → $EMA_RESULTS_DIR/graph_map/
+python scripts/build_graph_map.py --tree         # radial site tree → ema_kb_tree.html
 ```
+
+**Two layouts, same viewer.** The default is the force layout (link-graph
+clusters). `--tree` renders everything as **one radial tree rooted at
+ema.europa.eu**: HTML pages sit at their breadcrumb (`topic_path`) slot — a
+page whose path *is* a section becomes that section node — and PDFs (72% of
+docs, whose `topic_path` is only a flat `documents/<type>` bucket) hang under
+the **page that links to them** via `LINKS_TO`, falling back to their bucket
+when unlinked. Synthetic "site section" nodes (own legend color, exempt from
+the doc_type/audience filters) fill in the skeleton; depth → radius, angular
+span ∝ subtree size, big leaf fans packed in concentric arcs. Tree edges render
+like links (visible on zoom/hover) but don't count toward in-degree sizing;
+`--tree` needs no igraph.
 
 One self-contained HTML file (no CDN, no server — open it anywhere, mail it).
 Document-level only: ~80k `:Document` nodes + ~100k `LINKS_TO` edges; the 5.8M
