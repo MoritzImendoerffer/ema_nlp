@@ -18,40 +18,63 @@
           "title": "Documents",
           "query": "MATCH (d:Document) RETURN count(d) AS documents",
           "type": "value",
-          "x": 0, "y": 0, "width": 6, "height": 2,
-          "selection": {}, "settings": {}
+          "x": 0,
+          "y": 0,
+          "width": 6,
+          "height": 2,
+          "selection": {},
+          "settings": {}
         },
         {
           "id": "census-chunks",
           "title": "Chunks",
           "query": "MATCH (c:Chunk) RETURN count(c) AS chunks",
           "type": "value",
-          "x": 6, "y": 0, "width": 6, "height": 2,
-          "selection": {}, "settings": {}
+          "x": 6,
+          "y": 0,
+          "width": 6,
+          "height": 2,
+          "selection": {},
+          "settings": {}
         },
         {
           "id": "census-links",
           "title": "LINKS_TO edges",
           "query": "MATCH ()-[r:LINKS_TO]->() RETURN count(r) AS links",
           "type": "value",
-          "x": 12, "y": 0, "width": 6, "height": 2,
-          "selection": {}, "settings": {}
+          "x": 12,
+          "y": 0,
+          "width": 6,
+          "height": 2,
+          "selection": {},
+          "settings": {}
         },
         {
           "id": "census-dangling",
           "title": "Docs without chunks (ingest gaps)",
           "query": "MATCH (d:Document) WHERE NOT (d)-[:HAS_CHUNK]->(:Chunk) RETURN count(d) AS docs_without_chunks",
           "type": "value",
-          "x": 18, "y": 0, "width": 6, "height": 2,
-          "selection": {}, "settings": {}
+          "x": 18,
+          "y": 0,
+          "width": 6,
+          "height": 2,
+          "selection": {},
+          "settings": {}
         },
         {
           "id": "census-category",
           "title": "Documents by category (the steering dimension)",
           "query": "MATCH (d:Document) RETURN coalesce(d.category, '(none)') AS category, count(*) AS docs ORDER BY docs DESC",
           "type": "bar",
-          "x": 0, "y": 2, "width": 12, "height": 6,
-          "selection": { "index": "category", "value": "docs", "key": "(none)" },
+          "x": 0,
+          "y": 2,
+          "width": 12,
+          "height": 4,
+          "selection": {
+            "index": "category",
+            "value": "docs",
+            "key": "(none)"
+          },
           "settings": {}
         },
         {
@@ -59,17 +82,28 @@
           "title": "Top EMA doc_type (PDFs, finer than category)",
           "query": "MATCH (d:Document) WHERE d.doc_type IS NOT NULL RETURN d.doc_type AS doc_type, count(*) AS docs ORDER BY docs DESC LIMIT 20",
           "type": "bar",
-          "x": 12, "y": 2, "width": 12, "height": 6,
-          "selection": { "index": "doc_type", "value": "docs", "key": "(none)" },
+          "x": 12,
+          "y": 2,
+          "width": 12,
+          "height": 4,
+          "selection": {
+            "index": "doc_type",
+            "value": "docs",
+            "key": "(none)"
+          },
           "settings": {}
         },
         {
           "id": "census-coverage",
-          "title": "Enrichment coverage by source_type (docs/RETRIEVAL.md §7)",
+          "title": "Enrichment coverage by source_type (docs/RETRIEVAL.md \u00a77)",
           "query": "MATCH (d:Document) RETURN d.source_type AS source_type, count(*) AS docs, count(d.category) AS with_category, count(d.doc_type) AS with_doc_type, count(d.audience) AS with_audience, count(d.site_topic) AS with_site_topic ORDER BY docs DESC",
           "type": "table",
-          "x": 0, "y": 8, "width": 24, "height": 4,
-          "selection": {}, "settings": {}
+          "x": 0,
+          "y": 6,
+          "width": 24,
+          "height": 3,
+          "selection": {},
+          "settings": {}
         }
       ]
     },
@@ -81,8 +115,15 @@
           "title": "Edges by DOM context (boilerplate signature)",
           "query": "MATCH ()-[r:LINKS_TO]->() RETURN coalesce(r.link_context, '(none)') AS context, count(*) AS edges ORDER BY edges DESC",
           "type": "bar",
-          "x": 0, "y": 0, "width": 12, "height": 5,
-          "selection": { "index": "context", "value": "edges", "key": "(none)" },
+          "x": 0,
+          "y": 0,
+          "width": 12,
+          "height": 4,
+          "selection": {
+            "index": "context",
+            "value": "edges",
+            "key": "(none)"
+          },
           "settings": {}
         },
         {
@@ -90,8 +131,15 @@
           "title": "Edges by link kind",
           "query": "MATCH ()-[r:LINKS_TO]->() RETURN coalesce(r.kind, '(none)') AS kind, count(*) AS edges ORDER BY edges DESC",
           "type": "bar",
-          "x": 12, "y": 0, "width": 12, "height": 5,
-          "selection": { "index": "kind", "value": "edges", "key": "(none)" },
+          "x": 12,
+          "y": 0,
+          "width": 12,
+          "height": 4,
+          "selection": {
+            "index": "kind",
+            "value": "edges",
+            "key": "(none)"
+          },
           "settings": {}
         },
         {
@@ -99,16 +147,24 @@
           "title": "Top in-degree targets (chrome pages would dominate)",
           "query": "MATCH (:Document)-[:LINKS_TO]->(b:Document) WITH b, count(*) AS in_edges ORDER BY in_edges DESC LIMIT 25 RETURN coalesce(b.title, b.source_url) AS target, b.category AS category, in_edges",
           "type": "table",
-          "x": 0, "y": 5, "width": 12, "height": 6,
-          "selection": {}, "settings": {}
+          "x": 0,
+          "y": 4,
+          "width": 12,
+          "height": 4,
+          "selection": {},
+          "settings": {}
         },
         {
           "id": "links-anchors",
           "title": "Most-repeated anchor texts (nav boilerplate fingerprint)",
           "query": "MATCH ()-[r:LINKS_TO]->() WHERE r.anchor IS NOT NULL WITH r.anchor AS anchor, count(*) AS edges ORDER BY edges DESC LIMIT 25 RETURN anchor, edges",
           "type": "table",
-          "x": 12, "y": 5, "width": 12, "height": 6,
-          "selection": {}, "settings": {}
+          "x": 12,
+          "y": 4,
+          "width": 12,
+          "height": 4,
+          "selection": {},
+          "settings": {}
         }
       ]
     },
@@ -120,8 +176,15 @@
           "title": "Members per topic hub",
           "query": "MATCH (d:Document) WHERE d.topic_hubs IS NOT NULL UNWIND d.topic_hubs AS hub RETURN hub, count(*) AS members ORDER BY members DESC",
           "type": "bar",
-          "x": 0, "y": 0, "width": 16, "height": 5,
-          "selection": { "index": "hub", "value": "members", "key": "(none)" },
+          "x": 0,
+          "y": 0,
+          "width": 16,
+          "height": 4,
+          "selection": {
+            "index": "hub",
+            "value": "members",
+            "key": "(none)"
+          },
           "settings": {}
         },
         {
@@ -129,7 +192,10 @@
           "title": "Pick a hub",
           "query": "MATCH (d:Document) WHERE d.topic_hubs IS NOT NULL UNWIND d.topic_hubs AS hub RETURN DISTINCT hub ORDER BY hub",
           "type": "select",
-          "x": 16, "y": 0, "width": 8, "height": 5,
+          "x": 16,
+          "y": 0,
+          "width": 8,
+          "height": 4,
           "selection": {},
           "settings": {
             "type": "Custom Query",
@@ -142,8 +208,15 @@
           "title": "Composition of $neodash_hub_key",
           "query": "MATCH (d:Document) WHERE $neodash_hub_key IN coalesce(d.topic_hubs, []) RETURN coalesce(d.category, '(none)') AS category, count(*) AS members ORDER BY members DESC",
           "type": "bar",
-          "x": 0, "y": 5, "width": 10, "height": 6,
-          "selection": { "index": "category", "value": "members", "key": "(none)" },
+          "x": 0,
+          "y": 4,
+          "width": 10,
+          "height": 4,
+          "selection": {
+            "index": "category",
+            "value": "members",
+            "key": "(none)"
+          },
           "settings": {}
         },
         {
@@ -151,8 +224,12 @@
           "title": "Members of $neodash_hub_key",
           "query": "MATCH (d:Document) WHERE $neodash_hub_key IN coalesce(d.topic_hubs, []) RETURN d.title AS title, d.category AS category, d.doc_type AS doc_type, d.reference_number AS ref, d.source_url AS url ORDER BY category, title LIMIT 200",
           "type": "table",
-          "x": 10, "y": 5, "width": 14, "height": 6,
-          "selection": {}, "settings": {}
+          "x": 10,
+          "y": 4,
+          "width": 14,
+          "height": 4,
+          "selection": {},
+          "settings": {}
         }
       ]
     },
@@ -164,7 +241,10 @@
           "title": "URL substring",
           "query": "RETURN true",
           "type": "select",
-          "x": 0, "y": 0, "width": 8, "height": 3,
+          "x": 0,
+          "y": 0,
+          "width": 8,
+          "height": 3,
           "selection": {},
           "settings": {
             "type": "Free Text",
@@ -176,32 +256,48 @@
           "title": "Matching documents",
           "query": "MATCH (d:Document) WHERE toLower(d.source_url) CONTAINS toLower($neodash_doc_url) RETURN d.title AS title, d.category AS category, d.doc_type AS doc_type, d.audience AS audience, d.site_topic AS site_topic, d.topic_path AS topic_path, d.source_url AS url LIMIT 10",
           "type": "table",
-          "x": 8, "y": 0, "width": 16, "height": 3,
-          "selection": {}, "settings": {}
+          "x": 8,
+          "y": 0,
+          "width": 16,
+          "height": 3,
+          "selection": {},
+          "settings": {}
         },
         {
           "id": "doc-links-out",
           "title": "Links FROM the document",
           "query": "MATCH (d:Document)-[r:LINKS_TO]->(t:Document) WHERE toLower(d.source_url) CONTAINS toLower($neodash_doc_url) RETURN r.anchor AS anchor, r.link_context AS context, coalesce(t.title, t.source_url) AS target, t.category AS category ORDER BY context LIMIT 100",
           "type": "table",
-          "x": 0, "y": 3, "width": 12, "height": 6,
-          "selection": {}, "settings": {}
+          "x": 0,
+          "y": 3,
+          "width": 12,
+          "height": 4,
+          "selection": {},
+          "settings": {}
         },
         {
           "id": "doc-links-in",
           "title": "Links TO the document (with anchors)",
           "query": "MATCH (a:Document)-[r:LINKS_TO]->(b:Document) WHERE toLower(b.source_url) CONTAINS toLower($neodash_doc_url) RETURN coalesce(a.title, a.source_url) AS source, r.anchor AS anchor, r.link_context AS context ORDER BY context LIMIT 100",
           "type": "table",
-          "x": 12, "y": 3, "width": 12, "height": 6,
-          "selection": {}, "settings": {}
+          "x": 12,
+          "y": 3,
+          "width": 12,
+          "height": 4,
+          "selection": {},
+          "settings": {}
         },
         {
           "id": "doc-neighbourhood",
           "title": "Link neighbourhood (graph)",
           "query": "MATCH (d:Document) WHERE toLower(d.source_url) CONTAINS toLower($neodash_doc_url) WITH d LIMIT 1 MATCH p = (d)-[:LINKS_TO*1..2]-(:Document) RETURN p LIMIT 200",
           "type": "graph",
-          "x": 0, "y": 9, "width": 24, "height": 8,
-          "selection": {}, "settings": {}
+          "x": 0,
+          "y": 7,
+          "width": 24,
+          "height": 6,
+          "selection": {},
+          "settings": {}
         }
       ]
     }

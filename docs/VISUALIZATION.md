@@ -148,6 +148,15 @@ Gotchas:
   `scp moritz@marvin-gpu:github_repos/ema_nlp/results/graph_map/ema_kb_map.html .`
 - MLflow on :5000 is only up while `run_ui.sh` (or a manual
   `mlflow server`) is running on the host.
+- **NeoDash "doesn't fit" on a laptop** — not a tunnel problem. The NeoDash
+  grid is width-responsive (24 columns at ≥1200 px viewport, fewer below) but
+  card *heights* are fixed at 100 px per grid unit, so a layout authored on a
+  big monitor overflows a laptop vertically. The committed dashboard uses
+  laptop-sized heights (pages ≈ 800–900 px; every card ≤ 600 px). If a page
+  still feels cramped, use browser zoom (Ctrl/Cmd + `-`) — it scales the fixed
+  row height too — or the per-report fullscreen button. Keep any relayout in
+  `neodash_dashboard.json` via `seed_neodash.py --dump` so it survives
+  reseeding.
 
 ## Design decisions
 
