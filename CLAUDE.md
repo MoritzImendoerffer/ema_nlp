@@ -79,6 +79,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> 📋 **First action of every session: read [`BACKLOG.md`](BACKLOG.md)** — the single
+> ranked queue of open work — and say what is at the top of `Now` before planning
+> anything. Maintain it as work happens (rules + the 3-item cap: ["Open work"](#open-work--read-backlogmd-at-session-start) below).
+
 ## What this project is
 
 A Q&A benchmark and reference RAG implementations built from European Medicines Agency (EMA) human-regulatory content. Three separable deliverables:
