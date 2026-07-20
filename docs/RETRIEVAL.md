@@ -9,6 +9,10 @@ the **full graph**: 79,882 `:Document` nodes, 5.82M leaf-embedded chunks, and 99
 > stack headless — source categories + backfill (01), retriever filters/quotas/expansion (02),
 > routing + the full `steered_agent` recipe (03), and the topic-subgraphs eval (04).
 
+> **Per-component reference:** this file is the design guide. For the exact knobs,
+> outputs and failure modes of each piece — the retriever, the site tree, and every
+> agent tool — see **[`docs/tools/`](tools/README.md)**.
+
 ---
 
 ## 1. Why Neo4j PropertyGraphIndex

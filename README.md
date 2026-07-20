@@ -26,6 +26,7 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 - **[Recipes →](docs/RECIPES.md)** — configure pipelines via YAML, with worked examples (simple RAG, reproducing the CRAG paper, the kitchen sink)
 - **[Examples (notebooks) →](docs/examples/README.md)** — runnable Jupyter notebooks that drive the pipeline headless, one concept at a time
 - **[Retrieval →](docs/RETRIEVAL.md)** — Neo4j PropertyGraphIndex: node/graph model, config profiles, build + retrieve
+- **[Tools & retrieval reference →](docs/tools/README.md)** — one file per agent tool (`ema_search`, `corrective_search`, `topic_context`, `resolve_substance`) plus the retriever, the site tree, and chain capture/export
 - **[Citations →](docs/CITATIONS.md)** — claim-span attribution, the SME review panel, per-citation feedback, Markdown/HTML export
 - **[Architecture →](docs/ARCHITECTURE.md)** — module map, data flow, MongoDB collections
 - **[Runtime verification →](docs/RUNTIME_VERIFICATION.md)** — the GPU-host walk (§8 = the current next step)
