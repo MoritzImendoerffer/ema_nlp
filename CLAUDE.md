@@ -162,6 +162,28 @@ See **"Current project phase"** above (Phase 1 done, Phase 2 drafted, Phase 3 pa
 - Each eval run config goes under `harness/configs/`; result artifacts go to `config.RESULTS_DIR` (default `~/Nextcloud/Datasets/ema_nlp/results/`, override `$EMA_RESULTS_DIR`) — Nextcloud-synced across machines, never committed. MLflow remains the system of record for eval metrics.
 - Raw scraped data (large artifacts) must not be committed
 
+## Open work — read `BACKLOG.md` at session start
+
+**[`BACKLOG.md`](BACKLOG.md) is the single ranked queue of open work.** Read it at
+the start of every session, before planning anything, and open by saying what is at
+the top of `Now` (and what the user was last working on, if it is still open).
+This is deliberate: plans, findings and decisions live in many files, but exactly
+one file says *what is open and what is next*.
+
+Maintain it as work happens:
+
+- **Starting something?** It must have a row. `Now` is capped at **3** — if it is
+  full, ask the user what to demote rather than silently adding a fourth.
+- **Finishing something?** Delete its row and append to `.claude/HISTORY.md`, in
+  the same commit as the code.
+- **Discovering follow-up work?** Add a row (usually to `Next` or `Later`) with a
+  link to where the detail lives — never paste the detail into the backlog.
+- **Deciding an open question?** Move it out of the backlog's question table into
+  `DECISIONS.md`.
+
+Do not add new status trackers. `docs/REQUIREMENTS_REVIEW.md`, `.claude/work/`
+and `.claude/HISTORY.md` are historical records, not queues.
+
 ## Work history
 
 After **any interaction that results in code or config changes**, append one row to `.claude/HISTORY.md`. The table has five columns:

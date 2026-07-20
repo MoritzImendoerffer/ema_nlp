@@ -1,5 +1,9 @@
 # docs/next — detailed plans for what gets built next
 
+> **This is a catalogue of plans, not a queue.** Which of these is actually next —
+> and what is parked and why — is [`BACKLOG.md`](../../BACKLOG.md) at the repo root.
+> A plan here is the *detail* behind a backlog row.
+
 Forward-looking design documents, one file per planned capability. Each plan explains
 **why** (the goal it serves), **what already exists** to build on, the **design**, concrete
 **implementation steps**, and **open decisions** — detailed enough to execute, readable

@@ -15,13 +15,18 @@
 > | 1.5 Leakage verification | ◻ planned | methodology in [`LEAKAGE.md`](LEAKAGE.md) |
 > | 1.7 Narrative corpus | ✅ done | now the Neo4j `PropertyGraphIndex`, not pgvector |
 > | 2 Benchmark | 🟡 drafted | 45 items (20 T1 / 10 T2 / 10 T3 / 5 T4); contamination screen still TODO |
-> | 3 Baseline RAG + eval | 🟡 partial | retrieval + the agent are live; the recipe × benchmark eval runner (`scripts/run_eval.py`) is runtime-verified (2026-07-13); **closed-book baselines + lift scoring still TODO** ([`docs/next/closed_book_lift.md`](../docs/next/closed_book_lift.md)) |
+> | 3 Baseline RAG + eval | 🟡 partial | retrieval + the agent are live; the recipe × benchmark eval runner (`scripts/run_eval.py`) is runtime-verified (2026-07-13); **closed-book baselines + lift scoring still TODO** ([`docs/next/closed_book_lift.md`](../docs/next/closed_book_lift.md)). Retrieval gained tree-aware traversal (2026-07-20); its seeding is being fixed ([measurement](../docs/eval/2026-07-20_tree_seeding.md) → [plan](../docs/next/tree_retrieval_followups.md)) |
 > | 4 Ablations | ◻ planned | Ablation B's agent already exists (`harness/agents/`); A1's acronym dictionary is built (`harness/configs/retrieval/acronyms.yaml`) |
 > | 5 Writeup | ◻ planned | |
 >
 > **Bottom line:** the eval vehicle exists and has run live; the closed-book baseline and the
 > lift metric are the next missing pieces for benchmark work. Forward plans live in
 > [`docs/next/`](../docs/next/README.md); results reports in `docs/eval/`.
+>
+> **📌 What is actually open right now is [`BACKLOG.md`](../BACKLOG.md), not this
+> table.** This roadmap owns *phase-level* status and methodology; the backlog owns the
+> ranked task queue (`Now` capped at 3), what is parked and why, and the open questions
+> awaiting a decision. When the two disagree, the backlog is current.
 
 **Project goal.** Build a shareable Q&A benchmark from EMA human-regulatory content, plus reference RAG implementations of increasing sophistication, to test where subject-matter expert (SME) effort actually pays off in agentic RAG.
 

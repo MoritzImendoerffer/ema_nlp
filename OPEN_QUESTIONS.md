@@ -2,6 +2,11 @@
 
 Decisions not yet made. Each entry has enough context to make the decision without re-reading the full exploration. Once a question is resolved, move it to `DECISIONS.md` and remove it here.
 
+> **This file holds the *context* for each question; [`BACKLOG.md`](BACKLOG.md)
+> lists which ones are still live.** Two entries below are struck through as
+> resolved and stay only as history. Decide a question → move it to
+> `DECISIONS.md` → drop its row from the backlog.
+
 > **Note (updated 2026-07-05):** The benchmark-runner + LLM-judge suite these questions depend on is **rebuilt on this branch** (`harness/eval/runner.py` + `scripts/run_eval.py` + `mlflow.genai` judges; the pre-refactor suite stays archived on `archive/pre-llamaindex-refactor`). Still missing: the ablations grid, closed-book baselines, and the lift metric — Ablation-B questions stay deferred on those. The TASK numbers referenced in these entries (TASK-016 index build, TASK-019 judge, TASK-027/028/029) predate the refactor.
 
 ---

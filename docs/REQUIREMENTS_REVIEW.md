@@ -1,5 +1,11 @@
 # Requirements ↔ Codebase Review (working document)
 
+> ✅ **HISTORICAL — not a task queue (2026-07-20).** All 20 audit findings (F1–F20)
+> are fixed; this file is kept as the record of that audit and of the requirement
+> discussion. **Do not add open work here** — the single ranked queue is
+> [`BACKLOG.md`](../BACKLOG.md). The requirement statements below remain useful
+> context for design work.
+
 > **Status: DRAFT — living document.** Created 2026-07-02 from (a) the owner's requirement
 > statements (given informally in chat, restated below for refinement) and (b) a full
 > codebase audit of branch `claude/agentic-rag-foundation` (three parallel deep reviews +

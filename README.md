@@ -21,7 +21,14 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 ## Quick links
 
 **Start here: [Onboarding →](docs/ONBOARDING.md)** — the big picture, the mental model,
-"life of a question", and where everything lives. Then, in reading order:
+"life of a question", and where everything lives.
+
+**What's open right now: [BACKLOG.md →](BACKLOG.md)** — the single ranked queue of open
+work (`Now` capped at 3), what's parked and why, and the open questions awaiting a
+decision. Phase-level status lives in [the roadmap](project_roadmap/ROADMAP.md); the
+backlog is what's current.
+
+Then, in reading order:
 
 - **[Recipes →](docs/RECIPES.md)** — configure pipelines via YAML, with worked examples (simple RAG, reproducing the CRAG paper, the kitchen sink)
 - **[Examples (notebooks) →](docs/examples/README.md)** — runnable Jupyter notebooks that drive the pipeline headless, one concept at a time

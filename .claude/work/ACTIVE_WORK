@@ -1,1 +1,8 @@
-.claude/work/2026-06-04_25_chainlit-strategy-selector
+# RETIRED (2026-07-20) — the open-work queue is /BACKLOG.md
+#
+# This file used to point at the current work-unit directory, but drifted stale:
+# it still named the 2026-06-04 Chainlit selector unit six weeks later, while the
+# real work had moved on. Two "what am I doing" signals is one too many.
+#
+# The single ranked queue of open work is now BACKLOG.md at the repo root.
+# The per-work-unit docs in this directory remain as historical records.
