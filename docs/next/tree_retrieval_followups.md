@@ -1,6 +1,8 @@
 # Tree-aware retrieval — follow-ups
 
-**Status:** 📋 planned. Prerequisite landed 2026-07-20 (tree-aware retrieval,
+**Status:** 🚧 in progress — **step 1 done** (measurement report:
+[`../eval/2026-07-20_tree_seeding.md`](../eval/2026-07-20_tree_seeding.md)),
+steps 2–4 planned. Prerequisite landed 2026-07-20 (tree-aware retrieval,
 tree-view chain export, T5 showcase — see [`../RETRIEVAL.md`](../RETRIEVAL.md)
 §7.2 and [`../tools/retriever.md`](../tools/retriever.md)).
 
@@ -39,39 +41,54 @@ so these follow-ups are now justified, in this order.
 - The steering seams: `with_categories`, routing table, `doc_type_priority`
   postprocessor.
 
-## Step 1 — measure the miss precisely (no new machinery)
+## Step 1 — measure the miss precisely ✅ DONE (2026-07-20)
 
-Before changing retrieval, quantify it. For each of the 5 T5 anchors, run the
-current `tree_agent` and record: does the anchor document appear in the seed set
-at all, and at which rank?
+**Report: [`../eval/2026-07-20_tree_seeding.md`](../eval/2026-07-20_tree_seeding.md).**
+Anchor rank in the final result and in the candidate pool, per showcase item,
+plus an ANN sweep over query `k`. Headline: the miss is **three different
+problems**, not one.
 
-```cypher
-// anchor rank probe — per showcase item, is the hub in the top-k?
-```
+| Verdict | Items | Meaning |
+|---|---|---|
+| **ANN recall** | T5-005 | Anchor is the *true* rank-5 chunk but invisible at k≤100 — Neo4j's vector index is approximate. |
+| **scoring** | T5-002 (58), T5-004 (~99) | In the pool, ranked too deep. |
+| **recall** | T5-001, T5-003 | Not in the top 500 at all — the length-bias hypothesis, confirmed. |
 
-Deliverable: a small table in `docs/eval/<date>_tree_seeding.md` (anchor,
-in-seed? rank, origins mix). If the anchor is retrieved but ranked low, this is a
-*scoring* problem; if it is absent from the pool entirely, it is a *recall*
-problem. **The fix depends on which.** No code changes in this step.
+Two findings that changed the plan:
 
-## Step 2 — hub-aware seeding (the likely fix)
+- **`oversample` is currently gated behind steering**, which `neo4j_tree`
+  deliberately disables — so the profile runs at a raw k=10 and loses documents
+  that are near-top-ranked. Every rank in the report is therefore a *lower bound*.
+- **The ancestor pass is already partially fixing this.** T5-002 and T5-003 got
+  their anchor in at rank 11 **via `tree_ancestor`, not vector search** — for
+  T5-003 the hub is absent from the top 500 yet still reached the agent, because
+  its retrieved PDFs are tree children and the pass walked up. It only works when
+  *something* on the branch is retrieved (T5-001/T5-004: 0 branch nodes).
 
-Three candidates, cheapest first. Pick based on step 1, implement one, measure,
-stop if it works:
+## Step 2 — hub-aware seeding (re-ordered by the step-1 evidence)
 
-1. **Title/short-document boost** — a deterministic postprocessor that lifts
-   documents whose *title* matches query terms strongly, counteracting the
-   length bias against navigational pages. Reuses the existing postprocessor
-   registry; no schema change. Config-driven weight, off by default.
-2. **Depth-aware scoring** — use `tree_depth` (already on every node) to prefer
-   the shallower document when two candidates are on the same branch: a hub
-   above its own PDFs. One config knob, no new query.
-3. **Anchor-then-expand retrieval mode** — a first pass restricted to hub-like
-   documents (high fan-out / low depth, computed generically, *not* by category),
-   then expansion from those seeds. Bigger change; only if 1 and 2 fail.
+Cheapest first; implement one, re-measure with the step-1 probe, stop when the
+success criteria are met:
 
-Ablate on the T5 set with the existing runner; report per-anchor rank, not just
-judge scores.
+1. **Restore oversampling unconditionally** *(new, from step 1)* — the
+   `oversample` multiplier currently applies only when a category filter or quota
+   is active. Ungate it (or set a floor) so the vector pass draws a larger pool
+   and truncates. One config/logic change, no new signal; fixes T5-005 outright
+   and brings the scoring cases within reach. **Re-run the ANN sweep after this
+   — it re-baselines every other number.**
+2. **Title / short-document boost** (was 2.1) — a deterministic postprocessor
+   lifting documents whose *title* matches query terms, countering the measured
+   length bias against navigational hubs. Targets the scoring and recall cases
+   that oversampling cannot reach. Config-driven weight, off by default.
+3. **Depth-aware scoring** (was 2.2) — `tree_depth` to prefer the shallower
+   document among branch siblings. Note it only re-orders what is already in the
+   pool, so it cannot fix the recall cases alone; combine with 2.
+4. **Anchor-then-expand** (was 2.3) — a first pass over hub-like documents
+   (fan-out / depth, computed generically), then expansion from those seeds. The
+   only candidate that structurally addresses "not in the pool at all". Last, and
+   still bigger than the others.
+
+Ablate on the T5 set; report **per-anchor rank**, not just judge scores.
 
 ## Step 3 — the `tree_context` tool (deferred, revisit after step 2)
 

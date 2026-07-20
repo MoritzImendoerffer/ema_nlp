@@ -564,13 +564,19 @@ showcase: for the broad question *"Summarize the information available for
 Comirnaty, including the timeline…"*, the vector pass lands on COMP/CHMP meeting
 agendas, not the Comirnaty hub — so the traversal expands from the wrong seed.
 Rephrasing to `"Comirnaty COVID-19 mRNA vaccine authorisation"` puts the EPAR
-overview on the comirnaty branch. Diagnosis: **hub pages are short and
-navigational, so leaf-chunk cosine similarity favours long minutes that mention
-the substance repeatedly** — the seeding step, not the traversal, is the weak
-link. This is the documented failure a follow-up may address (candidates: a
-title/hub-aware seeding signal, `tree_depth`-aware scoring, or the deferred
-`tree_context` tool letting the agent jump to a hub by name). Per the repo rule,
-that work now has its benchmark failure to justify it.
+overview on the comirnaty branch. **The seeding step, not the traversal, is the
+weak link.**
+
+That miss has since been **measured across all five T5 anchors**
+([`eval/2026-07-20_tree_seeding.md`](eval/2026-07-20_tree_seeding.md)) and turns
+out to be three distinct problems, not one: an **ANN artifact** (one anchor is
+the true rank-5 chunk but invisible at k≤100 — and `oversample` is gated behind
+steering, which this profile disables), genuine **scoring** depth (two anchors at
+rank 58 / ~99), and genuine **recall** loss from the length bias above (two
+anchors absent from the top 500). The measurement also showed the **ancestor
+pass already recovering the hub in two of five cases** — reaching it by walking
+up from its retrieved children even when vector search never found it. Follow-up
+plan: [`next/tree_retrieval_followups.md`](next/tree_retrieval_followups.md).
 
 Tests: `tests/test_site_tree.py`, the ancestor cases in
 `tests/test_indexing_property_graph.py`, `tests/test_export_chain.py` (all
