@@ -18,11 +18,15 @@ pipeline is inspectable and any stage can be re-run by hand.
                     (embeds chunks — hours on GPU for the full corpus; resumable,
                     re-run to continue after a crash. Ingest joins
                     document_metadata, so all labels are stamped at build time.)
-    5. subgraphs    scripts/manage_topic_hubs.py build        -> document_metadata
+    5. tree         scripts/backfill_site_tree.py             -> Neo4j SET
+                    (site-tree properties: tree_parent_id/depth/path/ancestors;
+                    seconds, idempotent — in the default steps. Re-run after
+                    any LINKS_TO rebuild.)
+    6. subgraphs    scripts/manage_topic_hubs.py build        -> document_metadata
                     (topic-subgraph membership stamps for CONFIRMED hubs;
                     optional — run after any build/links change, then propagate.
                     Kept out of the default steps.)
-    6. propagate    scripts/propagate_metadata_to_graph.py    -> Neo4j SET
+    7. propagate    scripts/propagate_metadata_to_graph.py    -> Neo4j SET
                     (labels+membership patch of an EXISTING graph; not needed
                     after a fresh build — kept out of the default steps)
 
@@ -53,8 +57,8 @@ from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent
 
-STEPS = ["parse-html", "parse-pdfs", "enrich", "build", "subgraphs", "propagate"]
-DEFAULT_STEPS = ["parse-html", "parse-pdfs", "enrich", "build"]
+STEPS = ["parse-html", "parse-pdfs", "enrich", "build", "tree", "subgraphs", "propagate"]
+DEFAULT_STEPS = ["parse-html", "parse-pdfs", "enrich", "build", "tree"]
 
 
 def _run(cmd: list[str], *, dry_run: bool) -> None:
@@ -135,6 +139,8 @@ def main() -> None:
             if args.pause_seconds is not None:
                 cmd += [f"--pause-seconds={args.pause_seconds}"]
             _run(cmd, dry_run=args.dry_run)
+        elif step == "tree":
+            _run([py, "scripts/backfill_site_tree.py"], dry_run=args.dry_run)
         elif step == "subgraphs":
             _run([py, "scripts/manage_topic_hubs.py", "build"], dry_run=args.dry_run)
         elif step == "propagate":

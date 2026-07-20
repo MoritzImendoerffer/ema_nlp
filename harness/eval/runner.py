@@ -24,7 +24,9 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 BENCHMARK_PATH = Path(__file__).parents[2] / "benchmark" / "benchmark.jsonl"
-QUESTION_TYPES = ("T1", "T2", "T3", "T4")
+# T1-T4 = the curated benchmark; T5 = link-traversal showcase items
+# (benchmark/showcase.jsonl — chain HTML is the primary artifact there).
+QUESTION_TYPES = ("T1", "T2", "T3", "T4", "T5")
 
 
 def load_benchmark(

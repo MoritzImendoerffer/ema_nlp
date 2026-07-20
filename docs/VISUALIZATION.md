@@ -87,8 +87,14 @@ The document shows:
   <seed docs>") / `topic_subgraph` (with hub key), plus **new** (first
   appearance of the doc in the run) and **cited [n]** (matched against the
   answer's attribution by chunk → doc → URL);
-- **mini subgraph** (`include_chain_graph`) — inline SVG of the docs touched
-  this turn; dashed edges = link-expansion provenance, green ring = cited;
+- **site-tree view** (`include_chain_graph`) — inline SVG placing the retrieved
+  documents in the site tree, layered left-to-right with the root at the left.
+  Only they and the grey section path connecting them to `ema.europa.eu` are
+  drawn — nothing else exists in the picture. Grey solid edges = tree
+  structure, dashed orange = retrieval provenance (link-expansion / ancestor
+  seeds), fill = category, green ring = cited. Shares the derivation with the
+  KB map (`harness/indexing/site_tree.py`), so a turn reads as a traversal of
+  the same tree; see `docs/RETRIEVAL.md` §7.2;
 - **context-evolution table** — one row per distinct document: first-seen step,
   origins, chunk count, cited-as. All retrieved nodes *are* the judge-visible
   context, so the interesting delta is retrieved → cited;

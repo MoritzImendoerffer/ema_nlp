@@ -270,3 +270,17 @@ def test_expand_categories_validated(tmp_path):
 def test_expand_requires_hops(tmp_path):
     with pytest.raises(ValueError, match="max_hops"):
         _load_retrieval(tmp_path, "  graph: {expand: true, max_hops: 0}\n")
+
+
+def test_graph_ancestor_keys_parse_and_default_off():
+    g = GraphRetrievalConfig.from_dict({})
+    assert g.ancestors is False and g.max_ancestors == 3
+    g2 = GraphRetrievalConfig.from_dict({"ancestors": True, "max_ancestors": 5})
+    assert g2.ancestors is True and g2.max_ancestors == 5
+
+
+def test_graph_rejects_nonpositive_max_ancestors():
+    import pytest
+
+    with pytest.raises(ValueError, match="max_ancestors"):
+        GraphRetrievalConfig.from_dict({"max_ancestors": 0})

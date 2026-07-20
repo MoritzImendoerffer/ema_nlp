@@ -233,6 +233,9 @@ def test_retriever_meta_carries_document_provenance():
                 "reference_number": "EMA/CHMP/123/2021",
                 "source_type": "pdf",
                 "topic_hubs": ["referral_procedures"],
+                "tree_path": "medicines/human/EPAR/thing",
+                "tree_depth": 4,
+                "tree_ancestor_ids": ["anc-root", "anc-near"],
             },
             "parent": {"id": "parent-1", "text": "parent text (bigger window)"},
         },
@@ -249,7 +252,8 @@ def test_retriever_meta_carries_document_provenance():
     class _FakeStore:
         def structured_query(self, query, param_map=None):
             assert "d {.id, .source_url, .title, .topic_path" in query
-            assert ".topic_hubs}" in query  # membership rides the doc projection
+            assert ".topic_hubs" in query  # membership rides the doc projection
+            assert ".tree_ancestor_ids}" in query  # site-tree place rides it too
             return rows
 
     class _FakeEmbed:
@@ -268,11 +272,16 @@ def test_retriever_meta_carries_document_provenance():
     assert meta["reference_number"] == "EMA/CHMP/123/2021"
     assert meta["category"] == "scientific_guideline"
     assert meta["topic_hubs"] == ["referral_procedures"]
+    assert meta["tree_path"] == "medicines/human/EPAR/thing"
+    assert meta["tree_depth"] == 4
+    assert meta["tree_ancestor_ids"] == ["anc-root", "anc-near"]
 
     meta2 = out[1].node.metadata
     assert meta2["source_url"] == "" and meta2["title"] == ""  # nulls never become "None"
     assert meta2["category"] == "other"
     assert meta2["topic_hubs"] == []  # unstamped graph -> [], never None
+    assert meta2["tree_path"] == "" and meta2["tree_depth"] is None  # pre-backfill graph
+    assert meta2["tree_ancestor_ids"] == []
 
 
 def test_entity_nodes_carry_persisted_category():
@@ -298,11 +307,13 @@ def test_entity_nodes_carry_topic_hubs_when_joined():
 # --- HierarchicalPGRetriever steering (fake store, no Neo4j) ------------------
 
 class _SteerStore:
-    """Records Cypher calls; serves canned rows for the vector / expansion queries."""
+    """Records Cypher calls; serves canned rows for the vector / expansion /
+    ancestor queries."""
 
-    def __init__(self, main_rows, expand_rows=None):
+    def __init__(self, main_rows, expand_rows=None, ancestor_rows=None):
         self.main_rows = main_rows
         self.expand_rows = expand_rows or []
+        self.ancestor_rows = ancestor_rows or []
         self.calls: list[tuple[str, dict]] = []
 
     def structured_query(self, query, param_map=None):
@@ -313,7 +324,9 @@ class _SteerStore:
             if cats is not None:
                 rows = [r for r in rows if (r.get("doc") or {}).get("category") in cats]
             return rows[: (param_map or {})["k"]]
-        return self.expand_rows
+        if "$seed_ids" in query:
+            return self.expand_rows
+        return self.ancestor_rows
 
 
 class _SteerEmbed:
@@ -409,3 +422,85 @@ def test_retriever_expansion_dedupes_against_vector_hits():
     graph = GraphRetrievalConfig(expand=True)
     nodes = HierarchicalPGRetriever(store, _SteerEmbed(), k=1, graph=graph).retrieve("q")
     assert len(nodes) == 1  # the expanded chunk was already returned by the vector pass
+
+
+# --- HierarchicalPGRetriever tree-ancestor context (fake store) ---------------
+
+def _row_with_ancestors(i: int, ancestors: list[str], score: float = 0.9) -> dict:
+    row = _row(i, "epar", score)
+    row["doc"]["tree_ancestor_ids"] = ancestors
+    row["doc"]["tree_path"] = "medicines/human/EPAR/x"
+    return row
+
+
+def _ancestor_row(doc_id: str, chunk_id: str, score: float) -> dict:
+    return {
+        "doc": {
+            "id": doc_id,
+            "source_url": f"https://ema.europa.eu/{doc_id}",
+            "category": "regulatory_overview",
+            "tree_path": "medicines",
+        },
+        "best": {"id": chunk_id, "text": f"text of {doc_id}", "score": score, "parent": None},
+    }
+
+
+def test_retriever_ancestor_context_nearest_first_with_provenance():
+    store = _SteerStore(
+        [_row_with_ancestors(0, ["root-doc", "mid-doc"])],  # stored root→nearest
+        ancestor_rows=[_ancestor_row("mid-doc", "cm", 0.6), _ancestor_row("root-doc", "cr", 0.4)],
+    )
+    graph = GraphRetrievalConfig(ancestors=True, max_ancestors=3)
+    nodes = HierarchicalPGRetriever(store, _SteerEmbed(), k=1, graph=graph).retrieve("q")
+
+    assert len(store.calls) == 2  # vector + one ancestor query (no link expansion)
+    _q, params = store.calls[1]
+    assert params["ids"] == ["mid-doc", "root-doc"]  # nearest-first
+    assert len(nodes) == 3  # vector hit + two additive ancestors
+    anc = nodes[1:]
+    assert [n.node.metadata["doc_id"] for n in anc] == ["mid-doc", "root-doc"]
+    assert all(n.node.metadata["retrieval_origin"] == "tree_ancestor" for n in anc)
+    assert all(n.node.metadata["linked_from"] == ["d0"] for n in anc)
+
+
+def test_retriever_ancestor_cap_and_already_retrieved_are_respected():
+    # d1 is both a vector hit and an ancestor of d0 → excluded; cap keeps nearest only
+    rows = [
+        _row_with_ancestors(0, ["root-doc", "d1", "mid-doc"], score=0.9),
+        _row(1, "epar", 0.8),
+    ]
+    store = _SteerStore(rows, ancestor_rows=[_ancestor_row("mid-doc", "cm", 0.6)])
+    graph = GraphRetrievalConfig(ancestors=True, max_ancestors=1)
+    nodes = HierarchicalPGRetriever(store, _SteerEmbed(), k=2, graph=graph).retrieve("q")
+
+    _q, params = store.calls[1]
+    assert params["ids"] == ["mid-doc"]  # d1 skipped (already retrieved), capped at 1
+    assert len(nodes) == 3
+
+
+def test_retriever_ancestors_noop_without_backfill():
+    store = _SteerStore([_row(0, "epar", 0.9)])  # no tree_ancestor_ids on the doc
+    graph = GraphRetrievalConfig(ancestors=True)
+    nodes = HierarchicalPGRetriever(store, _SteerEmbed(), k=1, graph=graph).retrieve("q")
+    assert len(store.calls) == 1  # no ancestor query issued
+    assert len(nodes) == 1
+
+
+def test_retriever_expand_and_ancestors_compose():
+    expand_rows = [
+        {
+            "doc": {"id": "dg", "source_url": "u", "category": "scientific_guideline"},
+            "linked_from": ["d0"],
+            "best": {"id": "cg", "text": "linked", "score": 0.75, "parent": None},
+        }
+    ]
+    store = _SteerStore(
+        [_row_with_ancestors(0, ["mid-doc"])],
+        expand_rows=expand_rows,
+        ancestor_rows=[_ancestor_row("mid-doc", "cm", 0.6)],
+    )
+    graph = GraphRetrievalConfig(expand=True, ancestors=True)
+    nodes = HierarchicalPGRetriever(store, _SteerEmbed(), k=1, graph=graph).retrieve("q")
+    assert len(store.calls) == 3  # vector + expansion + ancestors
+    origins = [n.node.metadata["retrieval_origin"] for n in nodes]
+    assert origins == ["vector", "link_expansion", "tree_ancestor"]

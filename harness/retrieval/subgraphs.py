@@ -32,7 +32,8 @@ SUBGRAPH_CONTEXTS = ("map", "chunks")
 _MEMBER_FIELDS = (
     "d.id AS id, d.source_url AS url, d.title AS title, d.category AS category, "
     "d.doc_type AS doc_type, d.reference_number AS reference_number, "
-    "d.revision AS revision, d.source_type AS source_type"
+    "d.revision AS revision, d.source_type AS source_type, "
+    "d.topic_path AS topic_path"
 )
 
 

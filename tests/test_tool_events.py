@@ -153,3 +153,17 @@ def test_to_dict_round_trip_shapes():
     d["nodes"][0]["doc_id"] = "mutated"
     assert step.args["query"] == "q"
     assert step.nodes[0].doc_id == "d1"
+
+
+def test_node_ref_carries_tree_view_fields():
+    ref = node_ref_from_nws(
+        _nws("d5", topic_path="/en/medicines/human/EPAR/x/", source_type="pdf")
+    )
+    assert ref.topic_path == "/en/medicines/human/EPAR/x/"
+    assert ref.source_type == "pdf"
+    d = ref.to_dict()
+    assert d["topic_path"] == "/en/medicines/human/EPAR/x/"
+    assert d["source_type"] == "pdf"
+    # absent meta -> empty strings, never None
+    bare = node_ref_from_nws(_FakeNWS(_FakeNode("n2"), score=None))
+    assert bare.topic_path == "" and bare.source_type == ""

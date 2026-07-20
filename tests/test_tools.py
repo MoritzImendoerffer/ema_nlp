@@ -288,3 +288,40 @@ def test_format_nodes_shows_category_and_expansion_origin():
     rendered = format_nodes(nodes)
     assert "category=scientific_guideline" in rendered
     assert "via=link_expansion" in rendered
+
+
+def test_format_nodes_shows_tree_path_when_present():
+    def node(meta):
+        return NodeWithScore(node=TextNode(text="t", metadata=meta), score=0.5)
+
+    with_path = node(
+        {
+            "source_url": "https://ema.europa.eu/x",
+            "category": "medicine_page",
+            "tree_path": "medicines/human/EPAR/comirnaty",
+        }
+    )
+    without = node({"source_url": "https://ema.europa.eu/y", "category": "qa"})
+    rendered = format_nodes([with_path, without])
+    lines = rendered.split("\n\n")
+    assert "path=/medicines/human/EPAR/comirnaty" in lines[0]
+    assert "path=" not in lines[1]
+
+
+def test_format_nodes_shows_tree_ancestor_origin():
+    nodes = [
+        NodeWithScore(
+            node=TextNode(
+                text="ancestor overview",
+                metadata={
+                    "source_url": "https://ema.europa.eu/med",
+                    "category": "regulatory_overview",
+                    "retrieval_origin": "tree_ancestor",
+                    "tree_path": "medicines",
+                },
+            ),
+            score=0.6,
+        )
+    ]
+    rendered = format_nodes(nodes)
+    assert "via=tree_ancestor" in rendered and "path=/medicines" in rendered

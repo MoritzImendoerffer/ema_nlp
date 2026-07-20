@@ -133,6 +133,12 @@ def _nodes_from_output(raw: str, meta_by_url: dict[str, dict[str, Any]]) -> list
                 ),
                 linked_from=[str(d) for d in (meta.get("linked_from") or [])],
                 topic_hub=str(meta.get("topic_hub") or ""),
+                # path= comes from format_nodes when the site-tree backfill ran;
+                # RETRIEVER-span metadata is the richer post-hoc source.
+                topic_path=str(
+                    meta.get("topic_path") or kv.get("path", "").lstrip("/") or ""
+                ),
+                source_type=str(meta.get("source_type") or ""),
             )
         )
     return nodes

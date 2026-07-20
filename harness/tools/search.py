@@ -93,7 +93,9 @@ def format_nodes(nodes: list) -> str:
     Each entry is tagged with its source ``category`` (and ``via=link_expansion``
     for link-graph-expanded results) so the agent can *see* the source-type mix
     and steer a follow-up search (``source_category=...``) when it doesn't fit
-    the question.
+    the question. When the site-tree backfill ran, each entry also carries
+    ``path=/<tree_path>`` — the document's level in the root-anchored site
+    hierarchy — so the agent is aware of where in the tree its evidence sits.
     """
     if not nodes:
         return "No results found."
@@ -109,10 +111,12 @@ def format_nodes(nodes: list) -> str:
         score_str = f"{score:.3f}" if isinstance(score, (int, float)) else "n/a"
         origin = meta.get("retrieval_origin")
         via = f" via={origin}" if origin and origin != "vector" else ""
+        tree_path = meta.get("tree_path") or ""
+        path = f" path=/{tree_path}" if tree_path else ""
         snippet = " ".join(text.split())[:_SNIPPET_MAX]
         lines.append(
             f"[{i}] source={source} category={node_category(node_with_score)} "
-            f"score={score_str}{via}\n{snippet}"
+            f"score={score_str}{via}{path}\n{snippet}"
         )
     return "\n\n".join(lines)
 

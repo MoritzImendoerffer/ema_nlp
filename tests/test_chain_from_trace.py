@@ -212,3 +212,33 @@ def test_malformed_outputs_are_tolerated():
     assert steps[0].args == {}
     assert steps[0].nodes == []
     assert steps[0].notes == []
+
+
+def test_tree_view_fields_recovered_from_retriever_spans_and_path_kv():
+    raw = (
+        "[1] source=https://ema.eu/d1 category=qa score=0.900 path=/medicines/human\n"
+        "snippet"
+    )
+    tool = _tool_span("t1", "ema_search", raw, {"query": "q"})
+    retr = _span(
+        "r1", "Retriever.retrieve", "RETRIEVER", parent="t1", start=1,
+        outputs=[
+            _retriever_out(
+                "https://ema.eu/d1", doc_id="d1", chunk_id="c1", title="Doc 1",
+                category="qa", retrieval_origin="vector",
+                topic_path="/en/medicines/human/", source_type="html",
+            )
+        ],
+    )
+    root = _span("root", "chat.turn", "UNKNOWN", inputs={"question": "q"}, outputs={})
+    (step,) = chain_steps_from_trace(_trace([root, tool, retr]))
+    (node,) = step.nodes
+    assert node.topic_path == "/en/medicines/human/"  # RETRIEVER meta wins
+    assert node.source_type == "html"
+
+    # without a RETRIEVER child, the path= kv is the fallback (topic_subgraph case)
+    tool_only = _tool_span("t2", "ema_search", raw, {"query": "q"})
+    (step2,) = chain_steps_from_trace(_trace([root, tool_only]))
+    (node2,) = step2.nodes
+    assert node2.topic_path == "medicines/human"
+    assert node2.source_type == ""

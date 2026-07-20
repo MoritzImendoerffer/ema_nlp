@@ -43,6 +43,10 @@ class NodeRef:
     retrieval_origin: str = "vector"
     linked_from: list[str] = field(default_factory=list)  # seed doc_ids (link_expansion)
     topic_hub: str = ""
+    # Site-tree placement inputs (the chain export's tree view parents docs by
+    # breadcrumb + source_type — see harness.indexing.site_tree).
+    topic_path: str = ""
+    source_type: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +61,8 @@ class NodeRef:
             "retrieval_origin": self.retrieval_origin,
             "linked_from": list(self.linked_from),
             "topic_hub": self.topic_hub,
+            "topic_path": self.topic_path,
+            "source_type": self.source_type,
         }
 
 
@@ -109,6 +115,8 @@ def node_ref_from_nws(nws: Any) -> NodeRef:
         retrieval_origin=str(meta.get("retrieval_origin") or "vector"),
         linked_from=[str(d) for d in (meta.get("linked_from") or [])],
         topic_hub=str(meta.get("topic_hub") or ""),
+        topic_path=str(meta.get("topic_path") or ""),
+        source_type=str(meta.get("source_type") or ""),
     )
 
 

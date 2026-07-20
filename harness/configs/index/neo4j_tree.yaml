@@ -1,0 +1,48 @@
+# Tree-traversal index profile — the SAME live Neo4j graph as neo4j_hier
+# (identical index: section; nothing is rebuilt or re-embedded), with the
+# link-graph mechanisms tuned for generic tree traversal instead of
+# category steering (see docs/RETRIEVAL.md "Tree-aware retrieval"):
+#
+#   - graph.expand      follow LINKS_TO from the vector-hit documents and append
+#                       the best-matching chunk of linked docs — expand_categories
+#                       is deliberately [] (ANY category): the tree is the filter
+#                       here, not the document class. A medicine page's EPAR PDFs,
+#                       news and safety updates all qualify.
+#   - graph.ancestors   append the best-matching chunk of the hits' site-tree
+#                       ancestors (nearest-first), so the agent sees each hit's
+#                       place in the root-anchored hierarchy with content.
+#
+# PREREQUISITE: the site-tree properties must exist on the graph —
+#   python scripts/backfill_site_tree.py
+# (part of scripts/update_graph.py default steps). Without them, ancestors
+# degrade to a no-op and nodes carry no path= level display.
+#
+# Quotas/routing are deliberately OFF: this profile isolates link traversal
+# (the T5 showcase); combine with steering knobs later if eval evidence asks.
+
+index:
+  kind: property_graph
+  source: mongo_parsed_documents
+  embed_model: BAAI/bge-large-en-v1.5
+  store:
+    graph: neo4j
+  chunking:
+    parser: hierarchical
+    chunk_sizes: [2048, 512, 128]
+  scope:
+    committee: []
+    topic_prefix: ""
+    limit: null
+
+retrieval:
+  strategy: hierarchical
+  k: 10
+  merge: true
+  graph:
+    max_hops: 1
+    edge_types: [links_to]
+    expand: true                   # follow links from vector hits (additive)
+    expand_categories: []          # any category — the tree is the filter
+    max_expand: 6                  # richer fan-out than steered (hub pages)
+    ancestors: true                # append ancestor-path context (tree-aware)
+    max_ancestors: 3               # nearest-first ancestor docs

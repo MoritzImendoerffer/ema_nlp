@@ -165,37 +165,77 @@ def test_filename_has_chain_suffix():
     assert exporter.filename(_bundle(), ExportOptions()) == "ema_answer_2_run-9876_chain.html"
 
 
-def test_subgraph_svg_nodes_edges_and_gating():
-    from harness.export.chain_html import _subgraph_svg
+def test_tree_svg_places_docs_in_site_tree_with_gating():
+    from harness.export.chain_html import _tree_svg
 
     bundle = _bundle()
     html = _render(bundle)  # include_chain_graph defaults True
     assert "<svg" in html and "Documents touched this turn" in html
-    svg = _subgraph_svg(bundle.chain, bundle.attribution)
-    assert svg.count("<circle") == 4  # one per distinct doc
-    assert "stroke-dasharray" in svg  # the d1 -> d3 link-expansion edge
-    assert 'data-doc=\'d1\'' in svg and 'data-doc=\'d3\'' in svg
+    svg = _tree_svg(bundle.chain, bundle.attribution)
+    # one data-doc circle per distinct retrieved doc + grey section skeleton
+    assert svg.count("data-doc=") == 4
+    assert "ema.europa.eu" in svg  # the site root, left column
+    assert "#c7ced6" in svg  # grey section node fill (the ancestor path)
+    assert "stroke-dasharray" in svg  # the d1 -> d3 provenance overlay
+    assert "data-doc='d1'" in svg and "data-doc='d3'" in svg
     assert "cited [1]" in svg  # d1's tooltip carries the citation
     # gated off
     assert "<svg" not in _render(bundle, ExportOptions(include_chain_graph=False))
     # fewer than 2 docs -> no svg at all
     single = _bundle(chain=[bundle.chain[2]])
-    assert _subgraph_svg(single.chain, single.attribution) == ""
+    assert _tree_svg(single.chain, single.attribution) == ""
 
 
-def test_subgraph_layout_circle_fallback_without_igraph(monkeypatch):
-    import builtins
+def test_tree_svg_uses_topic_path_and_linker_parenting():
+    from harness.export.chain_html import _tree_svg
 
-    from harness.export import chain_html as ch
+    chain = [
+        ChainStep(
+            seq=1,
+            tool="ema_search",
+            args={"query": "q"},
+            nodes=[
+                _node(
+                    "page", "cp",
+                    topic_path="/en/medicines/human/page/", source_type="html",
+                ),
+                _node(
+                    "pdf", "cd", origin="link_expansion", linked_from=["page"],
+                    topic_path="/en/documents/report/", source_type="pdf",
+                ),
+            ],
+        ).to_dict()
+    ]
+    bundle = _bundle(chain=chain)
+    svg = _tree_svg(bundle.chain, bundle.attribution)
+    # breadcrumb sections appear as grey skeleton labels
+    assert ">medicines<" in svg and ">human<" in svg
+    # the PDF is linker-parented under the page, NOT under a documents bucket
+    assert ">documents<" not in svg
+    # grey tree edges + dashed provenance overlay both present
+    assert "stroke='#d0d7de'" in svg and "stroke-dasharray" in svg
 
-    real_import = builtins.__import__
 
-    def _no_igraph(name, *args, **kwargs):
-        if name == "igraph":
-            raise ImportError("igraph unavailable")
-        return real_import(name, *args, **kwargs)
+def test_tree_svg_badge_and_stroke_for_tree_ancestor_origin():
+    from harness.export.chain_html import _ORIGIN_STROKE, _tree_svg
 
-    monkeypatch.setattr(builtins, "__import__", _no_igraph)
-    pos = ch._subgraph_layout(["a", "b", "c"], [("a", "b")])
-    assert set(pos) == {"a", "b", "c"}
-    assert all(0.0 <= v <= 1.0 for xy in pos.values() for v in xy)
+    assert _ORIGIN_STROKE["tree_ancestor"] == "#0d9488"
+    chain = [
+        ChainStep(
+            seq=1,
+            tool="ema_search",
+            args={"query": "q"},
+            nodes=[
+                _node("d1", "c1", topic_path="/en/medicines/x/", source_type="html"),
+                _node(
+                    "anc", "ca", origin="tree_ancestor", linked_from=["d1"],
+                    topic_path="/en/medicines/", source_type="html",
+                ),
+            ],
+        ).to_dict()
+    ]
+    bundle = _bundle(chain=chain)
+    html = _render(bundle)
+    assert "badge tree_ancestor" in html  # timeline badge styled
+    svg = _tree_svg(bundle.chain, bundle.attribution)
+    assert "stroke='#0d9488'" in svg  # ancestor-origin stroke in the tree view

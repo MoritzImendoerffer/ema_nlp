@@ -28,6 +28,7 @@ from harness.export.registry import register_exporter
 _CSS = """
 :root { --accent: #2456a3; --border: #d0d7de; --vector: #dbeafe; --vector-b: #1d4ed8;
         --expand: #ffedd5; --expand-b: #c2410c; --topic: #ede9fe; --topic-b: #6d28d9;
+        --tree: #ccfbf1; --tree-b: #0d9488;
         --cited: #d3f9d8; --cited-b: #2b8a3e; color-scheme: light; }
 * { box-sizing: border-box; }
 body { font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -54,6 +55,7 @@ h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid var(--border)
 .badge.vector { background: var(--vector); border-color: var(--vector-b); color: var(--vector-b); }
 .badge.link_expansion { background: var(--expand); border-color: var(--expand-b); color: var(--expand-b); }
 .badge.topic_subgraph { background: var(--topic); border-color: var(--topic-b); color: var(--topic-b); }
+.badge.tree_ancestor { background: var(--tree); border-color: var(--tree-b); color: var(--tree-b); }
 .badge.cited { background: var(--cited); border-color: var(--cited-b); color: var(--cited-b);
                font-weight: 600; }
 .badge.new { background: #e7f5ff; border-color: #1971c2; color: #1971c2; }
@@ -216,7 +218,12 @@ def _evolution_rows(chain: list[dict[str, Any]], attribution: Any) -> list[dict[
     return out
 
 
-_ORIGIN_STROKE = {"vector": "#1d4ed8", "link_expansion": "#c2410c", "topic_subgraph": "#6d28d9"}
+_ORIGIN_STROKE = {
+    "vector": "#1d4ed8",
+    "link_expansion": "#c2410c",
+    "topic_subgraph": "#6d28d9",
+    "tree_ancestor": "#0d9488",
+}
 # Node fill by source category: the 8 validated categorical hues for the
 # information-carrying categories, muted neutrals for the epar mass + tail
 # (same visual language as the KB map, scripts/lib/graph_map/template.html).
@@ -229,103 +236,116 @@ _CATEGORY_FILL = {
 }
 
 
-def _subgraph_layout(doc_keys: list[str], edges: list[tuple[str, str]]) -> dict[str, tuple[float, float]]:
-    """Positions in the unit square: igraph FR when available, circle fallback.
+def _tree_svg(chain: list[dict[str, Any]], attribution: Any) -> str:
+    """Inline SVG: the retrieved documents placed in the site tree.
 
-    igraph is the optional ``viz`` extra — the live app must render without it,
-    so the fallback is deterministic and dependency-free.
+    Only the documents this turn touched exist in the drawing — plus the
+    synthetic (grey) section skeleton connecting them up to the site root, so
+    the "traverse up to the root with awareness of each level" story is
+    visible per turn. Layout is layered left-to-right (root at the left,
+    depth = column; ``harness.indexing.site_tree.layered_positions``). Grey
+    solid edges = tree structure; dashed orange lines = the captured
+    ``linked_from`` provenance (link expansion / ancestor context seeds).
+    Fill = category, stroke = retrieval origin, thick green stroke = cited.
+    Clicking a doc node highlights it everywhere via the shared data-doc
+    handler. Dependency-free (no igraph).
     """
-    import math
+    from harness.indexing.site_tree import SEC_PREFIX, build_tree, layered_positions
 
-    try:
-        import random
-
-        import igraph
-
-        random.seed(0)
-        igraph.set_random_number_generator(random)
-        index = {k: i for i, k in enumerate(doc_keys)}
-        g = igraph.Graph(
-            len(doc_keys),
-            [(index[s], index[t]) for s, t in edges if s in index and t in index],
-        )
-        layout = g.layout("fr", niter=200)
-        xs = [c[0] for c in layout]
-        ys = [c[1] for c in layout]
-        w = (max(xs) - min(xs)) or 1.0
-        h = (max(ys) - min(ys)) or 1.0
-        return {
-            k: ((layout[i][0] - min(xs)) / w, (layout[i][1] - min(ys)) / h)
-            for k, i in index.items()
-        }
-    except ImportError:
-        n = max(len(doc_keys), 1)
-        return {
-            k: (
-                0.5 + 0.45 * math.cos(2 * math.pi * i / n),
-                0.5 + 0.45 * math.sin(2 * math.pi * i / n),
-            )
-            for i, k in enumerate(doc_keys)
-        }
-
-
-def _subgraph_svg(chain: list[dict[str, Any]], attribution: Any) -> str:
-    """Inline SVG of the documents this turn touched.
-
-    Edges are the captured ``linked_from`` pairs (link-expansion provenance) —
-    available offline for both the live and trace-read-back paths. Fill =
-    category, stroke = retrieval origin, thick green stroke = cited. Clicking a
-    node highlights that document everywhere via the shared data-doc handler.
-    """
     rows = _evolution_rows(chain, attribution)
     if len(rows) < 2:
         return ""
-    doc_keys = [r["doc_key"] for r in rows]
     by_doc: dict[str, dict[str, Any]] = {}
     for step in chain:
         for node in step.get("nodes") or []:
             by_doc.setdefault(_doc_key(node), node)
-    edges: list[tuple[str, str]] = []
+    docs = [
+        {
+            "id": row["doc_key"],
+            "title": row["title"],
+            "category": row["category"],
+            "source_url": row["source_url"],
+            "topic_path": (by_doc.get(row["doc_key"]) or {}).get("topic_path") or "",
+            # missing on old traces → treated as html (breadcrumb/URL parenting)
+            "source_type": (by_doc.get(row["doc_key"]) or {}).get("source_type") or "",
+        }
+        for row in rows
+    ]
+    prov_edges: list[tuple[str, str]] = []
     for key, node in by_doc.items():
         for seed in node.get("linked_from") or []:
             if str(seed) in by_doc:
-                edges.append((str(seed), key))
-    pos = _subgraph_layout(doc_keys, edges)
+                prov_edges.append((str(seed), key))
+    sections, children, tree_edges = build_tree(docs, prov_edges)
+    pos = layered_positions(docs + sections, children)
 
-    width, height, pad = 640, 360, 30
+    leaf_count = sum(1 for k in pos if not children.get(k))
+    width, pad = 720, 30
+    height = max(300, 26 * leaf_count + 2 * pad)
 
     def _xy(key: str) -> tuple[float, float]:
         x, y = pos[key]
-        return pad + x * (width - 2 * pad), pad + y * (height - 2 * pad)
+        return pad + x * (width - 2 * pad - 60), pad + y * (height - 2 * pad)
 
     parts = [
         f"<svg viewBox='0 0 {width} {height}' role='img' "
         "style='max-width:100%;border:1px solid var(--border);border-radius:8px'>"
     ]
-    for s, t in edges:
+    # tree skeleton first (underneath): grey solid parent→child edges
+    for s, t in tree_edges:
+        if s not in pos or t not in pos:
+            continue
+        x1, y1 = _xy(s)
+        x2, y2 = _xy(t)
+        parts.append(
+            f"<line x1='{x1:.0f}' y1='{y1:.0f}' x2='{x2:.0f}' y2='{y2:.0f}' "
+            "stroke='#d0d7de' stroke-width='1.2'/>"
+        )
+    # provenance overlay: dashed orange seed→doc lines
+    for s, t in prov_edges:
+        if s not in pos or t not in pos:
+            continue
         x1, y1 = _xy(s)
         x2, y2 = _xy(t)
         parts.append(
             f"<line x1='{x1:.0f}' y1='{y1:.0f}' x2='{x2:.0f}' y2='{y2:.0f}' "
             "stroke='#c2410c' stroke-width='1.2' stroke-dasharray='4 3'/>"
         )
+    # grey section skeleton nodes (the ancestor path — not retrieved docs)
+    for sec in sections:
+        key = sec["id"]
+        if key not in pos:
+            continue
+        x, y = _xy(key)
+        label = sec["title"] if key != SEC_PREFIX else "ema.europa.eu"
+        parts.append(
+            f"<g><circle cx='{x:.0f}' cy='{y:.0f}' r='4' fill='#c7ced6' "
+            f"stroke='#9aa4b2' stroke-width='1'>"
+            f"<title>{_esc('/' + key[len(SEC_PREFIX):] if key != SEC_PREFIX else label)}</title>"
+            f"</circle>"
+            f"<text x='{x:.0f}' y='{y - 8:.0f}' text-anchor='middle' "
+            f"font-size='9' fill='#9aa4b2'>{_esc(str(label)[:20])}</text></g>"
+        )
+    # retrieved documents on top
     for row in rows:
         key = row["doc_key"]
+        if key not in pos:
+            continue
         node = by_doc.get(key, {})
         x, y = _xy(key)
         fill = _CATEGORY_FILL.get(row["category"], "#8b939c")
         cited = row["cited_n"] is not None
         origin = (node.get("retrieval_origin") or "vector") if node else "vector"
         stroke = "#2b8a3e" if cited else _ORIGIN_STROKE.get(origin, "#1d4ed8")
-        r = 9 + 2 * min(row["chunk_count"], 5)
+        r = 8 + 2 * min(row["chunk_count"], 4)
         title = row["title"] + (f" — cited [{row['cited_n']}]" if cited else "")
         parts.append(
             f"<g data-doc='{_esc(key)}' style='cursor:pointer'>"
             f"<circle cx='{x:.0f}' cy='{y:.0f}' r='{r}' fill='{fill}' "
             f"stroke='{stroke}' stroke-width='{3 if cited else 1.5}'>"
             f"<title>{_esc(title)}</title></circle>"
-            f"<text x='{x:.0f}' y='{y + r + 12:.0f}' text-anchor='middle' "
-            f"font-size='10' fill='#57606a'>{_esc((row['title'] or key)[:24])}</text></g>"
+            f"<text x='{x + r + 4:.0f}' y='{y + 3:.0f}' text-anchor='start' "
+            f"font-size='10' fill='#57606a'>{_esc((row['title'] or key)[:32])}</text></g>"
         )
     parts.append("</svg>")
     return "".join(parts)
@@ -385,13 +405,16 @@ class ChainHtmlExporter(Exporter):
             )
 
         if chain and options.include_chain_graph:
-            svg = _subgraph_svg(chain, bundle.attribution)
+            svg = _tree_svg(chain, bundle.attribution)
             if svg:
                 parts.append("<h2>Documents touched this turn</h2>")
                 parts.append(
-                    "<p class='meta'>Fill = category, dashed edges = link expansion "
-                    "(seed → expanded doc), green ring = cited. Click a node to "
-                    "highlight the document across the timeline.</p>"
+                    "<p class='meta'>Site tree, root at the left — grey nodes/edges = "
+                    "the section levels connecting the retrieved documents to "
+                    "ema.europa.eu (nothing else is drawn). Fill = category, dashed "
+                    "orange = retrieval provenance (link expansion / ancestor seeds), "
+                    "green ring = cited. Click a doc to highlight it across the "
+                    "timeline.</p>"
                 )
                 parts.append(svg)
 

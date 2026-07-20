@@ -50,9 +50,18 @@ if str(_REPO) not in sys.path:
 _LIB = _REPO / "scripts" / "lib" / "graph_map"
 _VENDOR_FILES = ("graphology-0.25.4.umd.min.js", "sigma-2.4.0.min.js")
 
-# Shared URL prefix factored out of the payload (~40 bytes/node saved).
-URL_PREFIX = "https://www.ema.europa.eu"
-
+# Tree derivation is shared with the retrieval backfill + chain-export tree
+# view (harness/indexing/site_tree.py); re-exported under the historical names
+# so callers/tests keep working. URL_PREFIX also factors the payload (~40
+# bytes/node saved).
+from harness.indexing.site_tree import SEC_PREFIX as _SEC_PREFIX  # noqa: E402, F401
+from harness.indexing.site_tree import (  # noqa: E402
+    SECTION_CATEGORY,  # noqa: F401  (re-export for tests/back-compat)
+    URL_PREFIX,
+    build_tree,
+    tree_layout,
+)
+from harness.indexing.site_tree import site_segments as _site_segments  # noqa: E402, F401
 
 # ── Neo4j fetch ───────────────────────────────────────────────────────────────
 
@@ -177,181 +186,8 @@ def compute_layout(
     return positions
 
 
-# ── Tree mode (--tree): everything under one root, ema.europa.eu ─────────────
-#
-# The site hierarchy is real for HTML pages (topic_path = breadcrumb); PDFs
-# (72% of docs) only carry a flat /documents/<type>/ bucket — their true site
-# position is "under the page that links to them", so LINKS_TO provides the
-# tree slot and the flat bucket is the fallback for unlinked PDFs.
-
-SECTION_CATEGORY = "site section"
-_SEC_PREFIX = "§"  # section node ids: §medicines/human — cannot collide with doc ids
-
-
-def _site_segments(node: dict[str, Any]) -> list[str]:
-    """Breadcrumb segments for a doc: topic_path preferred, URL path fallback."""
-    raw = str(node.get("topic_path") or "").strip()
-    if not raw.strip("/"):
-        host_path = str(node.get("source_url") or "").split("://", 1)[-1]
-        raw = host_path.split("/", 1)[1] if "/" in host_path else ""
-    segs = [s for s in raw.split("/") if s]
-    if segs and segs[0] == "en":
-        segs = segs[1:]
-    return segs
-
-
-def build_tree(
-    nodes: list[dict[str, Any]], edges: list[tuple[str, str]]
-) -> tuple[list[dict[str, Any]], dict[str, list[str]], list[tuple[str, str]]]:
-    """``(section_nodes, children, tree_edges)`` — the whole KB as one tree.
-
-    Every doc gets exactly one parent: HTML docs their breadcrumb prefix (a doc
-    whose path *is* a section becomes that section node); linked PDFs the first
-    HTML doc that LINKS_TO them; unlinked PDFs their documents/<type> bucket.
-    Synthetic ``§path`` section nodes fill in the prefixes, rooted at
-    ``ema.europa.eu``.
-    """
-    by_id = {n["id"]: n for n in nodes}
-    html_ids = {n["id"] for n in nodes if str(n.get("source_type") or "") != "pdf"}
-    segs_of = {n["id"]: _site_segments(n) for n in nodes}
-
-    # First HTML linker per PDF (deterministic: smallest doc id).
-    linker: dict[str, str] = {}
-    for s, t in sorted(edges):
-        if s in html_ids and t in by_id and t not in html_ids:
-            linker.setdefault(t, s)
-
-    # Section prefixes needed: every proper prefix of each doc's slot path.
-    doc_parent_path: dict[str, tuple[str, ...]] = {}  # doc id -> section path (fallback)
-    section_paths: set[tuple[str, ...]] = set()
-    for n in nodes:
-        nid = n["id"]
-        if nid in linker:
-            continue  # parented by a doc, not a section
-        segs = segs_of[nid]
-        # HTML breadcrumbs end with the page's own slug → parent is the prefix;
-        # a PDF's topic_path IS its shared documents/<type> bucket → parent is
-        # the full path.
-        if nid in html_ids and segs:
-            parent = tuple(segs[:-1])
-        else:
-            parent = tuple(segs)
-        doc_parent_path[nid] = parent
-        for i in range(len(parent) + 1):
-            section_paths.add(parent[:i])
-
-    # A doc whose full path equals a section prefix *becomes* that section.
-    doc_at: dict[tuple[str, ...], str] = {}
-    for nid in sorted(html_ids):
-        path = tuple(segs_of[nid])
-        if path in section_paths and path not in doc_at and path != ():
-            doc_at[path] = nid
-
-    def slot(path: tuple[str, ...]) -> str:
-        """Tree-node key for a section path: the doc occupying it, else §synthetic."""
-        return doc_at.get(path) or (_SEC_PREFIX + "/".join(path))
-
-    children: dict[str, list[str]] = {}
-    tree_edges: list[tuple[str, str]] = []
-
-    def attach(parent_key: str, child_key: str) -> None:
-        children.setdefault(parent_key, []).append(child_key)
-        tree_edges.append((parent_key, child_key))
-
-    # Section skeleton (synthetic or doc-backed), wired parent → child.
-    section_nodes: list[dict[str, Any]] = []
-    for path in sorted(section_paths):
-        key = slot(path)
-        if path:
-            attach(slot(path[:-1]), key)
-        if key.startswith(_SEC_PREFIX):
-            section_nodes.append(
-                {
-                    "id": key,
-                    "title": path[-1] if path else "ema.europa.eu",
-                    "category": SECTION_CATEGORY,
-                    "doc_type": "", "audience": "", "site_topic": "",
-                    "source_url": URL_PREFIX + "/en/" + "/".join(path),
-                    "topic_path": "/en/" + "/".join(path) + ("/" if path else ""),
-                    "source_type": "section",
-                }
-            )
-
-    # Docs: under their linking page, or their section prefix (unless they ARE it).
-    occupied = set(doc_at.values())
-    for n in nodes:
-        nid = n["id"]
-        if nid in occupied:
-            continue
-        if nid in linker:
-            attach(linker[nid], nid)
-        else:
-            attach(slot(doc_parent_path[nid]), nid)
-    return section_nodes, children, tree_edges
-
-
-def tree_layout(
-    all_nodes: list[dict[str, Any]], children: dict[str, list[str]]
-) -> dict[str, tuple[float, float]]:
-    """Radial tree positions: depth → radius, angular span ∝ subtree doc count.
-
-    Internal children get contiguous span slices (biggest first); leaf children
-    are packed into concentric arc rows inside the remaining span, so huge fans
-    (an EPAR bucket, a hub page's PDFs) stay compact instead of demanding an
-    absurd radius.
-    """
-    STEP, GAP = 150.0, 2.5  # ring distance per depth / leaf spacing in coord units
-    by_id = {n["id"]: n for n in all_nodes}
-    root = _SEC_PREFIX
-
-    weight: dict[str, int] = {}
-
-    def _weigh(key: str) -> int:
-        w = 0 if key.startswith(_SEC_PREFIX) else 1
-        w += sum(_weigh(k) for k in children.get(key, []))
-        weight[key] = max(w, 1)
-        return weight[key]
-
-    _weigh(root)
-
-    positions: dict[str, tuple[float, float]] = {}
-
-    def _place(key: str, depth: float, a0: float, a1: float) -> None:
-        mid = (a0 + a1) / 2
-        r = depth * STEP
-        positions[key] = (round(r * math.cos(mid), 2), round(r * math.sin(mid), 2))
-        kids = children.get(key, [])
-        if not kids:
-            return
-        internal = sorted(
-            (k for k in kids if children.get(k)),
-            key=lambda k: (-weight[k], str(by_id[k].get("title") or ""), k),
-        )
-        leaves = sorted(
-            (k for k in kids if not children.get(k)),
-            key=lambda k: (str(by_id[k].get("category") or ""), str(by_id[k].get("title") or ""), k),
-        )
-        total = sum(weight[k] for k in kids)
-        a = a0
-        for k in internal:
-            span = (a1 - a0) * weight[k] / total
-            _place(k, depth + 1, a, a + span)
-            a += span
-        if not leaves:
-            return
-        span = max(a1 - a, 1e-6)
-        base, i, row = (depth + 1) * STEP, 0, 0
-        while i < len(leaves):
-            r_row = base + row * GAP
-            cap = max(1, int(span * r_row / GAP))
-            for j, k in enumerate(leaves[i : i + cap]):
-                ang = a + span * (j + 0.5) / cap
-                positions[k] = (round(r_row * math.cos(ang), 2), round(r_row * math.sin(ang), 2))
-            i += cap
-            row += 1
-
-    _place(root, 0.0, 0.0, 2 * math.pi)
-    return positions
+# ── Tree mode (--tree) ────────────────────────────────────────────────────────
+# build_tree / tree_layout come from harness.indexing.site_tree (imported above).
 
 
 # ── Payload ───────────────────────────────────────────────────────────────────

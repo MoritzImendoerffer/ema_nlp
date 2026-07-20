@@ -500,7 +500,8 @@ def open_index(profile: IndexProfile | None = None) -> PropertyGraphIndex:
 # that citations, reference cards, and exports need — not just a URL.
 _DOC_PROJECTION = (
     "{.id, .source_url, .title, .topic_path, .committee, .reference_number, "
-    ".source_type, .category, .doc_type, .audience, .site_topic, .topic_hubs}"
+    ".source_type, .category, .doc_type, .audience, .site_topic, .topic_hubs, "
+    ".tree_parent_id, .tree_depth, .tree_path, .tree_ancestor_ids}"
 )
 
 def _edge_label(edge_types: list[str]) -> str:
@@ -540,10 +541,19 @@ class HierarchicalPGRetriever(BaseRetriever):
       up to ``graph.max_expand`` linked docs. Additive: expanded nodes carry
       ``retrieval_origin="link_expansion"`` + ``linked_from`` provenance and
       never displace a vector hit.
+    - **ancestor context** (``graph.ancestors``): append the best-matching
+      chunk of up to ``graph.max_ancestors`` site-tree ancestors of the
+      vector-hit documents (nearest-first), so the agent sees each hit's place
+      in the root-anchored hierarchy with content. Reads the persisted
+      ``tree_ancestor_ids`` (``scripts/backfill_site_tree.py``) — a lookup,
+      not a traversal; stamped ``retrieval_origin="tree_ancestor"``. Every
+      retrieved node additionally carries ``tree_path``/``tree_depth`` (its
+      level), shown to the LLM by ``format_nodes``.
 
     Category filter/quota/expansion-restriction require ``:Document.category``
     (stamped at ingest; backfill existing graphs with
-    ``scripts/backfill_doc_categories.py``).
+    ``scripts/backfill_doc_categories.py``); ancestor context requires the
+    site-tree backfill.
     """
 
     _QUERY = (
@@ -580,6 +590,22 @@ class HierarchicalPGRetriever(BaseRetriever):
             f"RETURN t {_DOC_PROJECTION} AS doc, linked_from, best "
             "ORDER BY best.score DESC LIMIT $max_expand"
         )
+
+    # Ancestor context: the seeds' persisted tree_ancestor_ids -> each ancestor
+    # doc's best chunk vs the query (same best-chunk + (1+cos)/2 + small-to-big
+    # pattern as _expand_query). No traversal — the ancestor chain is a pure
+    # property lookup stamped by scripts/backfill_site_tree.py.
+    _ANCESTOR_QUERY = (
+        "UNWIND $ids AS did "
+        "MATCH (d:Document {id: did})-[:HAS_CHUNK]->(c:Chunk) "
+        "WHERE c.embedding IS NOT NULL "
+        "WITH d, c, "
+        "(1.0 + vector.similarity.cosine(c.embedding, $q)) / 2.0 AS score, "
+        "head([(c)<-[:PARENT_OF]-(par) | {id: par.id, text: par.text}]) AS parent "
+        "ORDER BY score DESC "
+        "WITH d, collect({id: c.id, text: c.text, score: score, parent: parent})[0] AS best "
+        f"RETURN d {_DOC_PROJECTION} AS doc, best"
+    )
 
     def __init__(
         self,
@@ -658,6 +684,11 @@ class HierarchicalPGRetriever(BaseRetriever):
             # Precomputed topic-subgraph memberships (docs/next/topic_subgraphs.md)
             # — [] until scripts/manage_topic_hubs.py build + propagate ran.
             "topic_hubs": list(doc.get("topic_hubs") or []),
+            # Site-tree place (scripts/backfill_site_tree.py) — the doc's level
+            # in the root-anchored tree; empty/None until the backfill ran.
+            "tree_path": doc.get("tree_path") or "",
+            "tree_depth": doc.get("tree_depth"),
+            "tree_ancestor_ids": list(doc.get("tree_ancestor_ids") or []),
             # chunk_id = the node actually returned (parent after small-to-big
             # merge); matched_chunk = the leaf the vector/similarity hit landed on.
             "chunk_id": chunk_id,
@@ -703,8 +734,11 @@ class HierarchicalPGRetriever(BaseRetriever):
         else:
             out = out[: self._k]
         graph = self._graph
+        vector_hits = list(out)
         if graph is not None and getattr(graph, "expand", False) and out:
-            out.extend(self._expand(out, qvec, seen))
+            out.extend(self._expand(vector_hits, qvec, seen))
+        if graph is not None and getattr(graph, "ancestors", False) and vector_hits:
+            out.extend(self._expand_ancestors(vector_hits, qvec, seen, out))
         return out
 
     def _expand(
@@ -754,6 +788,76 @@ class HierarchicalPGRetriever(BaseRetriever):
             _log.debug("link expansion added %d node(s) from %d seed doc(s)", len(out), len(seed_ids))
         return out
 
+    def _expand_ancestors(
+        self,
+        seeds: list[NodeWithScore],
+        qvec: list[float],
+        seen: set[str],
+        retrieved: list[NodeWithScore],
+    ) -> list[NodeWithScore]:
+        """Tree-ancestor context pass: best chunk of the seeds' ancestor docs.
+
+        Ancestors come from the seeds' persisted ``tree_ancestor_ids`` metadata
+        (root→nearest, stamped by ``scripts/backfill_site_tree.py``) — a pure
+        lookup, no traversal. Nearest-first across seeds, capped at
+        ``graph.max_ancestors``, additive, stamped
+        ``retrieval_origin="tree_ancestor"`` + ``linked_from`` (the seed docs
+        the ancestor belongs to). No-op when the backfill hasn't run.
+        """
+        graph = self._graph
+        already = {
+            n.node.metadata.get("doc_id")
+            for n in retrieved
+            if n.node.metadata.get("doc_id")
+        }
+        # nearest-first per seed (stored root→nearest), deduped across seeds
+        contributors: dict[str, list[str]] = {}
+        ordered: list[str] = []
+        for n in seeds:
+            seed_id = n.node.metadata.get("doc_id") or ""
+            for anc in reversed(list(n.node.metadata.get("tree_ancestor_ids") or [])):
+                if anc in already:
+                    continue
+                if anc not in contributors:
+                    contributors[anc] = []
+                    ordered.append(anc)
+                if seed_id and seed_id not in contributors[anc]:
+                    contributors[anc].append(seed_id)
+        ancestor_ids = ordered[: max(int(getattr(graph, "max_ancestors", 3)), 1)]
+        if not ancestor_ids:
+            return []
+        rows = self._store.structured_query(
+            self._ANCESTOR_QUERY, param_map={"ids": ancestor_ids, "q": qvec}
+        )
+        by_id = {(r.get("doc") or {}).get("id"): r for r in rows}
+        out: list[NodeWithScore] = []
+        for anc in ancestor_ids:  # preserve nearest-first order
+            r = by_id.get(anc)
+            if r is None:
+                continue
+            best = r.get("best") or {}
+            parent = best.get("parent")
+            if self._merge and parent and parent.get("text"):
+                nid, text = parent["id"], parent["text"]
+            else:
+                nid, text = best.get("id"), best.get("text") or ""
+            if not nid or nid in seen:
+                continue
+            seen.add(nid)
+            out.append(
+                self._node_from_row(
+                    r.get("doc"), chunk_id=nid, matched_id=best.get("id") or nid,
+                    text=text, score=best.get("score") or 0.0,
+                    extra={
+                        "retrieval_origin": "tree_ancestor",
+                        "linked_from": contributors.get(anc, []),
+                    },
+                )
+            )
+        if out:
+            _log.debug("tree ancestors added %d node(s)", len(out))
+        return out
+
 
 @register_retriever("hierarchical")
 def build_hierarchical_retriever(
@@ -769,5 +873,5 @@ def build_hierarchical_retriever(
         merge=retrieval.merge,
         oversample=retrieval.oversample,
         category_quota=retrieval.category_quota,
-        graph=retrieval.graph if retrieval.graph.expand else None,
+        graph=retrieval.graph if (retrieval.graph.expand or retrieval.graph.ancestors) else None,
     )

@@ -69,3 +69,22 @@ def test_mean_scores_averages_numeric_and_skips_non_numeric():
          ("gold_answer", None), ("note", "text")]
     )
     assert means == {"faithfulness_mean": 4.0, "correctness_mean": 4.0}
+
+
+def test_group_by_type_includes_showcase_t5_after_t4():
+    rows = [{"type": t, "question": "q", "gold_answer": "a"} for t in ("T5", "T1", "T4")]
+    grouped = group_by_type(rows)
+    assert list(grouped) == ["T1", "T4", "T5"]  # T5 groups cleanly, not "unknown"
+    assert "unknown" not in grouped
+
+
+def test_showcase_benchmark_file_loads_as_t5():
+    from pathlib import Path
+
+    from harness.eval.runner import BENCHMARK_PATH
+
+    path = Path(BENCHMARK_PATH).parent / "showcase.jsonl"
+    rows = load_benchmark(path)
+    assert rows and all(r["type"] == "T5" for r in rows)
+    assert all(r["question"] and r["gold_answer"] for r in rows)
+    assert all(r["gold_sources"] for r in rows)  # every showcase item names its anchor

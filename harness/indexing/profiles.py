@@ -129,6 +129,14 @@ class GraphRetrievalConfig:
     expand: bool = False
     expand_categories: list[str] = field(default_factory=list)
     max_expand: int = 3
+    # ── site-tree ancestor context ────────────────────────────────────────────
+    # When ``ancestors`` is on, the retriever appends the best-matching chunk of
+    # up to ``max_ancestors`` site-tree ancestors of the vector-hit documents
+    # (nearest-first; ``retrieval_origin="tree_ancestor"``). Requires the
+    # persisted tree properties (scripts/backfill_site_tree.py); a graph
+    # without them degrades to a no-op. Independent of ``expand``.
+    ancestors: bool = False
+    max_ancestors: int = 3
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> GraphRetrievalConfig:
@@ -161,6 +169,9 @@ class GraphRetrievalConfig:
             raise ValueError("graph.max_expand must be >= 1")
         if expand and max_hops < 1:
             raise ValueError("graph.expand requires max_hops >= 1")
+        max_ancestors = int(d.get("max_ancestors", 3))
+        if max_ancestors < 1:
+            raise ValueError("graph.max_ancestors must be >= 1")
         return cls(
             max_hops=max_hops,
             edge_types=_as_str_list(d.get("edge_types")) or ["links_to"],
@@ -169,6 +180,8 @@ class GraphRetrievalConfig:
             expand=expand,
             expand_categories=expand_categories,
             max_expand=max_expand,
+            ancestors=bool(d.get("ancestors", False)),
+            max_ancestors=max_ancestors,
         )
 
 

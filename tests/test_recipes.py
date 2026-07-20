@@ -26,7 +26,7 @@ from harness.schemas import RegulatoryAnswer
 
 _BUILTINS = {
     "naive_rag", "crag_agentic", "react_agentic", "regulatory_agent",
-    "agentic_reranked", "agentic_judged", "regulatory_fewshot",
+    "agentic_reranked", "agentic_judged", "regulatory_fewshot", "tree_agent",
 }
 
 
@@ -235,3 +235,11 @@ def test_subgraph_unknown_context_rejected():
 
     with pytest.raises(ValueError, match="subgraph.context"):
         SubgraphPolicy.from_dict({"context": "summaries"})
+
+
+def test_tree_agent_recipe_wires_tree_profile():
+    r = get_recipe("tree_agent")
+    assert r.index_profile == "neo4j_tree"
+    assert r.tools == ["ema_search", "resolve_substance"]
+    assert r.routing is None  # traversal showcase: no routing prior
+    assert r.pipeline is None

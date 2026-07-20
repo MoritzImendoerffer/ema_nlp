@@ -461,6 +461,121 @@ Tests: `tests/test_retrieval_hubs.py`, `tests/test_indexing_subgraphs.py`,
 `tests/test_tools_topic_context.py` (all offline). Browser curation queries:
 `deploy/neo4j/inspect_queries.cypher` §5.
 
+### 7.2 Tree-aware retrieval — the site tree as the retrieval model
+
+The premise (generic, not EMA-specific): **links between documents encode the
+knowledge structure of an organization** — reports link to SOPs which link to a
+quality system, exactly as EMA pages link to EPAR PDFs, news and assessment
+reports. So the whole corpus is one tree rooted at the site root, and retrieval
+traverses it instead of filtering by document class.
+
+**Deriving the tree** (`harness/indexing/site_tree.py`, shared with the KB map
+`scripts/build_graph_map.py --tree` and the chain-export tree view). Each
+document takes exactly one parent from a **priority chain of parent signals**:
+
+1. **explicit path metadata** — the breadcrumb `topic_path` (URL path as
+   fallback); a page whose path *is* a section becomes that section node;
+2. **first structural linker** — a document with no place of its own (PDFs,
+   whose `topic_path` is only a flat `documents/<type>` bucket) hangs under the
+   first HTML page that `LINKS_TO` it (deterministic: smallest linker id);
+3. **flat bucket** — the fallback for unlinked documents.
+
+Synthetic `§path` section nodes fill in the prefixes. A corpus with no path
+metadata degrades to BFS layering over the link graph from the root — levels
+are then BFS depth. **Levels are emergent, never hardcoded**: a "level" is the
+sibling set under one tree node (`tree_path` prefix + `tree_depth`), which is
+what makes EPAR, orphan-designations, paediatric-investigation-plans etc. come
+out as levels without naming any of them in code.
+
+**Persisting it** — `scripts/backfill_site_tree.py` (precompute-then-lookup,
+same pattern as `topic_hubs` / `category`) stamps four properties on every
+`:Document`:
+
+| Property | Meaning |
+|---|---|
+| `tree_parent_id` | parent doc id (`""` when the parent is a synthetic section) |
+| `tree_depth` | tree distance from the root (root = 0) |
+| `tree_path` | `/`-joined slot segments, e.g. `medicines/human/EPAR/comirnaty` |
+| `tree_ancestor_ids` | doc-backed ancestors, root→nearest |
+
+It is step `tree` in `scripts/update_graph.py` (in the default steps; seconds,
+idempotent). **Re-run after any `LINKS_TO` rebuild** — linker parenting depends
+on the edges.
+
+**Using it at query time** (`HierarchicalPGRetriever`):
+
+- **level awareness, always on** — every retrieved node carries `tree_path` /
+  `tree_depth` / `tree_ancestor_ids`, and `format_nodes` shows the agent
+  ` path=/medicines/human/EPAR/comirnaty` per hit, so it can reason about where
+  its evidence sits in the hierarchy;
+- **ancestor context** (`retrieval.graph.ancestors`, default off) — appends the
+  best-matching chunk of up to `max_ancestors` ancestors of the vector hits,
+  nearest-first, stamped `retrieval_origin="tree_ancestor"` with `linked_from`
+  = the seed docs. Reads the persisted ancestor chain: a **lookup, not a
+  traversal** (no extra hop query). No-op on a graph without the backfill.
+
+Combined with `graph.expand` (downward/outward along links) this is the
+"traverse up to the root with awareness of each level, and out along the links"
+behavior in one retrieve call — no extra agent turns.
+
+```yaml
+# harness/configs/index/neo4j_tree.yaml (recipe: tree_agent)
+retrieval:
+  graph:
+    expand: true
+    expand_categories: []   # ANY category — the tree is the filter, not doc class
+    max_expand: 6
+    ancestors: true
+    max_ancestors: 3
+```
+
+Note `expand_categories: []` deliberately: `neo4j_steered`'s
+`[scientific_guideline, qa]` would filter out exactly the EPAR/news fan-out a
+medicine-page hub is made of.
+
+**Showcase + debugging.** `benchmark/showcase.jsonl` (type `T5`, five hub
+anchors picked by link fan-out — see `benchmark/SCHEMA.md`) exercises the whole
+path end to end:
+
+```bash
+python scripts/backfill_site_tree.py                      # one-off (or via update_graph.py)
+python scripts/run_eval.py --recipe tree_agent --benchmark benchmark/showcase.jsonl --types T5
+python scripts/render_trace.py --run-id <mlflow_run_id>   # chain HTMLs → $EMA_RESULTS_DIR/chains
+```
+
+The chain HTML draws the retrieved documents **in the site tree** — only they
+and the grey section path back to the root — so a run is readable as a
+traversal rather than a list (`docs/VISUALIZATION.md` §3).
+
+**First live result (2026-07-20, marvin-gpu).** The backfill derives 79,882
+records, max depth 7, **55,911 docs doc-parented** (the link graph, not the flat
+bucket, places most PDFs); the comirnaty page lands at
+`medicines/human/EPAR/comirnaty` depth 4 with **51 PDFs adopted as children**.
+A live `neo4j_tree` retrieve returns all three origins
+(`vector` 10 / `link_expansion` 5 / `tree_ancestor` 3) with paths and depths on
+every node — the mechanism works end to end.
+
+**But it also surfaced the first genuine T5 failure**, which is the point of the
+showcase: for the broad question *"Summarize the information available for
+Comirnaty, including the timeline…"*, the vector pass lands on COMP/CHMP meeting
+agendas, not the Comirnaty hub — so the traversal expands from the wrong seed.
+Rephrasing to `"Comirnaty COVID-19 mRNA vaccine authorisation"` puts the EPAR
+overview on the comirnaty branch. Diagnosis: **hub pages are short and
+navigational, so leaf-chunk cosine similarity favours long minutes that mention
+the substance repeatedly** — the seeding step, not the traversal, is the weak
+link. This is the documented failure a follow-up may address (candidates: a
+title/hub-aware seeding signal, `tree_depth`-aware scoring, or the deferred
+`tree_context` tool letting the agent jump to a hub by name). Per the repo rule,
+that work now has its benchmark failure to justify it.
+
+Tests: `tests/test_site_tree.py`, the ancestor cases in
+`tests/test_indexing_property_graph.py`, `tests/test_export_chain.py` (all
+offline).
+
+**Deferred:** an agent-facing `tree_context` / walk-up tool (explicit level
+enumeration). The retriever-level behavior above covers the showcase; per the
+repo rule, agency is added only after a T5 failure demonstrates the need.
+
 ---
 
 ## 8. Adding another index kind

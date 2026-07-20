@@ -141,6 +141,7 @@ def _chunk_node(row: dict[str, Any], key: str) -> Any:
         "doc_type": row.get("doc_type"),
         "reference_number": row.get("reference_number") or "",
         "source_type": row.get("source_type") or "",
+        "topic_path": row.get("topic_path") or "",
         "chunk_id": nid,
         "matched_chunk": best.get("id") or nid,
         "retrieval_origin": "topic_subgraph",

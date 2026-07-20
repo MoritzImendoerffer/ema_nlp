@@ -1,0 +1,25 @@
+# Regulatory agent + tree traversal — retrieval follows the document graph the
+# way the site is organized: vector hits seed LINKS_TO expansion (any category)
+# and site-tree ancestor context, and every node shows its level
+# (path=/medicines/human/EPAR/...) to the agent. The generic premise: links
+# between documents represent the knowledge structure (reports -> SOPs ->
+# quality system; EMA pages -> EPAR PDFs), so retrieval traverses them rather
+# than filtering by document class. See docs/RETRIEVAL.md "Tree-aware
+# retrieval"; docs/VISUALIZATION.md for the matching chain-export tree view.
+# Requires the site-tree backfill (scripts/backfill_site_tree.py — one-off,
+# part of scripts/update_graph.py default steps).
+recipe:
+  label: "Regulatory agent + tree traversal"
+  description: "Regulatory agent with tree-aware retrieval: LINKS_TO expansion (any category) + site-tree ancestor context + per-node level display."
+  orchestration:
+    system_prompt: agent_regulatory.md
+    tools: [ema_search, resolve_substance]
+    output_schema: RegulatoryAnswer
+  retrieval:
+    index_profile: neo4j_tree
+    pipeline: none
+  generation:
+    model: claude_opus
+    temperature: 0.0
+  judge:
+    enabled: false
