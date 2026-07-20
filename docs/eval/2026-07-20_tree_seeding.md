@@ -114,7 +114,54 @@ candidate demoted:
 shape: the agent would not need to *rank* the hub at all if it could ask for it
 by name — that is the natural answer to (c) if 2–4 disappoint.
 
-## 6. Honesty notes / limits
+## 6. ⚠️ Correction (same day, after a live agent run) — this report measures the wrong path
+
+**Everything above measures raw-question retrieval. The production path does not
+retrieve on the raw question.** A single-question `tree_agent` run of T5-001
+(MLflow run `ade67c22`, chain `chain_b17b4d2f.html`) shows the agent issuing
+**five reformulated queries**, never the benchmark question verbatim:
+
+| Step | Query the agent actually issued | Anchor present? |
+|---|---|---|
+| 1 | `Comirnaty COVID-19 vaccine authorisation` | ✅ **vector, rank 1** |
+| 2 | `Comirnaty regulatory milestones timeline CHMP opinion` | — |
+| 3 | `Comirnaty conditional marketing authorisation December 2020 standard` | ✅ via `tree_ancestor` |
+| 4 | `Comirnaty adapted vaccine Omicron BA.1 BA.4-5 XBB JN.1 approval` | ✅ via `link_expansion` |
+| 5 | `Comirnaty paediatric extension children adolescents 12-15 5-11 6 months` | — |
+
+Step 1's query is almost exactly the rephrasing §4 identified as working. **The
+agent's own reformulation already solves the seeding problem for this question**
+— the anchor arrives at vector rank 1 on the first call, and again through both
+graph mechanisms later in the run. The answer scored 5.000/5.000 on both judges
+with the hub page cited.
+
+What survives from §3–§5, and what does not:
+
+- **Survives — the ANN artifact (a).** T5-005's anchor being the true rank-5
+  chunk yet invisible at k≤100 is a property of the index, not of phrasing. It
+  will bite any query whose good documents sit just outside the greedy search's
+  reach, reformulated or not. `oversample` being gated off in `neo4j_tree`
+  remains a real gap.
+- **Survives — the mechanism.** Short navigational hubs genuinely do lose cosine
+  similarity to long documents on verbose queries. That is why the raw question
+  fails.
+- **Does not survive — the impact claim.** "Seeding is the weak link" was
+  inferred from a path the agent never takes. For agentic recipes the
+  reformulation loop is already the fix. The claim may still hold for
+  **`naive_rag`**, which passes the user's question straight through — that is
+  now the open question, and it is untested.
+
+**Consequence for the plan.** Step 2 should be re-scoped before any of it is
+built: measure the *agent* path across all five anchors (does reformulation
+rescue every one, or only Comirnaty?), and measure `naive_rag` separately. The
+seeding work is justified only where reformulation does not already cover it.
+See [`../next/tree_retrieval_followups.md`](../next/tree_retrieval_followups.md).
+
+*Methodological note for future probes in this repo: a retrieval measurement that
+bypasses the agent measures `naive_rag`, not the configured recipe. Probe through
+the recipe's own invoke path, or say explicitly which path is being measured.*
+
+## 7. Honesty notes / limits
 
 - **n = 5.** Five anchors, one phrasing each, one profile. Directional, not
   statistically meaningful; the ANN finding is mechanistic and reproducible, the

@@ -575,8 +575,18 @@ steering, which this profile disables), genuine **scoring** depth (two anchors a
 rank 58 / ~99), and genuine **recall** loss from the length bias above (two
 anchors absent from the top 500). The measurement also showed the **ancestor
 pass already recovering the hub in two of five cases** — reaching it by walking
-up from its retrieved children even when vector search never found it. Follow-up
-plan: [`next/tree_retrieval_followups.md`](next/tree_retrieval_followups.md).
+up from its retrieved children even when vector search never found it.
+
+⚠️ **Corrected the same day by a live agent run:** that probe measured
+raw-question retrieval, which **the agent never performs**. In a real
+`tree_agent` run the agent reformulated into five targeted queries — the first,
+`Comirnaty COVID-19 vaccine authorisation`, put the anchor at **vector rank 1** —
+and the answer scored 5.000/5.000 with the hub cited. The ANN artifact and the
+length-bias mechanism are real; the conclusion "seeding is the weak link" was
+drawn from a path the production recipe does not take, and may hold only for
+`naive_rag`. See the [correction](eval/2026-07-20_tree_seeding.md#6--correction-same-day-after-a-live-agent-run--this-report-measures-the-wrong-path)
+and the re-scoped plan:
+[`next/tree_retrieval_followups.md`](next/tree_retrieval_followups.md) §1b.
 
 Tests: `tests/test_site_tree.py`, the ancestor cases in
 `tests/test_indexing_property_graph.py`, `tests/test_export_chain.py` (all

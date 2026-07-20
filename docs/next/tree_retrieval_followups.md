@@ -65,6 +65,29 @@ Two findings that changed the plan:
   its retrieved PDFs are tree children and the pass walked up. It only works when
   *something* on the branch is retrieved (T5-001/T5-004: 0 branch nodes).
 
+## ⚠️ Step 1b — re-scope before building anything (NEW, 2026-07-20)
+
+A live `tree_agent` run of T5-001 showed the step-1 probe measured the **wrong
+path**: the agent never searches on the raw question. It reformulated into five
+targeted queries, the first (`Comirnaty COVID-19 vaccine authorisation`) putting
+the anchor at **vector rank 1**; the anchor also arrived via `link_expansion` and
+`tree_ancestor` later in the run, and the answer scored 5.000/5.000 with the hub
+cited. **The agent's reformulation loop already fixes the failure step 1
+diagnosed** ([correction §6](../eval/2026-07-20_tree_seeding.md#6--correction-same-day-after-a-live-agent-run--this-report-measures-the-wrong-path)).
+
+Before any of step 2 is built, measure what is actually broken:
+
+1. **Agent path, all five anchors** — does reformulation rescue every anchor, or
+   only Comirnaty? Extract per-step queries and anchor presence from the chain
+   bundles (`scripts/render_trace.py --run-id`, then read `chain[].args.query`).
+2. **`naive_rag` path, all five anchors** — the recipe that passes the user's
+   question straight through is where the raw-question weakness would actually
+   hurt. Untested so far.
+3. **Keep the ANN item regardless** — T5-005's anchor at true rank 5 yet
+   invisible at k≤100 is an index property, independent of phrasing.
+
+Only the gaps that survive (1) and (2) justify building (2.2)–(2.4) below.
+
 ## Step 2 — hub-aware seeding (re-ordered by the step-1 evidence)
 
 Cheapest first; implement one, re-measure with the step-1 probe, stop when the

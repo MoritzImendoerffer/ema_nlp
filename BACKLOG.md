@@ -26,16 +26,16 @@ Sizes: **S** ≈ one session · **M** ≈ a few sessions · **L** ≈ a week+.
 
 | # | Task | Size | Plan / context | Notes |
 |---|---|---|---|---|
-| 1 | **Ungate `oversample`, then re-baseline the ANN sweep** — `oversample` only applies when a category filter/quota is active, so `neo4j_tree` runs at raw k=10 and loses near-top-ranked hubs. | S | [`next/tree_retrieval_followups.md`](docs/next/tree_retrieval_followups.md) §2.1 · [measurement](docs/eval/2026-07-20_tree_seeding.md) | Fixes T5-005 outright; re-baselines every other rank in the report. |
-| 2 | **Closed-book baseline + lift metric** — the benchmark's headline number, and the Phase 2.5 contamination screen. | L | [`next/closed_book_lift.md`](docs/next/closed_book_lift.md) | Blocks the Phase 3 exit criteria and any honest ablation result. |
-| 3 | *(free slot)* | | | Keep one slot open, or promote from `Next`. |
+| 1 | **Re-scope the seeding work: measure the *agent* path + `naive_rag`, all 5 anchors** — the step-1 probe measured raw-question retrieval, which the agent never uses; its reformulation already lands the anchor at vector rank 1. Find what is actually broken before building fixes. | S | [`next/tree_retrieval_followups.md`](docs/next/tree_retrieval_followups.md) §1b · [correction](docs/eval/2026-07-20_tree_seeding.md) §6 | Gates items #4–#6 and #8 — most of them may turn out unnecessary. |
+| 2 | **Ungate `oversample`, then re-baseline the ANN sweep** — `oversample` only applies when a category filter/quota is active, so `neo4j_tree` runs at raw k=10. Survives the re-scope: T5-005's anchor is the true rank-5 chunk yet invisible at k≤100 — an index property, independent of phrasing. | S | [`next/tree_retrieval_followups.md`](docs/next/tree_retrieval_followups.md) §2.1 · [measurement](docs/eval/2026-07-20_tree_seeding.md) | Small and independently justified; do alongside #1. |
+| 3 | **Closed-book baseline + lift metric** — the benchmark's headline number, and the Phase 2.5 contamination screen. | L | [`next/closed_book_lift.md`](docs/next/closed_book_lift.md) | Blocks the Phase 3 exit criteria and any honest ablation result. |
 
 ## Next (ordered)
 
 | # | Task | Size | Plan / context | Notes |
 |---|---|---|---|---|
-| 4 | **Title / short-document boost** — deterministic postprocessor countering the measured length bias against navigational hub pages. | M | [`next/tree_retrieval_followups.md`](docs/next/tree_retrieval_followups.md) §2.2 | Targets the 2 scoring + 2 recall anchors that oversampling can't reach. Do after #1 re-baselines. |
-| 5 | **Depth-aware scoring** — use `tree_depth` to prefer the shallower doc among branch siblings. | S | [`next/tree_retrieval_followups.md`](docs/next/tree_retrieval_followups.md) §2.3 | Re-orders the pool only — cannot fix the recall cases alone. Combine with #4. |
+| 4 | **Title / short-document boost** — deterministic postprocessor countering the length bias against navigational hub pages. | M | [`next/tree_retrieval_followups.md`](docs/next/tree_retrieval_followups.md) §2.2 | **Gated on #1** — may be unnecessary if agent reformulation already covers it. Likeliest to matter for `naive_rag`. |
+| 5 | **Depth-aware scoring** — use `tree_depth` to prefer the shallower doc among branch siblings. | S | [`next/tree_retrieval_followups.md`](docs/next/tree_retrieval_followups.md) §2.3 | **Gated on #1.** Re-orders the pool only — cannot fix recall cases alone. |
 | 6 | **T5 structural regression fixture** — freeze the expected traversal shape (anchor retrieved, N link-expanded, ancestors present) as an assertion over the chain bundle. | S | [`next/tree_retrieval_followups.md`](docs/next/tree_retrieval_followups.md) §4 | Cheap; doesn't depend on judge scores. Do once #1–#4 settle. |
 | 7 | **`steered_agent` baseline + more hubs + cross-family T2 items + LLM request timeout** — the four topic-subgraph follow-ups. | M | [`next/topic_subgraphs_followups.md`](docs/next/topic_subgraphs_followups.md) | Closes out the topic-subgraph work whose eval critique is already written. |
 | 8 | **Anchor-then-expand retrieval mode** — first pass over hub-like docs (fan-out/depth, graph-derived), then expand. | L | [`next/tree_retrieval_followups.md`](docs/next/tree_retrieval_followups.md) §2.4 | Only candidate that structurally fixes "not in the pool at all". Last resort — bigger than #4/#5. |
