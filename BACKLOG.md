@@ -57,7 +57,14 @@ Sizes: **S** ≈ one session · **M** ≈ a few sessions · **L** ≈ a week+.
 
 | Task | Blocked on |
 |---|---|
-| Push commits to `origin` | No git credentials on marvin-gpu (`Permission denied (publickey)`). Commit locally; push from a credentialed machine. Currently **8 unpushed commits** on `develop`. |
+| *(nothing currently blocked)* | — |
+
+> **Note on pushing (clarified 2026-07-20).** `git push` fails from **Claude's tool
+> environment** with `Permission denied (publickey)` because `SSH_AUTH_SOCK` is unset
+> there — no agent, no key. It does **not** fail from your own shell: the reflog shows
+> `origin/develop` advancing by push through the latest commit. So commits do reach
+> GitHub; Claude just can't be the one to send them, and can't `fetch` to verify remote
+> state either. Treat "unpushed commits" claims from Claude as unverifiable, not as fact.
 
 ## Open questions (decide, don't build)
 
