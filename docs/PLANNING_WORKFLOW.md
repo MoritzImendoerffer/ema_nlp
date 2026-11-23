@@ -85,10 +85,12 @@ Where no source is named, the evidence is in
     This holds for a gold answer, a citation verdict, a rating and a review of benchmark items.
     A replay of the owner's earlier answers is never counted as the owner's check (`doctool`,
     2026-10-16 and 2026-10-19).
-12. **The assistant cannot say what GitHub holds.** `git push` and `git fetch` fail from its
-    environment on this machine (`BACKLOG.md`, the note on pushing). A check on another machine
-    waits until the owner has pushed, and the decision note that asks for it names the commit
-    that `git log -1` must show there.
+12. **Whether the assistant reaches GitHub depends on the session.** On 2026-07-20 `git push`
+    and `git fetch` failed from its environment; on 2026-11-23 a push worked (`BACKLOG.md`, the
+    note on pushing). Before it says what GitHub holds, it runs `git fetch`; when that fails, it
+    says the remote state is unknown. A check on another machine waits until the commit is
+    pushed, and the decision note that asks for it names the commit that `git log -1` must show
+    there.
 13. **The first call of a process can fail where every later call passes.** In the live check
     of 2026-11-23 only the first item lost its trace: the anthropic SDK builds a response
     class's serializer lazily, and the first `claude-opus-4-7` response was traced before
@@ -166,8 +168,8 @@ The 27 folders from before 2026-11-23 are history. Their `state.json` has anothe
    eval-reliability develop`. `/ship` merges it into `develop` by a fast-forward when `develop`
    is its ancestor (`git merge --ff-only`), else by a merge commit, and deletes the branch.
 2. **`main` moves only when the owner asks, and only to a commit of `develop`.**
-3. **The assistant commits only when asked, and never pushes.** The owner pushes from their
-   own shell.
+3. **The assistant commits only when asked, and pushes only when asked.** When asked, it tries
+   the push once and reports the result. The owner can always push from their own shell.
 
 ## The gates
 
@@ -206,4 +208,4 @@ concrete example.
 | A settled decision also gets an entry in `DECISIONS.md`; an open one that outlives its unit moves to `OPEN_QUESTIONS.md` | Both files exist and are linked from the backlog |
 | `/next` and `/ship` append to `.claude/HISTORY.md` | The rule of this repository since its start |
 | `.claude/work/ACTIVE_WORK` is in use again | The board script reads it. Rule 8 above says what keeps it true |
-| No `--pr`, no prompt files for a second assistant, no `AGENTS.md` | The assistant cannot push from this machine, and only Claude Code works in this repository, so `CLAUDE.md` holds the rules |
+| No `--pr`, no prompt files for a second assistant, no `AGENTS.md` | The assistant pushes only when asked and cannot count on reaching GitHub from every session, and only Claude Code works in this repository, so `CLAUDE.md` holds the rules |

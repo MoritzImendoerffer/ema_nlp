@@ -82,12 +82,12 @@ Sizes: **S** ≈ one session · **M** ≈ a few sessions · **L** ≈ a week+.
 |---|---|
 | *(nothing currently blocked)* | — |
 
-> **Note on pushing (clarified 2026-07-20).** `git push` fails from **Claude's tool
-> environment** with `Permission denied (publickey)` because `SSH_AUTH_SOCK` is unset
-> there — no agent, no key. It does **not** fail from your own shell: the reflog shows
-> `origin/develop` advancing by push through the latest commit. So commits do reach
-> GitHub; Claude just can't be the one to send them, and can't `fetch` to verify remote
-> state either. Treat "unpushed commits" claims from Claude as unverifiable, not as fact.
+> **Note on pushing (updated 2026-11-23).** Whether `git push` works from **Claude's tool
+> environment** depends on the session's SSH setup, not on the machine. On 2026-07-20 it
+> failed with `Permission denied (publickey)` because `SSH_AUTH_SOCK` was unset. On
+> 2026-11-23 it pushed `develop` (`b8f7216..9d91ca0`). Your own shell always pushes.
+> Claude pushes only when you ask, tries once and reports the result. A claim that commits
+> are unpushed needs a `git fetch` that succeeded first; without one it is unverifiable.
 
 ## Open questions (decide, don't build)
 

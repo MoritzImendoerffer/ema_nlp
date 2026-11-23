@@ -13,8 +13,8 @@ Deliver finished work and retire its proposal. Last of four commands: `/explore`
 | `--commit` | after the checks pass, apply the documentation moves and commit |
 
 The default changes nothing. Delivery is the step that deletes a backlog row and a proposal, so
-it asks first. There is no `--pr`: `git push` fails from the assistant's environment on this
-machine (`BACKLOG.md`, the note on pushing), so the owner pushes.
+it asks first. There is no `--pr`: the assistant pushes only when the owner asks, and a push
+from its environment does not work in every session (`BACKLOG.md`, the note on pushing).
 
 ## The check that matters most
 
@@ -113,7 +113,7 @@ What `/ship` does owe `docs/pm/`:
 
 ## What this command does not do
 
-It does not push, and it does not merge unless asked. When asked to merge, it merges the unit's
+It does not push or merge unless asked. When asked to merge, it merges the unit's
 branch into `develop`, never into `main`: `main` moves only when the owner asks
 (`docs/PLANNING_WORKFLOW.md`, "Branches"). It also does not report success it did not verify: if
 a gate fails, a symbol has no caller, or a run has failed rows, say so plainly and leave the
