@@ -81,7 +81,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > 📋 **First action of every session: read [`BACKLOG.md`](BACKLOG.md)** — the single
 > ranked queue of open work — and say what is at the top of `Now` before planning
-> anything. Maintain it as work happens (rules + the 3-item cap: ["Open work"](#open-work--read-backlogmd-at-session-start) below).
+> anything. Then read `.claude/work/ACTIVE_WORK`: if it names a work unit, say which one,
+> and say so first if that unit's row is not in `Now`. Maintain both as work happens
+> (rules + the 3-item cap: ["Open work"](#open-work--read-backlogmd-at-session-start) below).
 
 ## What this project is
 
@@ -89,6 +91,13 @@ A Q&A benchmark and reference RAG implementations built from European Medicines 
 - `corpus/corpus.jsonl` — normalized Q&A pairs mined from EMA HTML accordions and PDFs
 - `benchmark/benchmark.jsonl` — ~30–50 stratified evaluation questions with gold answers (T1–T4 question types)
 - `harness/` — MIRAGE-style evaluation pipeline with LLM judges
+
+**Since 2026-11-23 the repository is also the rehearsal ground for a retrieval research
+plan** that is kept outside it: nine question classes (C1–C9), a ladder of experiments from
+the cheapest to the most expensive (E0–E9), and the medicinal product as the "project". What
+that changes is in `DECISIONS.md` ("Rehearsal ground"); the order of work is in `BACKLOG.md`.
+The plan is private and this repository is public: write its class and ladder labels and
+public EMA content here, and nothing else of it.
 
 See `project_roadmap/ROADMAP.md` for the full phase-by-phase plan. See `project_roadmap/GLOSSARY.md` for regulatory and NLP terminology — consult it before guessing at pharma acronyms. Critical: **"AI" means Acceptable Intake (a toxicology limit in ng/day), not Artificial Intelligence**, in EMA Q&A documents.
 
@@ -126,7 +135,7 @@ Full phase sequence and status table: `project_roadmap/ROADMAP.md` (reconciliati
 - **MongoDB** `ema_scraper.parsed_pdfs` — pymupdf4llm markdown keyed by URL; built by `scripts/ingest_parsed_pdfs.py --legacy`; 65k docs; query `{error: ""}` for clean parses
 - **MongoDB** `ema_scraper.parsed_documents` (MIGR-001) — canonical parser-output sink. One row per `(url, parser, parser_version)`. Populated by `corpus/parsers/*.py` CLIs. **Ingestion source for `harness.indexing.ingest`.** *(The full ~80k-doc output is indexed into Neo4j; `scripts/backfill_parsed_documents_subset.py` seeds a small verify subset for CPU iteration.)*
 - **MongoDB** `ema_scraper.document_metadata` (2026-07-13) — canonical per-URL EMA labels: `doc_type` (website-data JSON export), `audience`/`site_topic` (`ema-bg-*` page badges), with per-group provenance timestamps. Written post-scrape by `scripts/enrich_document_metadata.py`; joined at ingest onto `:Document` (rebuilds keep the labels); `scripts/propagate_metadata_to_graph.py` patches an existing graph without rebuild. **`scripts/update_graph.py` is the one scraper-output→Neo4j pipeline entry point** (parse → enrich → build). See `docs/RETRIEVAL.md` §2/§6/§7.
-- **`ema_scraper.link_graph` — never built.** Older docs (MIGR-018..025) describe this collection; it was never populated here. Links are extracted at ingest time from `web_items.html_raw` by `harness.indexing.links.extract_links` and become `LINKS_TO` edges in Neo4j.
+- **`ema_scraper.link_graph` — exists, unused.** The collection holds 22,743 documents (counted 2026-11-23) and no code in this repository reads it; earlier versions of this file called it "never built". Links are extracted at ingest time from `web_items.html_raw` by `harness.indexing.links.extract_links` and become `LINKS_TO` edges in Neo4j.
 - **Neo4j** (Docker, `deploy/neo4j/`) — the retrieval store: a LlamaIndex `PropertyGraphIndex` of `:Document` + `:Chunk` nodes with `HAS_CHUNK`/`PARENT_OF`/`LINKS_TO` edges and a native vector index over chunk embeddings. Built by `harness.indexing.build_index` from Mongo `parsed_documents`. This is the retrieval target; `corpus.jsonl` is benchmark-only. See `docs/RETRIEVAL.md`. *(Replaced the former Postgres+pgvector store, deleted in LIR-012.)*
 - **Nextcloud**: `~/Nextcloud/Datasets/` — Scrapy cache (`ema_scraper/cache/`) + IDMP ontology RDF files
 - Paths are configured in `config.py`, which loads `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` via python-dotenv
@@ -138,12 +147,18 @@ Full phase sequence and status table: `project_roadmap/ROADMAP.md` (reconciliati
 ```bash
 pip install -e ".[dev]"       # install project + dev deps (or: uv pip install -e ".[dev]")
 scripts/start_services.sh     # start MongoDB + Neo4j (Docker) and health-check them
-pytest                        # run all tests
-pytest tests/path/to/test.py  # run a single test file
-ruff check .                  # lint
-ruff check --fix .            # lint with auto-fix
-mypy .                        # type check
+make test                     # GATE: pytest without the tests marked integration (692 tests, 14 s)
+make lint                     # GATE: ruff check .
+make test-live                # the 7 tests that read the live MongoDB
+make pm                       # regenerate docs/pm/ from the active work unit
+make fmt                      # ruff check --fix .
+.venv/bin/python -m pytest tests/path/to/test.py   # run a single test file
+.venv/bin/python -m mypy .    # type check; not a gate (54 errors on 2026-11-23)
 ```
+
+Use `.venv/bin/python`, never `python3`: on this machine `python3` is conda's Python 3.9.
+Before you finish anything, run `make test && make lint`, each on its own line, and report the
+counts the commands print, not a judgement that they looked fine.
 
 ## Project phase
 
@@ -155,7 +170,7 @@ See **"Current project phase"** above (Phase 1 done, Phase 2 drafted, Phase 3 pa
 - **Narrative corpus is in scope** (the full PDF + HTML body text, indexed into the Neo4j `PropertyGraphIndex` as `:Document`/`:Chunk` nodes). `corpus.jsonl` is the curated Q&A pair extract — used by the benchmark only; runtime retrieval is over the Neo4j chunk vector index + graph edges (see `docs/RETRIEVAL.md`).
 - **Neo4j is the live retrieval store** (see the refactor banner) — the earlier "no graph infrastructure in v1" lock is superseded. A *typed ontology* seam now exists too: `harness/ontology/` (`schema.py` + `enrich.py`, `configs/ontology/ema.yaml`) maps a small entity/relation schema to a LlamaIndex `SchemaLLMPathExtractor`; running Layer-2 extraction is deferred (see [`docs/TARGET_ARCHITECTURE.md`](docs/TARGET_ARCHITECTURE.md) §4.5). Legacy IDMP RDF lightweight tagging lives in `harness/ontology/concepts.yaml`; `idmp_dabbling.py` is exploratory scratch. SPOR remains out of scope.
 - No multilingual content.
-- Every added complexity layer must be justified by a specific benchmark failure, not anticipation.
+- Every added complexity layer must be justified by a specific benchmark failure, not anticipation. **The rehearsal decision of 2026-11-23 admits four layers by design:** document metadata and entity tables from EMA's feeds, a full-text index, search/read/list tools behind MCP servers, and a benchmark in nine classes (`DECISIONS.md`). Each still needs a proposal in `docs/next/`.
 
 ## Data conventions
 
@@ -176,17 +191,67 @@ one file says *what is open and what is next*.
 
 Maintain it as work happens:
 
-- **Starting something?** It must have a row. `Now` is capped at **3** — if it is
-  full, ask the user what to demote rather than silently adding a fourth.
-- **Finishing something?** Delete its row and append to `.claude/HISTORY.md`, in
-  the same commit as the code.
+- **Starting something?** It must have a row, and a proposal in `docs/next/`. `Now`
+  is capped at **3** — if it is full, ask the user what to demote rather than
+  silently adding a fourth.
+- **Finishing something?** `/ship` deletes its row and its proposal and appends to
+  `.claude/HISTORY.md`, in the same commit as the code.
 - **Discovering follow-up work?** Add a row (usually to `Next` or `Later`) with a
-  link to where the detail lives — never paste the detail into the backlog.
+  link to where the detail lives — never paste the detail into the backlog. A row's
+  number is its name and never changes; the order of the rows is the rank.
 - **Deciding an open question?** Move it out of the backlog's question table into
   `DECISIONS.md`.
 
-Do not add new status trackers. `docs/REQUIREMENTS_REVIEW.md`, `.claude/work/`
-and `.claude/HISTORY.md` are historical records, not queues.
+Do not add new status trackers. `docs/pm/` is a view of the one work unit in
+progress, not a queue. `docs/REQUIREMENTS_REVIEW.md`, `.claude/HISTORY.md` and the
+27 work units from before 2026-11-23 in `.claude/work/` are historical records.
+
+## The planning workflow
+
+Four commands carry one backlog row from its proposal to done: `/explore` → `/plan` →
+`/next` → `/ship`. How they fit together, and the rules that were paid for, are in
+[`docs/PLANNING_WORKFLOW.md`](docs/PLANNING_WORKFLOW.md).
+
+| Path | Holds |
+|---|---|
+| `BACKLOG.md` | what is open, in order |
+| `docs/next/` | one proposal per open item; deleted when the work ships |
+| `.claude/commands/` | `/explore`, `/plan`, `/next`, `/ship` |
+| `.claude/work/` | one work unit per implementation attempt; `ACTIVE_WORK` names the current one and is empty when there is none |
+| `docs/pm/` | the task board the owner reads, generated by `make pm`; `decisions/` holds what waits on the owner |
+| `docs/eval/` | one dated page per finding, measurement or checkpoint |
+| `DECISIONS.md` / `OPEN_QUESTIONS.md` | what was decided and why / what is undecided and tied to no work unit |
+
+The rules every session follows:
+
+1. **Build only what a proposal in `docs/next/` asks for.** No extra feature, option,
+   tool or dependency. If something seems missing, write it down as a question or a
+   backlog row and ask.
+2. **Verify a third-party API against the installed version before using it.**
+   LlamaIndex, MLflow, Chainlit and the Neo4j driver change quickly. Name the version
+   and the file you read.
+3. **Source, derived and authored data stay apart.** Source is the Scrapy cache and
+   Mongo `web_items`: read, never rewritten here. Derived is `parsed_documents`,
+   `document_metadata` and the Neo4j graph: a tool may rebuild them. Authored is
+   `benchmark/*.jsonl`, the hub and routing YAML, the prompts and the recipes: no tool
+   overwrites them.
+4. **Ask before a run that deletes or costs,** with the counts, the hours and the
+   amount: a graph reset, a rebuild or re-embed of more than one hour on the GPU, paid
+   model calls beyond a smoke run of 3 items. `build_index(profile, reset=True)` and
+   `--reset` delete the whole live graph.
+5. **A number comes from a recorded run.** It names the recipe, the benchmark file and
+   its commit, the generator and the judge model, n, and the failed rows. A failed row
+   is listed and left out of the mean, never judged as an answer. The judge model is a
+   setting; two numbers compare only when the same judge produced them. No number from
+   memory.
+6. **When a requirement is ambiguous, ask.** Do not resolve an ambiguity by building
+   both variants.
+7. **The repository is public.** No credential, no raw scraped data, and nothing of
+   the private plan beyond its class and ladder labels: no organisation, no vendor, no
+   person.
+8. **Write clear technical English** in every docstring, comment, commit message and
+   Markdown file. Short sentences, one idea each. Concrete numbers instead of
+   adjectives.
 
 ## Work history
 

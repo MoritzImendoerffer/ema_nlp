@@ -27,6 +27,11 @@
 > table.** This roadmap owns *phase-level* status and methodology; the backlog owns the
 > ranked task queue (`Now` capped at 3), what is parked and why, and the open questions
 > awaiting a decision. When the two disagree, the backlog is current.
+>
+> **Since 2026-11-23 the repository is also the rehearsal ground for a retrieval research
+> plan** ([`DECISIONS.md`](../DECISIONS.md), "Rehearsal ground"). The phases below are
+> unchanged; the rehearsal's work is ordered in the backlog, and it adds a benchmark in nine
+> question classes, of which T1–T4 are one slice.
 
 **Project goal.** Build a shareable Q&A benchmark from EMA human-regulatory content, plus reference RAG implementations of increasing sophistication, to test where subject-matter expert (SME) effort actually pays off in agentic RAG.
 

@@ -16,7 +16,6 @@ import pytest
 from corpus.parsers.base import ParsedDocument, Parser
 from corpus.parsers.llamahub_pdf import (
     PARSER_NAME,
-    PARSER_VERSION,
     LlamaHubPDFParser,
 )
 

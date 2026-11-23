@@ -23,6 +23,18 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **Deferred to v2+:** PropertyGraphIndex, Neo4j, SPARQL queries over IDMP.  
 **Ref:** [`project_roadmap/ROADMAP.md`](project_roadmap/ROADMAP.md) — "What's explicitly deferred to v2+"
 
+### Rehearsal ground for the process-knowledge-retrieval plan
+**Decided:** 2026-11-23, by the owner ("Yes, ema_nlp should become the rehearsal ground"), after the review of that day.  
+**What:** This repository is also the public testing ground for a retrieval research plan that is kept outside it. The plan sorts questions into nine classes (C1 single fact to C9 table or figure) and climbs a ladder of experiments from the cheapest (E0 an existing tool, E1 full context, E2 keyword search and read-document) to the most expensive (E7 hybrid search, E8 the graph as a tool, E9 a citation check). Here the medicinal product stands in for the plan's "project", and EMA's own JSON feeds give the entity layer without LLM extraction.  
+**Why:** The corpus is public, large and already scraped; the vector path, the agent, the tracing and the eval runner exist. What the plan needs and this repository lacks is cheap to add compared with a new corpus: document metadata, the cheap rungs, tools that another agent can call, and a benchmark in nine classes. The review found the missing ontology to be a smaller gap than the benchmark, the missing rungs, an evaluation that cannot yet be trusted, and content lost at parsing.  
+**What it changes:**
+- The backlog was re-ranked on 2026-11-23: evaluation reliability, a pipeline that can refresh, and corpus repair come before the tuning of the vector path. The closed-book baseline stays, since lift remains the number to report.
+- The scope lock "every added layer must be justified by a benchmark failure" now admits four layers that the plan asks for by design: document metadata and entity tables from EMA's feeds, a full-text index, search, read and list tools behind MCP servers, and a benchmark in nine classes. Each still needs a proposal in `docs/next/`.
+- The scope locks on content stay: EMA human-regulatory content in English, no FDA content, no clinical trial documents.
+- The four question types (T1–T4) and their 45 items stay as one slice of the new benchmark (C1 to C3 on guidance pages).
+- The repository is public and the plan is not. A file here carries the plan's class and ladder labels and public EMA content, and nothing else of it.
+**Ref:** [`docs/eval/2026-11-23_pkr_testbed_review.md`](docs/eval/2026-11-23_pkr_testbed_review.md) (the review; section 11 is the order of work), [`BACKLOG.md`](BACKLOG.md)
+
 ---
 
 ## Retrieval framework
@@ -248,6 +260,37 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 **Why:** If ablation gain patterns hold across mid-tier, frontier, and OLMo 3, the observed effects are likely real retrieval behavior rather than memorization artifacts.  
 **Ref:** [`project_roadmap/LEAKAGE.md`](project_roadmap/LEAKAGE.md) §7.5; [`project_roadmap/ABLATIONS.md`](project_roadmap/ABLATIONS.md) Ablation C
 
+### The judge model is a setting, recorded on every run
+**Decided:** 2026-11-23, by the owner ("it should be possible to configure the model judge"; the models at hand are Claude's).  
+**What:** The model that judges an evaluation is named in configuration, never in code: `roles.judge` in `harness/configs/models.yaml`, with an override for one run. Every run records the model id of the generator and of the judge.  
+**Why:** The judge decides every faithfulness and correctness number. Which model is the right judge changes with the models and the keys at hand, so the choice must not need a code change, and a number must say which judge produced it.  
+**The limit on this date:** The open question asked for a judge that differs from the generator, to avoid a model preferring its own answers. All models at hand are Claude's, so a judge of another family is not available. The judge is another Claude model than the generator's, and every `docs/eval/` page that reports a judged number says that both models are of one family. Another provider becomes a change of `models.yaml` once a key for it exists.  
+**The code on this date:** `roles.judge` and all ten recipes name `claude_opus`; `judge_model_uri` (`harness/eval/judges.py:101`) raises for every provider other than `anthropic`; `scripts/run_eval.py` has no option for the judge; a run records neither model. Backlog row 9 changes all four.  
+**The assistant's reading, not the owner's words:** two numbers are compared only when the same judge model produced them. A changed judge starts a new series.  
+**The default judge:** a new entry for `claude-opus-5-5`, bound to `judge`. The owner decided this on 2026-11-23, on the assistant's recommendation, under one condition: a real judge call through the configured endpoint first shows that the model is served and that mlflow's request is accepted. If the call is refused, the question is open again. The binding stays fixed for a series of runs.  
+**Supersedes:** the open question "LLM judge model choice" in `OPEN_QUESTIONS.md`.  
+**Ref:** [`docs/next/eval_reliability.md`](docs/next/eval_reliability.md), decision B
+
+### A failed run is listed and left out of the mean
+**Decided:** 2026-11-23, by the owner, on the assistant's recommendation.  
+**What:** A benchmark item whose agent run ended with an error gets no judge call. It is listed by its id and left out of every mean. Each mean is printed with the number of items, the number of failed items and the number of judge values that were not numbers.  
+**Why:** A crash of the harness is not a wrong answer, and a judged crash is not a score. Five evaluation traces ended with `RuntimeError: Event loop is closed` and were judged all the same; one of them holds correctness 5 beside faithfulness 1. The alternative was to count a failed row as the lowest score. That mixes the reliability of the harness into the quality of the answers; a count such as `failed=7 of 45` beside the mean shows it separately.  
+**What follows:** Two arms are compared by their means together with their failed counts. A mean over fewer rows is not a better mean.  
+**Ref:** [`docs/next/eval_reliability.md`](docs/next/eval_reliability.md), decision A; [`docs/eval/2026-11-23_pkr_testbed_review.md`](docs/eval/2026-11-23_pkr_testbed_review.md), section 4
+
+### The agent reads the passage that is judged
+**Decided:** 2026-11-23, by the owner, on the assistant's recommendation.  
+**What:** A search result that the agent reads holds the matched leaf first, then its parent chunk, up to a limit of about 2,000 characters. The limit is a setting of the tool. The faithfulness judge receives the same text.  
+**Why:** `harness/tools/search.py:116` cuts each passage to 400 characters before the agent reads it. With `merge: true` that passage is the parent chunk, so the agent reads the parent's first 400 characters and not the leaf that matched. The judge receives the full passage; the review measured a median of 2,112 characters in the stored traces. A faithfulness score then compares the answer with text that the agent did not read.  
+**Cost:** A search result takes about five times the tokens of today. The alternative was the matched leaf alone, about 128 tokens. It was not taken, because the retriever merges to parents for the reason that a leaf alone often lacks its context.  
+**Ref:** [`docs/next/eval_reliability.md`](docs/next/eval_reliability.md), decision C
+
+### Earlier evaluation numbers are not repeated before the corpus repair
+**Decided:** 2026-11-23, by the owner, on the assistant's recommendation.  
+**What:** The T1 to T4 tables of 2026-07-13 and the seeding measurements of 2026-07-20 stay as they are. They were made with the 400-character cut, with the generator's model as judge, and with means that print no n. They do not compare with a number from the runner that backlog row 9 delivers. Whether to repeat them is asked again when backlog row 11 has shipped.  
+**Why:** The corpus repair of row 11 changes the index, and a repeat before it would be repeated again.  
+**Ref:** [`docs/next/eval_reliability.md`](docs/next/eval_reliability.md), decision D; [`docs/eval/2026-07-13_topic_subgraphs.md`](docs/eval/2026-07-13_topic_subgraphs.md); [`docs/eval/2026-07-20_tree_seeding.md`](docs/eval/2026-07-20_tree_seeding.md)
+
 ---
 
 ## Infrastructure
@@ -257,6 +300,14 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 **What:** `results/` is a symlink to `~/Nextcloud/Datasets/ema_nlp/results/`. The symlink is in `.gitignore`. All `harness/configs/*.yaml` files specify `base_dir: ~/Nextcloud/Datasets/ema_nlp/results` so `run_eval.py` writes there via tilde expansion.  
 **Why:** Eval runs produce JSON/JSONL/PNG artefacts that should not inflate the repo. All data lives on Nextcloud (synced between machines) while the symlink keeps the `results/` path alias working in dev.  
 **Ref:** [`docs/SETUP.md`](docs/SETUP.md) §7
+
+### Planning workflow: a proposal, then `/explore`, `/plan`, `/next`, `/ship`
+**Decided:** 2026-11-23, by the owner ("Adapt the project management layer from doctool for this repository").  
+**What:** One backlog row becomes delivered work through four commands in `.claude/commands/`. A row enters `Now` with a proposal in `docs/next/`. `/explore` opens a work unit under `.claude/work/` and a branch from `develop`; `/plan` writes the task list; `/next` implements one task and runs the gates `make test` and `make lint`; `/ship` checks that the work is reachable, moves the findings into `docs/`, and deletes the row and the proposal. `scripts/pm_notes.py` (`make pm`) renders the unit's task list as notes under `docs/pm/`, with one note per decision that waits on the owner.  
+**Why:** The rehearsal is a program of eight backlog rows (9 to 11 and 13 to 17) that will run over many sessions. The state has to be in files that a later session and the owner can read, and each row needs its requirements in one place before code is written.  
+**What stays:** `BACKLOG.md` is still the only queue, with `Now` capped at 3. `DECISIONS.md`, `OPEN_QUESTIONS.md` and `.claude/HISTORY.md` keep their jobs.  
+**What it reverses:** `.claude/work/ACTIVE_WORK` was retired on 2026-07-20 because it had drifted. It is in use again, since the board script reads it; `/ship` empties it, and a session compares it with `Now` at its start.  
+**Ref:** [`docs/PLANNING_WORKFLOW.md`](docs/PLANNING_WORKFLOW.md) (the last section lists what was changed in the adaptation)
 
 ### Credentials in `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env`, never in the repo
 **Decided:** 2026-05-15  

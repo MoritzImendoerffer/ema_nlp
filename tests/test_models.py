@@ -10,7 +10,6 @@ import yaml
 
 from harness.models import ModelConfig, call_model, load_model_for_role
 
-
 # ---------------------------------------------------------------------------
 # load_model_for_role
 # ---------------------------------------------------------------------------

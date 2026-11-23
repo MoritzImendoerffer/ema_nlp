@@ -28,6 +28,10 @@ work (`Now` capped at 3), what's parked and why, and the open questions awaiting
 decision. Phase-level status lives in [the roadmap](project_roadmap/ROADMAP.md); the
 backlog is what's current.
 
+**How a backlog row becomes delivered work: [Planning workflow →](docs/PLANNING_WORKFLOW.md)**
+— a proposal in `docs/next/`, then `/explore`, `/plan`, `/next`, `/ship`; the task board of
+the work in progress is in [`docs/pm/`](docs/pm/README.md).
+
 Then, in reading order:
 
 - **[Recipes →](docs/RECIPES.md)** — configure pipelines via YAML, with worked examples (simple RAG, reproducing the CRAG paper, the kitchen sink)

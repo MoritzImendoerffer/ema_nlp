@@ -20,13 +20,12 @@ Usage:
   python benchmark/validate_benchmark.py [--benchmark benchmark/benchmark.jsonl] [--corpus corpus/corpus.jsonl]
 """
 
-import json
-import sys
-import re
 import argparse
-from pathlib import Path
+import json
+import re
+import sys
 from collections import Counter
-
+from pathlib import Path
 
 REQUIRED_FIELDS = ["bench_id", "question", "paraphrases", "type", "gold_answer", "gold_qa_ids", "gold_sources", "topic_path"]
 VALID_TYPES = {"T1", "T2", "T3", "T4"}

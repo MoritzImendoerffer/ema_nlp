@@ -56,10 +56,9 @@ Decisions not yet made. Each entry has enough context to make the decision witho
 **Context:** Phase 0 found 43.6% chain completeness — 43.6% of cross-referenced Q&As are present in the corpus. The roadmap targets 10 T3 questions. T3 questions require traversing a cross-reference chain that is fully in-corpus.  
 **Resolution (2026-05-20):** `benchmark/benchmark.jsonl` ships exactly 10 T3 items (chains identified semantically across the source documents — see `benchmark/candidates/t3_chain_map.md`). Diversity across topic clusters was the residual risk; revisit only if T3 scores prove degenerate.
 
-### LLM judge model choice
-**Context:** The evaluation harness (TASK-019) needs a judge model for Faithfulness and Correctness scoring. The judge should differ from the generator model to avoid self-preference bias.  
-**Options:** Claude Haiku 4.5 (cheap, fast), GPT-4o-mini, a local model via Ollama.  
-**When to decide:** Before TASK-019. The choice should be documented in the judge prompt file header and kept stable across all ablation runs for comparability.
+### ~~LLM judge model choice~~ — RESOLVED (2026-11-23)
+**Context:** The evaluation harness needs a judge model for Faithfulness and Correctness scoring. The judge should differ from the generator model to avoid self-preference bias.  
+**Resolution:** The owner decided that the judge model is a setting, recorded on every run, and not one fixed model. The models at hand are Claude's, so the judge is another Claude model than the generator's, and a judge of another family waits for a key. See `DECISIONS.md`, "The judge model is a setting, recorded on every run". The default is a new entry for `claude-opus-5-5`, once one real judge call has shown that the endpoint serves it (decision E of [`docs/next/eval_reliability.md`](docs/next/eval_reliability.md)).
 
 ---
 

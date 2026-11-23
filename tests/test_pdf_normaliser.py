@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from corpus.ingestion.pdf_normaliser import (
@@ -92,7 +92,7 @@ def test_last_updated_parsed_from_header_date():
     )
     out = normalise_pdf_doc(_mongo(md))
     assert out is not None
-    assert out.last_updated == datetime(2024, 3, 21, tzinfo=timezone.utc)
+    assert out.last_updated == datetime(2024, 3, 21, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
