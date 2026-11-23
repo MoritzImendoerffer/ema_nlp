@@ -11,6 +11,7 @@ Runtime-verified later (needs mlflow + an LLM; alignment needs >=10 paired label
 import logging
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -77,7 +78,8 @@ def build_judge(name: str, instructions: str, *, model: str, **kwargs: Any) -> A
     ``model`` is a provider-qualified id, e.g. ``"anthropic:/<model>"`` —
     keep the judge model distinct from the generator to avoid self-preference bias.
     Prompt vars are mapped to mlflow's reserved set and, when an ``ANTHROPIC_BASE_URL``
-    gateway is configured, requests are routed to its messages endpoint.
+    gateway is configured, requests are routed to its messages endpoint. An Anthropic
+    judge sends the workspace header when ``ANTHROPIC_WORKSPACE_ID`` is set.
     """
     from mlflow.genai.judges import make_judge
 
@@ -85,30 +87,125 @@ def build_judge(name: str, instructions: str, *, model: str, **kwargs: Any) -> A
         base_url = _anthropic_judge_base_url(model)
         if base_url is not None:
             kwargs["base_url"] = base_url
+    if model.lower().startswith("anthropic") and "extra_headers" not in kwargs:
+        from harness.models import anthropic_headers
+
+        # mlflow 3.14.0 adds extra_headers to the judge's request (gateway_adapter.py:553).
+        if headers := anthropic_headers():
+            kwargs["extra_headers"] = headers
     return make_judge(name=name, instructions=to_mlflow_instructions(instructions), model=model, **kwargs)
 
 
-def judge_model_uri(role: str = "judge") -> str:
-    """The provider-qualified mlflow judge model for a models.yaml *role*.
+# models.yaml provider -> the provider name of mlflow 3.14.0's judge adapter
+# (mlflow/metrics/genai/model_utils.py). mlflow knows neither 'together_ai' nor
+# 'openai_compatible', and an unknown name fails only on the first judge call.
+_MLFLOW_PROVIDER = {
+    "anthropic": "anthropic",
+    "together_ai": "togetherai",
+    "openai_compatible": "openai",
+}
 
-    Resolves the role via the same ``models.yaml`` binding the rest of the harness
-    uses (no drift between the inline and offline judge model), mapped onto
-    mlflow's ``provider:/model`` form.
+
+@dataclass(frozen=True)
+class JudgeRoute:
+    """What an mlflow judge needs to reach one models.yaml entry.
+
+    ``model`` is mlflow's ``provider:/model_id``. ``base_url`` is the endpoint, used by
+    mlflow verbatim (``gateway_adapter.py:546``), or None for the provider's default.
+    ``key_env`` is ``(variable this repository sets, variable mlflow reads)`` when the
+    two differ, else None. ``model_id`` is the entry's model id, which runs are tagged with.
     """
-    from harness.models import load_model_for_role
 
-    cfg = load_model_for_role(role)
-    if cfg.provider != "anthropic":
+    model: str
+    base_url: str | None = None
+    key_env: tuple[str, str] | None = None
+    model_id: str = ""
+
+
+def judge_route(cfg: Any) -> JudgeRoute:
+    """The judge route for a :class:`harness.models.ModelConfig` (pure).
+
+    - ``anthropic``: the key is ``ANTHROPIC_API_KEY`` for both; the endpoint is set by
+      :func:`build_judge` when ``ANTHROPIC_BASE_URL`` names a gateway.
+    - ``together_ai`` -> ``togetherai``: mlflow reads ``TOGETHERAI_API_KEY``
+      (``model_utils.py:430``); this repository sets ``TOGETHER_API_KEY``.
+    - ``openai_compatible`` -> ``openai``: mlflow requires ``OPENAI_API_KEY``
+      (``model_utils.py:349-354``); the entry names its own variable in ``api_key_env``.
+      The endpoint is the entry's ``api_base`` plus ``/chat/completions``.
+
+    Raises ``ValueError`` for a provider mlflow cannot serve as a judge.
+    """
+    provider = _MLFLOW_PROVIDER.get(cfg.provider)
+    if provider is None:
         raise ValueError(
-            f"mlflow judges support the anthropic provider only; role {role!r} "
-            f"is bound to provider {cfg.provider!r} (models.yaml)"
+            f"No mlflow judge route for provider {cfg.provider!r} (model {cfg.model_name!r}); "
+            f"known providers: {sorted(_MLFLOW_PROVIDER)}"
         )
-    return f"anthropic:/{cfg.model_id}"
+    model = f"{provider}:/{cfg.model_id}"
+    if cfg.provider == "together_ai":
+        return JudgeRoute(
+            model, key_env=("TOGETHER_API_KEY", "TOGETHERAI_API_KEY"), model_id=cfg.model_id
+        )
+    if cfg.provider == "openai_compatible":
+        base = (cfg.api_base or "http://localhost:8000/v1").rstrip("/") + "/chat/completions"
+        key_env = (cfg.api_key_env or "OPENAI_API_KEY", "OPENAI_API_KEY")
+        return JudgeRoute(model, base_url=base, key_env=key_env, model_id=cfg.model_id)
+    return JudgeRoute(model, model_id=cfg.model_id)
 
 
-def ema_judges(*, model: str) -> list:
-    """Build the project's faithfulness + correctness judges from the prompt files."""
-    return [build_judge(n, load_judge_instructions(n), model=model) for n in JUDGE_NAMES]
+def resolve_judge_route(role: str = "judge", *, model_key: str | None = None) -> JudgeRoute:
+    """The judge route of ``model_key`` when given, else of the models.yaml ``role``.
+
+    The one place the eval runner resolves its judge (``resolve_models``): the same
+    ``models.yaml`` binding the rest of the harness uses.
+    """
+    from harness.models import load_model_config, load_model_for_role
+
+    cfg = load_model_config(model_key) if model_key else load_model_for_role(role)
+    return judge_route(cfg)
+
+
+def apply_judge_key(route: JudgeRoute) -> None:
+    """Copy the route's key into the variable mlflow reads, inside this process.
+
+    Risk: for ``openai_compatible`` this replaces ``OPENAI_API_KEY`` for the rest of
+    the process. Nothing else in this repository reads ``OPENAI_API_KEY`` except as
+    the default of ``api_key_env``. Only variable names are logged, never a value.
+    """
+    if route.key_env is None:
+        return
+    source, target = route.key_env
+    if source == target:
+        return
+    value = os.getenv(source)
+    if value is None:
+        log.warning("judge key: %s is unset, so %s is not set from it", source, target)
+        return
+    os.environ[target] = value
+    log.info("judge key: %s copied to %s for this process", source, target)
+
+
+def ema_judges(*, model: str | None = None, route: JudgeRoute | None = None) -> list:
+    """Build the project's faithfulness + correctness judges from the prompt files.
+
+    Give either ``model`` (an mlflow ``provider:/model_id``) or a ``route``; a route also
+    sets the judge's key variable and endpoint.
+
+    Both judges ask for an integer (``feedback_value_type=int``). Without it mlflow
+    stores the value as text, and three stored values were text such as
+    ``" agent errored"``, which the mean then skipped without a count. A real call with
+    ``anthropic:/claude-opus-5-5`` on 2026-11-23 returned ``5`` as ``int`` with the
+    present prompts.
+    """
+    if (model is None) == (route is None):
+        raise ValueError("ema_judges needs exactly one of model= or route=")
+    kwargs: dict[str, Any] = {"feedback_value_type": int}
+    if route is not None:
+        apply_judge_key(route)
+        model = route.model
+        if route.base_url is not None:
+            kwargs["base_url"] = route.base_url
+    return [build_judge(n, load_judge_instructions(n), model=model, **kwargs) for n in JUDGE_NAMES]
 
 
 def align_judge(judge: Any, traces: Any) -> Any:

@@ -42,4 +42,4 @@ A note under `decisions/` is the only thing on this board addressed to the owner
 in [`decisions/README.md`](decisions/README.md).
 
 *The active epic is `epic.md`; the board is `_Board.md`. Both point at the work unit that
-`.claude/work/ACTIVE_WORK` names. On 2026-11-23 no unit is open, so neither file exists yet.*
+`.claude/work/ACTIVE_WORK` names. When no unit is open, neither file exists.*

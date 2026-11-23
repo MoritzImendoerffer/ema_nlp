@@ -29,6 +29,24 @@ log = logging.getLogger(__name__)
 _MODELS_YAML = Path(__file__).parent / "configs" / "models.yaml"
 _TOGETHER_BASE_URL = "https://api.together.xyz/v1"
 
+# An organization-scoped Anthropic API key belongs to no workspace: the API answers
+# every request without this header with 400 "This API key is not scoped to a
+# workspace" (seen 2026-11-23). Set ANTHROPIC_WORKSPACE_ID in the credentials file to
+# use such a key; with a workspace-scoped key leave it unset.
+WORKSPACE_ENV = "ANTHROPIC_WORKSPACE_ID"
+WORKSPACE_HEADER = "anthropic-workspace-id"
+
+
+def anthropic_headers() -> dict[str, str]:
+    """Extra headers for every Anthropic request: the workspace header when
+    ``ANTHROPIC_WORKSPACE_ID`` is set, else none.
+
+    Read at call time, so the credentials file loaded by ``config`` is in effect. Used by
+    the agent's model (``harness.llms``), :func:`call_model` and the mlflow judges.
+    """
+    workspace = (os.getenv(WORKSPACE_ENV) or "").strip()
+    return {WORKSPACE_HEADER: workspace} if workspace else {}
+
 
 @dataclass
 class ModelConfig:
@@ -79,8 +97,27 @@ def load_model_for_role(role_name: str, config_path: Path = _MODELS_YAML) -> Mod
             f"Role '{role_name}' maps to unknown model '{model_name}'. "
             f"Available models: {sorted(models)}"
         )
+    return _model_config(model_name, models[model_name])
 
-    d = models[model_name]
+
+def load_model_config(model_name: str, config_path: Path = _MODELS_YAML) -> ModelConfig:
+    """Load the ModelConfig of a key of the ``models:`` section (e.g. 'claude_sonnet').
+
+    The evaluation runner resolves ``--model`` and ``--judge`` with it, so that a run
+    records the model id behind a key.
+
+    Raises:
+        ValueError: If the key is not in ``models:``.
+    """
+    with config_path.open(encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh) or {}
+    models: dict = raw.get("models") or {}
+    if model_name not in models:
+        raise ValueError(f"Unknown model '{model_name}'. Available models: {sorted(models)}")
+    return _model_config(model_name, models[model_name])
+
+
+def _model_config(model_name: str, d: dict) -> ModelConfig:
     return ModelConfig(
         model_name=model_name,
         description=d.get("description", ""),
@@ -165,7 +202,7 @@ def _call_anthropic(
     if not api_key:
         raise OSError("ANTHROPIC_API_KEY not set. Add it to ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env")
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, default_headers=anthropic_headers() or None)
     kwargs: dict = dict(
         model=model_id,
         max_tokens=max_tokens,

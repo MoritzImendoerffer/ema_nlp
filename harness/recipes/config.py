@@ -131,13 +131,16 @@ class Recipe:
         model: str | None = None,
         temperature: float | None = None,
         retrieval_k: int | None = None,
+        passage_chars: int | None = None,
     ) -> dict[str, Any]:
         """Flatten the *effective* config to ``ema.*`` trace attributes (honest stamping).
 
         ``model``/``temperature``/``retrieval_k`` are the live values actually used for the
         run (the settings-panel overrides resolved by ``build_recipe``); when given they are
         stamped instead of the recipe defaults, so the trace reflects what truly ran — not
-        what the YAML declared. ``retrieval_k`` is only stamped when supplied.
+        what the YAML declared. ``retrieval_k`` and ``passage_chars`` (the characters of one
+        search result the agent reads, from the index profile) are only stamped when
+        supplied: two runs with different limits gave the agent different text.
 
         The few-shot / judge *policy* flags are stamped (they describe what the recipe is
         configured to do); per-stage detail is only added when that stage is enabled, so a
@@ -185,6 +188,8 @@ class Recipe:
             retrieval["subgraph"] = "none"
         if retrieval_k is not None:
             retrieval["k"] = retrieval_k
+        if passage_chars is not None:
+            retrieval["passage_chars"] = passage_chars
 
         return resolved_config_attributes(
             {

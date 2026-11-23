@@ -36,7 +36,7 @@ from harness.retrieval.corrective import (
     rewrite_messages,
 )
 from harness.tools.registry import register_tool
-from harness.tools.search import _NODE_SINK, format_nodes
+from harness.tools.search import _NODE_SINK, DEFAULT_PASSAGE_CHARS, format_nodes
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ def build_corrective_search_tool(
     max_cycles: int = MAX_CYCLES,
     transform: Any = None,
     postprocessors: list | None = None,
+    passage_chars: int = DEFAULT_PASSAGE_CHARS,
     **_: Any,
 ) -> FunctionTool:
     """Build the ``corrective_search`` FunctionTool.
@@ -65,6 +66,8 @@ def build_corrective_search_tool(
         max_cycles:     Max retrieve→rewrite cycles before accepting best-so-far.
         transform/postprocessors: optional retrieval-pipeline stages (same as
                         ``ema_search``); applied on every (re)retrieval.
+        passage_chars:  max characters of one result's body, as in ``ema_search``;
+                        the grader reads the same bodies as the agent.
     """
     if retriever is None:
         raise ValueError("corrective_search tool requires a `retriever` (a LlamaIndex BaseRetriever)")
@@ -102,7 +105,7 @@ def build_corrective_search_tool(
         grade_llm = _get_grader()
         q = query
         nodes = _retrieve(q)
-        resp = grade_llm.chat(grade_messages(q, format_nodes(nodes)))
+        resp = grade_llm.chat(grade_messages(q, format_nodes(nodes, passage_chars)))
         per_doc, missing = parse_grade(resp.message.content or "")
 
         # Best-so-far across cycles: a rewrite can retrieve WORSE than an earlier
@@ -116,19 +119,20 @@ def build_corrective_search_tool(
             cycles += 1
             log.debug("corrective_search: rewrite cycle %d → %r", cycles, q[:80])
             nodes = _retrieve(q)
-            resp = grade_llm.chat(grade_messages(q, format_nodes(nodes)))
+            resp = grade_llm.chat(grade_messages(q, format_nodes(nodes, passage_chars)))
             per_doc, missing = parse_grade(resp.message.content or "")
             if grade_key(per_doc, missing) >= grade_key(best[1], best[2]):
                 best = (nodes, per_doc, missing)
         nodes, per_doc, missing = best
 
-        # Feed the corrected nodes into the shared sink so the runner can rebuild
-        # real node-derived citations (same mechanism as ema_search).
+        # Render first (format_nodes writes agent_text onto each node), then feed the
+        # corrected nodes into the shared sink so the runner can rebuild real
+        # node-derived citations (same mechanism as ema_search).
+        out = format_nodes(nodes, passage_chars) + grade_note(cycles, per_doc, missing)
         sink = _NODE_SINK.get()
         if sink is not None:
             sink.extend(nodes)
 
-        out = format_nodes(nodes) + grade_note(cycles, per_doc, missing)
         notes = [grade_note(cycles, per_doc, missing).strip()]
         if q != query:
             notes.append(f"[final query after rewrite: {q}]")

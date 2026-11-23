@@ -325,3 +325,76 @@ def test_format_nodes_shows_tree_ancestor_origin():
     ]
     rendered = format_nodes(nodes)
     assert "via=tree_ancestor" in rendered and "path=/medicines" in rendered
+
+
+# --- what the agent reads: leaf first, then its parent (eval reliability, TASK-011) ---
+
+_LEAF_TEXT = "LEAF the acceptable intake of NDMA is 96 ng/day for a lifetime exposure"
+
+
+def _long_parent_node(url="https://ema.europa.eu/long", leaf_at=900, total=2100):
+    """A merged node: the parent's text, with the matched leaf starting at ``leaf_at``."""
+    filler_a = ("a" * 9 + " ") * (leaf_at // 10)
+    filler_b = ("b" * 9 + " ") * ((total - leaf_at - len(_LEAF_TEXT)) // 10)
+    parent = f"{filler_a}{_LEAF_TEXT} {filler_b}".strip()
+    return NodeWithScore(
+        node=TextNode(
+            text=parent,
+            metadata={"source_url": url, "doc_id": "d", "matched_text": _LEAF_TEXT},
+        ),
+        score=0.8,
+    )
+
+
+class _LongRetriever(BaseRetriever):
+    def __init__(self, nodes):
+        super().__init__()
+        self._nodes = nodes
+
+    def _retrieve(self, query_bundle: QueryBundle):
+        return list(self._nodes)
+
+
+def _bodies(rendered: str) -> list[str]:
+    lines = rendered.splitlines()
+    return [lines[i + 1] for i, line in enumerate(lines) if line.startswith("[") and " source=" in line]
+
+
+def test_ema_search_shows_a_leaf_that_starts_after_character_400_of_its_parent():
+    """The old 400-character cut showed the parent's start; the leaf at 900 was never read."""
+    node = _long_parent_node(leaf_at=900, total=2100)
+    assert node.node.text.index(_LEAF_TEXT) > 400
+    out = str(get_tool("ema_search", retriever=_LongRetriever([node])).call(query="ndma"))
+    assert _LEAF_TEXT in out
+
+
+def test_passage_is_the_leaf_first_then_the_parent_without_the_repeat():
+    (body,) = _bodies(format_nodes([_long_parent_node()]))
+    assert body.startswith(_LEAF_TEXT)
+    assert body.count(_LEAF_TEXT) == 1
+
+
+def test_passage_is_cut_at_the_limit():
+    nodes = [_long_parent_node(f"https://ema.europa.eu/{i}") for i in range(3)]
+    bodies = _bodies(format_nodes(nodes, passage_chars=600))
+    assert len(bodies) == 3
+    assert all(len(b) <= 600 for b in bodies)
+
+
+def test_passage_without_a_parent_is_the_chunk_text():
+    from harness.tools.search import render_passage
+
+    assert render_passage("  plain   chunk text ", None, 600) == "plain chunk text"
+    assert render_passage("same text", "same   text", 600) == "same text"
+    assert render_passage("x" * 3000, None, 600) == "x" * 600
+
+
+def test_passages_from_nodes_returns_what_the_agent_read():
+    """The judge read the full parent; the agent read 400 characters of it."""
+    from harness.tools.search import capture_search_nodes, passages_from_nodes
+
+    nodes = [_long_parent_node(f"https://ema.europa.eu/{i}") for i in range(2)]
+    tool = get_tool("ema_search", retriever=_LongRetriever(nodes))
+    with capture_search_nodes() as captured:
+        out = str(tool.call(query="ndma"))
+    assert passages_from_nodes(captured) == _bodies(out)

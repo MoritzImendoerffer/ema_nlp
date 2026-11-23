@@ -38,6 +38,7 @@ retrieval:
   strategy: hierarchical
   k: 10
   merge: true
+  passage_chars: 2000              # characters of one search result (leaf, then parent)
   graph:
     max_hops: 1
     edge_types: [links_to]

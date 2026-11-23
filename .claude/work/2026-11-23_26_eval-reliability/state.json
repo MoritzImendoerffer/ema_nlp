@@ -1,0 +1,486 @@
+{
+  "status": "delivered",
+  "proposal": "docs/next/eval_reliability.md",
+  "planned_at": "2026-11-23",
+  "planned_by": "Claude (Fable 5.2)",
+  "current_task": null,
+  "baseline": {
+    "make_test": "692 passed, 2 skipped, 7 deselected (exploration.md, 2026-11-23)",
+    "make_lint": "All checks passed",
+    "mlflow_db": "2 experiments (Default, ema_nlp); 17 runs and 114 traces, all in ema_nlp; file modified 2026-07-20 21:30 (read-only query, 2026-11-23)"
+  },
+  "decisions": [
+    {
+      "note": "docs/pm/decisions/2026-11-23_passage-limit-location.md",
+      "blocks": "TASK-012",
+      "question": "Where the passage limit lives: the index profile, the recipe, or a new tool config file"
+    },
+    {
+      "note": "docs/pm/decisions/2026-11-23_live-check-run.md",
+      "blocks": "TASK-015",
+      "question": "The one paid run of this unit: 3 questions or 4, and the go-ahead"
+    },
+    {
+      "note": "docs/pm/decisions/2026-11-23_api-key-workspace.md",
+      "blocks": "TASK-015",
+      "question": "The new API key is organization-scoped: replace it, or send a workspace header (owner: send the header)"
+    },
+    {
+      "note": "docs/pm/decisions/2026-11-23_late-agent-trace.md",
+      "blocks": "TASK-015",
+      "question": "T1's agent trace arrived after the runner read it (span serializer error): accept and backlog, or fix in this unit"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "title": "Take the call that deletes the live graph out of three docs pages",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "docs/RETRIEVAL.md",
+        "docs/ARCHITECTURE.md",
+        "docs/RUNTIME_VERIFICATION.md"
+      ],
+      "acceptance": [
+        "`grep -c 'open_index(profile)' docs/RETRIEVAL.md` prints at least 1, and the code block under the heading that is 'Programmatic build + retrieve' today calls no `build_index`",
+        "`grep -c 'open_index(p)' docs/ARCHITECTURE.md` prints at least 1, and the block that starts with `# Build the index + verify retrieval (Python)` today calls no `build_index`",
+        "For each of the three files, `grep -c 'reset=True' <file>` prints 0 or 1; where it prints 1, `grep -B8 -A8 'reset=True' <file> | grep -ci 'deletes'` prints at least 1",
+        "`grep -B6 -A6 -- '--full --reset' docs/RETRIEVAL.md | grep -ci 'deletes'` prints at least 1",
+        "`grep -rn 'reset=True' docs/ | grep -v 'docs/next/eval_reliability.md'` lists at most 5 lines: one per page above at most, plus `docs/PLANNING_WORKFLOW.md:71` and `docs/eval/2026-11-23_pkr_testbed_review.md:594`, which describe the defect and stay",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Why first: it is independent of every other task, and it removes a snippet that deletes the whole graph when pasted.\n\nThe defect. `docs/RETRIEVAL.md:228` shows `index = build_index(profile, reset=True)` under 'Programmatic build + retrieve'. `docs/ARCHITECTURE.md:210` shows `idx = build_index(p, reset=True)` under 'Build the index + verify retrieval'. `docs/RUNTIME_VERIFICATION.md:86` says 'only then rebuild with `harness.indexing.build_index(p, reset=True)`' in running text. `reset` runs `MATCH (n) DETACH DELETE n`. The default profile is the full corpus (`limit: null`, `harness/configs/index/neo4j_hier.yaml:20`). `docs/PLANNING_WORKFLOW.md` rule 7 gives the graph as 7.5 million nodes.\n\nWhat to write. The two verify snippets open the existing graph: `open_index(profile)`, as `docs/RUNTIME_VERIFICATION.md:80-81` already does. The call with `reset=True` appears at most once per page, inside a block whose own text says that it deletes every node and edge of the live graph, that a rebuild re-embeds 5.82 million chunks, and that `CLAUDE.md` rule 4 asks for the owner's go-ahead first. Do not state rebuild hours unless a recorded run gives them.\n\nDecided by the plan, not by the proposal: the third page. The proposal names two pages; `exploration.md` section 9 found `docs/RUNTIME_VERIFICATION.md:86`. Also decided by the plan: `docs/RETRIEVAL.md:193` shows the command-line form, `--full --reset --pause-every-docs 2000`, which deletes the same graph. Put the same warning in that block. Do not remove the flag from the table at `docs/RETRIEVAL.md:212`; it documents a real option.\n\n`CLAUDE.md:240` names the call inside rule 4, as a warning. Leave it.",
+      "outcome": "docs/RETRIEVAL.md: 'Programmatic build + retrieve' is now 'Programmatic retrieve' with open_index(profile); the reset call moved into its own block 'Programmatic rebuild from scratch — deletes the live graph', whose comments say it deletes every node and edge, re-embeds 5.82 million chunks, and needs the owner's go-ahead (CLAUDE.md rule 4); the update_graph '--full --reset' block got the same warning; the table row at :212 is unchanged. docs/ARCHITECTURE.md §9 verifies with open_index(p) and points to RETRIEVAL.md §6 for builds (0 reset calls). docs/RUNTIME_VERIFICATION.md:86 now says what the reset deletes. reset=True per page: 1 / 0 / 1, each with 'deletes' within 8 lines. Plan gap: the criterion 'grep -rn reset=True docs/ | grep -v eval_reliability.md' also counts 4 lines of the generated board note docs/pm/TASK-001.md, which quotes the plan; without docs/pm/ it lists 4 lines (<= 5). No hours stated. make test: 692 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-002",
+      "title": "Add a prediction loop that runs every question on one event loop and records whether the agent finished",
+      "type": "mechanism",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "harness/eval/predict.py",
+        "tests/test_eval_predict.py"
+      ],
+      "acceptance": [
+        "`tests/test_eval_predict.py::test_predict_items_counts_a_failed_item_and_goes_on` exists and passes: a stand-in whose `ainvoke` raises `RuntimeError('Event loop is closed')` on the second of three rows gives three results with `ok` equal to `[True, False, True]`; the second result's `error` starts with `RuntimeError`; each result carries its row's `bench_id`",
+        "`tests/test_eval_predict.py::test_predict_items_uses_one_event_loop` exists and passes: the stand-in records `id(asyncio.get_running_loop())` on each of three calls, and the set of ids has one element",
+        "`tests/test_eval_predict.py::test_predict_items_never_gives_two_items_one_trace_id` exists and passes: when the trace-id function returns the same id after two items in a row, the second item's `trace_id` is `None`",
+        "`tests/test_eval_predict.py::test_predict_items_carries_the_passages` exists and passes: a finished result's `outputs['context_passages']` equals the list the stand-in returned",
+        "`grep -c 'asyncio.run' harness/eval/predict.py` prints 1",
+        "The 4 tests that exist today in `tests/test_eval_predict.py` pass unchanged",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The defect. `AgentWorkflowAdapter.invoke` (`harness/agents/workflow_adapter.py:124-126`) calls `asyncio.run` once per question. The agent's LLM holds one `anthropic.AsyncAnthropic`, whose connection pool keeps connections that belong to the loop of an earlier question. Five evaluation traces of 2026-07-13 ended with `RuntimeError: Event loop is closed` (stack trace in `exploration.md` section 6.1). A probe without a model call reproduced it: one `asyncio.run` per call failed 3 times in 6 sequential calls; one loop for all calls failed 0 times in 40 (`exploration.md` section 6.2). So one worker alone does not end the crash. One loop for all questions does.\n\nWhat to build. A result record per item (`bench_id`, question type, `ok`, `error`, `outputs`, `trace_id`), an async function that walks the benchmark rows one after the other and awaits `runnable.ainvoke({'question': ..., 'source': 'eval'})` for each inside `try`/`except Exception`, and one sync entry point that wraps the whole walk in a single `asyncio.run`. `outputs` is the dict `_prediction` builds today (`harness/eval/predict.py:33-40`), so the judges read the same keys as before.\n\nRules a later session would get wrong.\n- Call `ainvoke`, never `invoke`. `invoke` is the one-loop-per-call path.\n- Catch `Exception`, not `BaseException`. Ctrl-C and task cancellation must stop the run.\n- The trace id is read after each item through a function passed in as a parameter. The default is `harness.obs.last_trace_id` (`harness/obs/tracing.py:132-140`). The parameter keeps this module and its tests free of mlflow.\n- `last_trace_id` returns the newest finished trace of the process. If an item made no trace, it returns the id of the item before. Compare with the previous id and store `None` when it did not change. Otherwise two items share one trace and a judge value lands on the wrong item.\n- A failed item has a trace too, with status ERROR. Keep its id; TASK-005 links it to the run.\n- Keep `build_predict_fn`. `harness/eval/bootstrap.py:81-83` calls it.\n\nNo caller yet: TASK-005 wires this into `run_recipe_benchmark`. Until then `scripts/run_eval.py` behaves as it does today.",
+      "outcome": "harness/eval/predict.py: ItemResult (bench_id, question_type, ok, error, outputs, trace_id), apredict_items (awaits runnable.ainvoke per row, catches Exception only, reads trace_id_fn before the first row and after each row and stores None when the id did not change) and predict_items (the one asyncio.run around all rows). build_predict_fn kept for bootstrap.py. Four new tests in tests/test_eval_predict.py (failed item counted, one event loop, no shared trace id, passages carried); the 4 old tests pass unchanged. grep -c asyncio.run harness/eval/predict.py = 1. No caller yet: TASK-005 wires it. make test: 697 passed, 2 skipped, 7 deselected (exit 0, run together with TASK-003). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-003",
+      "title": "Make the faithfulness and the correctness judge return an integer",
+      "type": "mechanism",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "harness/eval/judges.py",
+        "tests/test_eval_judges.py"
+      ],
+      "acceptance": [
+        "`tests/test_eval_judges.py::test_ema_judges_ask_for_an_integer` exists and passes: with `mlflow.genai.judges.make_judge` replaced by a recorder, `ema_judges(model='anthropic:/x')` makes two calls and each receives `feedback_value_type` equal to `int`",
+        "`git diff --stat harness/judges/` prints nothing: the two prompt files are authored data and stay as they are",
+        "The 4 tests that exist today in `tests/test_eval_judges.py` pass unchanged",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The defect. Judge values are stored as text. Of the 85 stored values per judge in `mlflow.db`, 7 faithfulness values and 4 correctness values are not numbers; three of them are text, for example `\" agent errored\"` on trace `tr-97f5ef33` (`exploration.md` section 4).\n\nThe fix. `make_judge` of mlflow 3.14.0 takes `feedback_value_type` (`mlflow/genai/judges/make_judge.py:118`). `build_judge` (`harness/eval/judges.py:74-88`) already passes extra keyword arguments on. Two real judge calls on 2026-11-23 with `anthropic:/claude-opus-5-5` returned the value `5` of type `int` with `feedback_value_type=int`, and `'5'` of type `str` without it (`exploration.md` section 8.1). The present prompts work with it, so do not edit them.\n\nWhat this does not end. A judge call that the provider refuses stores a null value with an error. Six of the eleven stored non-numbers are of that kind (credit balance). TASK-004 counts every such value; this task only removes the text values.\n\nThe caller exists: `run_recipe_benchmark` builds its scorers with `ema_judges` (`harness/eval/runner.py:183`).",
+      "outcome": "ema_judges passes feedback_value_type=int to both judges through build_judge. New test test_ema_judges_ask_for_an_integer records make_judge's kwargs: 2 calls, each with int. The 4 old tests pass unchanged; git diff --stat harness/judges/ prints nothing. make test: 697 passed, 2 skipped, 7 deselected (exit 0, run together with TASK-002). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-004",
+      "title": "Add the pure functions for the judged rows, the counts and the printed summary",
+      "type": "mechanism",
+      "status": "completed",
+      "dependencies": [
+        "TASK-002"
+      ],
+      "files": [
+        "harness/eval/runner.py",
+        "tests/test_eval_runner.py"
+      ],
+      "acceptance": [
+        "`tests/test_eval_runner.py::test_eval_rows_carry_bench_id_and_leave_out_a_failed_item` exists and passes: from three items of which the second failed, the function returns two rows; each row has `inputs.question`, `outputs`, `expectations.gold_answer` and `tags['ema.bench_id']`; a row has the key `trace` only when a trace object was given for its item",
+        "`tests/test_eval_runner.py::test_score_stats_counts_a_value_that_is_not_a_number` exists and passes: the faithfulness values `5`, `\" agent errored\"`, `None` and `3` over 4 finished rows give mean 4.0, n 2 and invalid 2",
+        "`tests/test_eval_runner.py::test_score_stats_counts_a_missing_judge_value` exists and passes: 3 finished rows and 2 numeric values give invalid 1",
+        "`tests/test_eval_runner.py::test_format_summary_prints_n_failed_ids_and_invalid` exists and passes: for a type with 3 items of which `T1-002` failed, the text contains `n=3 failed=1`, `T1-002`, the first line of that item's error, `judge_invalid=0`, and `(n=2)` directly after each of the two means",
+        "`tests/test_eval_runner.py::test_format_summary_for_a_type_where_every_item_failed` exists and passes: the line shows `n=3 failed=3` and no mean",
+        "The 9 tests that exist today in `tests/test_eval_runner.py` pass unchanged: `to_eval_data`, `mean_scores` and `summarize` stay until TASK-005",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The defects, each in `harness/eval/runner.py` today.\n- `to_eval_data` (lines 62-74) keeps the question and the gold answer and drops `bench_id`, so a trace cannot be matched to its item. Both benchmark files carry a unique `bench_id` (45 and 5 rows).\n- `mean_scores` (lines 90-101) skips a value that `float()` rejects and counts nothing. Run `5ba51e5c` (`topic_agent`, T1, 20 traces) stores `correctness_mean` 4.353, which is 74 / 17: three rows are missing from it and nothing says so.\n- `summarize` (lines 204-213) prints one mean per judge and no count.\n\nWhat to build, as three functions with new names so that the old ones keep working until TASK-005.\n1. The rows for `mlflow.genai.evaluate`: one dict per finished item with `inputs`, `outputs`, `expectations`, `tags` and, when given, `trace`. A failed item gives no row. mlflow 3.14.0 accepts these five keys together (`mlflow/genai/evaluation/entities.py:125-174`); with `trace` present the judge values land on the agent's own trace (`exploration.md` section 5.1, checked with a run).\n2. The counts per judge: the mean over the numeric values, n as the number of numeric values, and invalid as finished rows minus n. Defining invalid by subtraction also counts a judge call that left no assessment at all.\n3. The summary text. One line per question type with `n=`, `failed=`, `judge_invalid=` (the sum over the judges), then each mean followed by its own n in brackets, and its own invalid count when that is above 0. Under it one line per failed item: the id and the first 200 characters of the error. A type with no finished row prints no mean.\n\nDecision A of the proposal fixes the rule: a failed item is listed and left out of every mean (`DECISIONS.md`, 'A failed run is listed and left out of the mean').\n\nPlan decision, not in the proposal: each mean carries its own n. The proposal lists the counts `n`, `failed` and `judge_invalid`. With two judges, one total `judge_invalid` does not say how many rows stand behind each mean, and the backlog row asks that every mean prints its n.\n\nNo caller yet: TASK-005.",
+      "outcome": "harness/eval/runner.py gains judged_rows (one row per finished item: inputs, outputs, expectations, tags['ema.bench_id'], and trace when given; a failed item gives none), JudgeStats + score_stats (mean over numeric values, n, invalid = finished - n; bools and NaN are not numeric), TypeSummary (items, stats, no_trace, run_id; n, failed, judge_invalid) and format_summary (one line per type with n=, failed=, judge_invalid=, no_trace= when > 0, each mean with its own '(n=K)' or '(n=K invalid=J)'; then one line per failed item with the id and the first 200 characters of the error's first line; no mean when nothing finished). 5 new tests; the 9 old tests pass unchanged. No caller yet: TASK-005. make test: 702 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-005",
+      "title": "Switch the driver to the prediction loop: a failed item gets no judge call, and a run gets its tags when it opens",
+      "type": "wiring",
+      "status": "completed",
+      "dependencies": [
+        "TASK-002",
+        "TASK-003",
+        "TASK-004"
+      ],
+      "files": [
+        "harness/eval/runner.py",
+        "harness/eval/evaluate.py",
+        "harness/eval/__init__.py",
+        "scripts/run_eval.py",
+        "tests/test_eval_runner.py"
+      ],
+      "acceptance": [
+        "`tests/test_eval_runner.py::test_failed_item_is_counted_and_not_judged` exists and passes. It calls the real `mlflow.genai.evaluate` of the installed mlflow against a store under `tmp_path`, with a stand-in agent that raises on the second of three T1 rows and two stand-in scorers that count their calls. It asserts: the summary contains `n=3 failed=1` and the failed item's id; each scorer was called exactly 2 times; each mean is over 2 rows; the run holds the metrics `n` 3, `failed` 1 and `judge_invalid` 0; the run holds the tags `ema.recipe`, `ema.benchmark` and `ema.question_type`; the two judged traces and the failed trace each carry the tag `ema.bench_id`",
+        "`tests/test_eval_runner.py::test_judge_values_land_on_the_agents_own_trace` exists and passes: the stand-in agent opens two nested spans with `mlflow.start_span`, and the trace that holds the judge values has those spans, not a single span named `root_span`",
+        "`tests/test_eval_runner.py::test_judge_text_value_is_counted_as_invalid` exists and passes: a stand-in scorer returns `\" agent errored\"` for one of two rows; the summary contains `judge_invalid=1`, and the mean equals the other row's value",
+        "`tests/test_eval_runner.py::test_type_where_every_item_failed_gets_a_run_and_no_judge_call` exists and passes: the run exists with `failed` equal to `n`, and no scorer was called",
+        "`tests/test_eval_runner.py::test_finished_item_without_a_trace_is_judged_and_counted` exists and passes: the item is judged, and the summary prints `no_trace=1`",
+        "`grep -cE 'def (to_eval_data|mean_scores|summarize|_tag_eval_run|_aggregate_run_metrics)' harness/eval/runner.py` prints 0, and the three tests of the old functions (`test_to_eval_data_shape`, `test_summarize_renders_per_type_metrics`, `test_mean_scores_averages_numeric_and_skips_non_numeric`) are gone",
+        "`grep -c 'build_predict_fn' harness/eval/runner.py` prints 0, and `grep -c 'setup_tracing' harness/eval/runner.py` prints at least 1",
+        "`stat -c %y mlflow.db` prints the same time before and after `make test`: no test writes the repository's store",
+        "`.venv/bin/python scripts/run_eval.py --help` exits with status 0",
+        "`make test` passes and `make lint` passes, each run on its own line; the outcome states how many seconds the new tests add"
+      ],
+      "notes": "The defect. With `predict_fn`, mlflow judges a crashed row. `_run_predict` catches the exception and leaves `outputs=None`; `_run_score` then runs every scorer (mlflow 3.14.0, `mlflow/genai/evaluation/harness.py:805-822` and `840-877`). Six failed rows went to the judges in the stored runs; `tr-3a54d942` holds correctness 5 beside faithfulness 1 (`exploration.md` section 4). mlflow gives no way around this while `predict_fn` is passed. So the runner makes the predictions itself.\n\nWhat to build.\n1. Split the driver. `run_recipe_benchmark` keeps the part that needs Neo4j and credentials: it opens the index, builds the recipe and the judges, and calls `setup_tracing`. A second function takes any object with `ainvoke`, the benchmark rows and the scorers, and does the rest. The tests call the second function with stand-ins.\n2. Predict all rows of all question types first, with the one-loop function of TASK-002. Then call `mlflow.flush_trace_async_logging()` and read each trace with `mlflow.get_trace(trace_id)`. Without the flush the trace may not be written yet; mlflow's own `predict_fn` path turns async logging off for the same reason (`harness.py:806-810`).\n3. Per question type, open the run yourself: `mlflow.start_run` with the tags `ema.recipe`, `ema.benchmark` and `ema.question_type` passed at the call. `mlflow.genai.evaluate` reuses an active run (`mlflow/models/evaluation/base.py:771-784`, `_start_run_or_reuse_active_run`). Today the tags are set after `evaluate` returns (`harness/eval/runner.py:192-199`), so a run that dies has none: 7 of the 17 stored runs carry no tag.\n4. Inside the run, call `run_evaluation` with the rows of TASK-004 and no `predict_fn`. Make `predict_fn` optional in `harness/eval/evaluate.py`. When a type has no finished row, skip the call: `evaluate` reads `df.iloc[0]` and fails on an empty table.\n5. A failed item: link its trace to the run (`MlflowClient().link_traces_to_run`, `mlflow/tracking/client.py:1106`), tag the trace with `ema.bench_id` (`mlflow.set_trace_tag`, `mlflow/tracing/fluent.py:1576`), and write all failed items of the type to the run as the artifact `failed_rows.json` (id, error text, trace id). It gets no judge call.\n6. Read the judge values back from the run's traces, as `_aggregate_run_metrics` does today (`runner.py:118-123`), and pass them to the count function of TASK-004. Log to the run: `n`, `failed`, `judge_invalid`, and per judge `<name>_mean` and `<name>_n`. Log `<name>_mean` only when at least one value is numeric.\n7. `scripts/run_eval.py` prints the new summary. Delete the old functions and their three tests in this task: their last caller goes away here.\n\nPlan decisions, not in the proposal. Each can be overruled.\n- The `trace` column instead of the proposal's sketch. The sketch (`inputs`, `outputs`, `expectations` only) puts each judge value on a new trace with one span (`exploration.md` section 5.1). The proposal's fallback, `predict_fn` with one worker, is not needed.\n- A finished answer without a trace is judged on a row without `trace`, and counted as `no_trace` in the summary line and as a run metric. The answer exists, so it is not a failed item.\n- The failed items go to the run as an artifact. The proposal says 'logged to the run with its error' and names no form.\n- The run metrics `<name>_n` and `no_trace` are beyond the three the proposal lists.\n\nTest hygiene. The store is `sqlite:///<tmp_path>/mlflow.db`, never the repository's `mlflow.db`. The existing tests set tracing up with `setup_tracing(..., tracking_uri=f'file:{tmp_path}/mlruns', autolog=False)` (`tests/test_obs_tracing.py:20-27`); do the same and keep `autolog=False`, or LlamaIndex autolog stays switched on for every later test of the process. The offline driver function must not call `setup_tracing` itself for that reason.\n\nWhat is still unproven after this task. The stand-in agent makes its trace with `mlflow.start_span`. A real trace comes from `mlflow.llama_index.autolog()` inside the runner's loop. Only the live run of TASK-015 shows that the judge values land on such a trace (`docs/PLANNING_WORKFLOW.md`, rule 10).\n\nThe command that reaches this code is `scripts/run_eval.py`. It pays for model calls, so its first real run is TASK-015. Run only `--help` here.",
+      "outcome": "harness/eval/runner.py: run_recipe_benchmark now builds the recipe and judges, calls setup_tracing(experiment or default_experiment()) with autolog, and hands off to evaluate_items, the offline driver: predict_items on one loop, flush_trace_async_logging, get_trace per finished item, then per question type mlflow.start_run(tags=ema.recipe/ema.benchmark/ema.question_type) -> failed items: set_trace_tag ema.bench_id + link_traces_to_run + failed_rows.json artifact, no judge call -> run_evaluation(judged_rows(... traces), configure=False) only when a row finished -> judge values read back via search_traces(run_id) -> score_stats -> metrics n, failed, judge_invalid, no_trace, <judge>_n, <judge>_mean (only when numeric). It returns a list of TypeSummary. harness/eval/evaluate.py: predict_fn optional, configure flag (False keeps the caller's tracking URI). scripts/run_eval.py prints format_summary. Deleted to_eval_data, mean_scores, _aggregate_run_metrics, _tag_eval_run, summarize and their 3 tests. 5 new tests call the real mlflow.genai.evaluate (mlflow 3.14.0) on a sqlite store under tmp: failed item counted and not judged (2 calls per scorer, metrics n 3 / failed 1 / judge_invalid 0, run tags, ema.bench_id on all 3 traces), judge values on the agent's own trace (spans agent+retrieve, no root_span), text value counted invalid, all-failed type gets a run and no judge call, finished item without trace judged and counted no_trace=1. The test fixture sets MLFLOW_ENABLE_ASYNC_TRACE_LOGGING=false: each async flush waits up to 1 s, and the file took 30 s with it; so the async flush path is proven only by TASK-015. The new tests add about 3 s (tests/test_eval_runner.py: 0.10 s -> 2.96 s, 1.4 s of it the one-time sqlite migration). mlflow.db mtime 2026-07-20 21:30:54 before and after make test. run_eval.py --help exit 0. make test: 704 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-006",
+      "title": "Map each provider of models.yaml to the name, the key and the endpoint that an mlflow judge needs",
+      "type": "mechanism",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "harness/eval/judges.py",
+        "harness/models.py",
+        "tests/test_eval_judges.py",
+        "tests/test_models.py"
+      ],
+      "acceptance": [
+        "`tests/test_eval_judges.py::test_judge_model_uri_for_each_provider_of_models_yaml` exists and passes: `anthropic:/claude-sonnet-5` for the entry `claude_sonnet`, `togetherai:/allenai/OLMo-2-1124-32B-Instruct` for `olmo_32b`, `openai:/Qwen/Qwen2.5-32B-Instruct` for `local_qwen32`",
+        "`tests/test_eval_judges.py::test_judge_model_uri_raises_for_a_provider_mlflow_cannot_serve` exists and passes: a model entry with the provider `no_such_provider` raises `ValueError`, and the message names that provider",
+        "`tests/test_eval_judges.py::test_judge_route_maps_the_key_and_the_endpoint` exists and passes: for `olmo_32b` the value of `TOGETHER_API_KEY` is what mlflow will read as `TOGETHERAI_API_KEY`; for `local_qwen32` the endpoint is `http://localhost:8000/v1/chat/completions` and the value of `LOCAL_LLM_API_KEY` is what mlflow will read as `OPENAI_API_KEY`. The test sets the variables with `monkeypatch.setenv` and prints no value",
+        "`tests/test_models.py::test_load_model_config_by_key` exists and passes: the key `claude_sonnet` gives the model id `claude-sonnet-5`, and an unknown key raises `ValueError`",
+        "`tests/test_eval_judges.py::test_judge_model_uri_resolves_role_from_models_yaml` and `::test_anthropic_judge_base_url` pass unchanged",
+        "`make test` passes and `make lint` passes, each run on its own line; the outcome says that no judge call to a provider other than `anthropic` was made"
+      ],
+      "notes": "The defect. `judge_model_uri` (`harness/eval/judges.py:101-105`) raises for every provider other than `anthropic`. Decision B of the proposal makes the judge a setting, so each provider of `models.yaml` has to resolve.\n\nWhat mlflow 3.14.0 needs, read in `mlflow/metrics/genai/model_utils.py`.\n- `together_ai` of `models.yaml` is `togetherai` for mlflow. mlflow reads the key from `TOGETHERAI_API_KEY` (line 430). This repository sets `TOGETHER_API_KEY` (`harness/models.py:133`).\n- `openai_compatible` is `openai` for mlflow. mlflow requires `OPENAI_API_KEY` (lines 349-354) and reads the endpoint from `OPENAI_API_BASE` or `OPENAI_BASE_URL` (lines 356-357). A `base_url` passed to `make_judge` is used as the endpoint verbatim (`mlflow/genai/judges/adapters/gateway_adapter.py:546`), so for this provider it must end in `/chat/completions`. The entry names its own key variable in `api_key_env` (`local_qwen32` names `LOCAL_LLM_API_KEY`).\n- `is_supported_provider` returns False for `together_ai` and `openai_compatible`. A name mlflow does not know fails on the first judge call, not when the judge is built, so raise when the route is resolved.\n\nWhat to build. A loader in `harness/models.py` that returns the `ModelConfig` of a model key; today only `load_model_for_role` exists (line 56). A pure function in `harness/eval/judges.py` that turns a `ModelConfig` into the mlflow model name, the endpoint, and which variable of this repository supplies which variable mlflow reads. `judge_model_uri` resolves a role, or a model key when one is given. `ema_judges` applies the route when it builds the judges: it copies the key inside the process and passes the endpoint as `base_url`. Log the names of the variables, never a value.\n\nA risk to state in the docstring. Copying `LOCAL_LLM_API_KEY` to `OPENAI_API_KEY` replaces an OpenAI key in the process for the rest of the run. Nothing else in this repository reads `OPENAI_API_KEY` except as the default of `api_key_env` (`harness/llms.py`, `harness/models.py:137`).\n\nNot verified by this task, and not by this work unit: a real judge call to a provider other than `anthropic`. `TOGETHER_API_KEY`, `TOGETHERAI_API_KEY`, `OPENAI_API_KEY` and `LOCAL_LLM_API_KEY` are all unset on this machine on 2026-11-23. The proposal says so too. These routes are tested up to the model name, the key and the endpoint.\n\nThe Anthropic route stays as it is: `_anthropic_judge_base_url` appends `/v1/messages` when `ANTHROPIC_BASE_URL` is set (`judges.py:61-71`).\n\nCaller: `run_recipe_benchmark` calls `judge_model_uri` and `ema_judges` already. TASK-007 adds the option that selects a model key.",
+      "outcome": "harness/models.py: load_model_config(model_name) returns the ModelConfig of a models: key (ValueError for an unknown key); load_model_for_role shares the builder. harness/eval/judges.py: JudgeRoute(model, base_url, key_env), judge_route(cfg) (anthropic -> anthropic; together_ai -> togetherai with TOGETHER_API_KEY -> TOGETHERAI_API_KEY; openai_compatible -> openai with api_base + '/chat/completions' and api_key_env -> OPENAI_API_KEY; ValueError naming any other provider), resolve_judge_route(role, model_key=), apply_judge_key(route) (copies the key inside the process, logs variable names only), judge_model_uri(role, model_key=), and ema_judges(model= | route=). run_recipe_benchmark builds its judges with ema_judges(route=resolve_judge_route(judge_role)). 4 new tests; test_judge_model_uri_resolves_role_from_models_yaml and test_anthropic_judge_base_url pass unchanged. No judge call to a provider other than anthropic was made: TOGETHER_API_KEY, TOGETHERAI_API_KEY, OPENAI_API_KEY and LOCAL_LLM_API_KEY are unset here, so those routes are tested up to model name, key variable and endpoint. make test: 708 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-007",
+      "title": "Add `--judge` to scripts/run_eval.py and record the generator's and the judge's model id on every run",
+      "type": "wiring",
+      "status": "completed",
+      "dependencies": [
+        "TASK-005",
+        "TASK-006"
+      ],
+      "files": [
+        "scripts/run_eval.py",
+        "harness/eval/runner.py",
+        "tests/test_eval_runner.py"
+      ],
+      "acceptance": [
+        "`.venv/bin/python scripts/run_eval.py --help` prints a line that contains `--judge`",
+        "`tests/test_eval_runner.py::test_judge_option_reaches_the_judges` exists and passes: with the arguments `--recipe naive_rag --judge claude_sonnet` the script calls `run_recipe_benchmark` with that model key, and the judges are built with the model `anthropic:/claude-sonnet-5`",
+        "`tests/test_eval_runner.py::test_run_is_tagged_with_both_model_ids` exists and passes: the run opened by the offline driver holds `ema.generator_model` and `ema.judge_model`, and both values are model ids such as `claude-opus-4-7`, not keys such as `claude_opus`",
+        "`tests/test_eval_runner.py::test_summary_names_both_models_and_warns_when_they_are_one` exists and passes: the summary prints both ids; it holds exactly one line that starts with `WARNING` when the two ids are equal, and none when they differ",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The defect. `scripts/run_eval.py` has `--model` for the generator (line 25) and nothing for the judge. `run_recipe_benchmark` already takes `judge_role` (`harness/eval/runner.py:159`) and the script does not pass it (lines 31-38). A run carries three tags and neither model (`runner.py:192-199`); the store holds exactly the run tag keys `ema.recipe`, `ema.benchmark` and `ema.question_type`. `roles.judge` and all ten recipes name `claude_opus`, so every stored number was judged by the model that generated it.\n\nWhat to build. `--judge <model key>` overrides `roles.judge` for one run, as `--model` overrides the recipe's model: both take a key of the `models:` section of `harness/configs/models.yaml`. The two run tags hold model ids, resolved from the keys with the loader of TASK-006. Set them when the run opens, with the three tags of TASK-005. The summary starts with one line that names both ids, and adds the warning line when they are equal.\n\nWhy ids and not keys: a key such as `claude_opus` can be rebound to another model in `models.yaml`. A number must say which model produced it (`DECISIONS.md`, 'The judge model is a setting, recorded on every run').\n\nKeep a way to test without Neo4j. Resolving the generator's id, the judge's id and the judge's mlflow name from the recipe and the options is a pure step. Put it in a function of its own and test that.",
+      "outcome": "scripts/run_eval.py: --judge <models.yaml key> passed to run_recipe_benchmark(judge=). harness/eval/runner.py: ModelChoice (generator and judge model ids, the judge route; run_tags() gives ema.generator_model + ema.judge_model; header() names both ids and adds one WARNING line when they are equal), resolve_models(recipe_model, model=, judge=, judge_role=) as the pure step, and EvalReport(summaries, header) with text(); run_recipe_benchmark returns an EvalReport and opens each run with the two model tags beside the three of TASK-005. 3 new tests: --judge claude_sonnet reaches run_recipe_benchmark and its route builds both judges with anthropic:/claude-sonnet-5; a run from the offline driver holds claude-opus-4-7 and claude-sonnet-5 as tags; the header has one WARNING line when the ids are equal and none when they differ. run_eval.py --help lists --judge. make test: 711 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-008",
+      "title": "Stamp the resolved recipe on every evaluation run, and print which declared layers the runner does not run",
+      "type": "wiring",
+      "status": "completed",
+      "dependencies": [
+        "TASK-005"
+      ],
+      "files": [
+        "harness/eval/runner.py",
+        "harness/agents/workflow_adapter.py",
+        "tests/test_eval_runner.py"
+      ],
+      "acceptance": [
+        "`tests/test_eval_runner.py::test_run_carries_the_resolved_recipe` exists and passes: for the recipe `naive_rag` the run opened by the offline driver holds the tags `ema.retrieval.index_profile` with the value `neo4j_hier` and `ema.generation.model`",
+        "`tests/test_eval_runner.py::test_layers_the_runner_does_not_run_are_named` exists and passes: the summary for `regulatory_fewshot` holds one line that names the few-shot layer; the summary for `agentic_judged` holds one line that names the inline judge; the summary for `naive_rag` holds neither",
+        "`grep -c 'cl.user_session' harness/eval/runner.py` prints 0, and `git diff --stat app.py` prints nothing: the two layers are not moved",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The defect. A recipe's resolved configuration reaches a trace only through `AgentWorkflowAdapter`, and only when `setup_tracing` ran. `setup_tracing` is called by `app.py:167-168` and `scripts/run_agent_demo.py:35`. Of the 100 stored evaluation traces, 90 have the root span `FunctionAgent.run` and no recipe on them; 10 carry the trace tag `ema.recipe`. TASK-005 adds the `setup_tracing` call. This task puts the configuration on the run as well.\n\nThe few-shot layer and the inline judge of a recipe run in `app.py` only (`app.py:702-715` and `740-751`). Under the runner, `regulatory_fewshot` (`fewshot.enabled: true`) and `agentic_judged` (`judge.enabled: true`) behave exactly like `regulatory_agent`, and the trace still says `ema.fewshot.enabled=True`.\n\nWhat to build.\n- The run tags: every `ema.*` key that `Recipe.resolved_attributes` produces (`harness/recipes/config.py:128-202`), with the effective model, temperature and k. `build_recipe` computes them and hands them to the adapter (`harness/recipes/build.py:102-105`), which keeps them in `_extra_attributes` (`harness/agents/workflow_adapter.py:48-51`). Give the adapter a read-only property and read the attributes from there. Computing them a second time in the runner would let the two copies drift.\n- One summary line per declared layer that did not run. It names the layer and says that it runs in `app.py` only.\n\nA tag value is at most 8,000 characters and a key at most 250 (`mlflow/utils/validation.py:60` and `:64`, mlflow 3.14.0). The longest value is the list of tools.\n\nWhat this task does not do. It does not move the two layers out of `app.py`; the proposal leaves that to an item of its own. It adds no run tag that says which layers did not run: the proposal asks for the printed line, and lists the new stored shapes without such a tag. Left out by the plan; say so in the outcome, so the owner can ask for it.",
+      "outcome": "harness/agents/workflow_adapter.py: read-only property config_attributes (a copy of _extra_attributes). harness/eval/runner.py: recipe_run_tags (every ema.* attribute as a string tag, key <= 250 and value <= 8000 characters, mlflow 3.14.0 validation.py:60/:64) merged into every run that evaluate_items opens, with the explicit run tags taking precedence; layers_not_run gives one 'NOTE: ... runs in app.py only' line for fewshot.enabled and for judge.enabled, added to the report header by run_recipe_benchmark. 2 new tests: a real AgentWorkflowAdapter with a fake session gives a run with ema.retrieval.index_profile=neo4j_hier and ema.generation.model, and its trace carries ema.recipe; regulatory_fewshot prints one few-shot line, agentic_judged one inline-judge line, naive_rag neither. cl.user_session in runner.py: 0; git diff --stat app.py: empty. Left out by the plan, so the owner can ask for it: no run tag records which layers did not run (the proposal asks for the printed line only). make test: 713 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-009",
+      "title": "Bind the judge role to a new models.yaml entry for claude-opus-5-5, and stop sending temperature to that model",
+      "type": "contract",
+      "status": "completed",
+      "dependencies": [
+        "TASK-007"
+      ],
+      "files": [
+        "harness/configs/models.yaml",
+        "harness/llms.py",
+        "tests/test_llms.py",
+        "tests/test_models.py"
+      ],
+      "acceptance": [
+        "`.venv/bin/python -c \"from harness.models import load_model_for_role as f; print(f('judge').model_id)\"` prints `claude-opus-5-5`",
+        "`tests/test_llms.py::test_opus_5_5_drops_temperature` exists and passes: the wrapper built for the model id `claude-opus-5-5` has no `temperature` in its `_model_kwargs`",
+        "`tests/test_models.py::test_no_recipe_generates_with_the_judge_model` exists and passes: for each of the 10 files in `harness/configs/recipes/`, the model id of the recipe's model differs from the model id of `roles.judge`",
+        "`tests/test_models.py::test_judge_role_is_opus` passes unchanged",
+        "One real call, which costs one short completion: `.venv/bin/python -c \"import config; from harness.judge import Judge; print(Judge().faithfulness('What is 2 + 2?', '4', ['2 + 2 is 4.']))\"` prints a result whose `score` is between 1 and 5, and the output holds no line with the word `deprecated`",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "What changes. `harness/configs/models.yaml` gets one entry for the model id `claude-opus-5-5` (provider `anthropic`), and `roles.judge` (line 55) names it. All ten recipes generate with `claude_opus`, which is `claude-opus-4-7` (lines 26-31). After this task the default judge is a model that no recipe generates with. This is decision E of the proposal.\n\nThe condition of decision E is met. On 2026-11-23 `GET /v1/models` on the configured endpoint listed `claude-opus-5-5` among 15 ids, and two real judge calls through `build_judge` with `anthropic:/claude-opus-5-5` returned a value (`exploration.md` section 8.1). If this task runs on a later day, ask the endpoint again; the call costs nothing. Write no model id from memory.\n\nThe second reader of `roles.judge`, which the proposal does not name. `harness/judge.py:71` builds its model with `harness.llms.get_llm(model_role)`, and that path sends `temperature: 0.0`. One real call with `claude-opus-5-5` on that path returned `400 invalid_request_error: temperature is deprecated for this model` (`exploration.md` section 8.2). `_NO_TEMPERATURE_PREFIXES` (`harness/llms.py:118`) holds `claude-sonnet-5`, `claude-fable-5` and `claude-mythos-5`, and not `claude-opus-5`. `run_inline_judges` swallows a judge error and logs a warning (`harness/eval/inline_judge.py:104-105`). Without the prefix, the recipe `agentic_judged` loses its inline judge on every turn with no visible sign. So the prefix and the binding land in one task. The real call in the acceptance list is the proof; a unit test proves only the wrapper.\n\nThe entry keeps a `temperature` field: the loader reads it without a default (`float(d['temperature'])` in `harness/llms.py`), and the wrapper strips it before the request.\n\nPlan decision: the entry's key is `claude_opus_5_5`. `tests/test_models.py::test_models_yaml_has_all_models` checks a subset of names and needs no change.\n\nWhat happens to what was written before. The 17 runs and the 85 judge values per judge in `mlflow.db` were judged by the model bound to `roles.judge` at the time, and carry no judge tag. They stay as they are. A number from the new judge starts a new series: two numbers compare only when the same judge produced them (`DECISIONS.md`, 'The judge model is a setting'). No number is repeated now (decision D).\n\nWhy after TASK-007: from the first run with the new judge, the run records which model judged it.\n\nThe same family. The generator and the judge are both Claude models. Every `docs/eval/` page that reports a judged number has to say so (decision B).",
+      "outcome": "harness/configs/models.yaml: new entry claude_opus_5_5 (provider anthropic, model_id claude-opus-5-5, max_tokens 4096, temperature 0.0 kept for the loader), roles.judge -> claude_opus_5_5; the claude_opus description no longer claims the judge role. harness/llms.py: 'claude-opus-5' added to _NO_TEMPERATURE_PREFIXES. load_model_for_role('judge').model_id prints claude-opus-5-5. New tests: test_opus_5_5_drops_temperature; test_no_recipe_generates_with_the_judge_model (all 10 recipes generate with a model id other than the judge's). test_judge_role_is_opus passes unchanged. The endpoint was not asked again: same day as exploration section 8.1 (2026-11-23). One real call, one short completion, through harness/judge.py: Judge().faithfulness('What is 2 + 2?', '4', ['2 + 2 is 4.']) returned {'score': 5, ...}, exit 0, 0 lines with 'deprecated'. Earlier runs in mlflow.db stay as they are, judged by claude-opus-4-7 and untagged; a number from the new judge starts a new series. Generator and judge are both Claude models. make test: 715 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-010",
+      "title": "Keep the matched leaf's text on a retrieved node when the retriever merges to the parent",
+      "type": "mechanism",
+      "status": "completed",
+      "dependencies": [],
+      "files": [
+        "harness/indexing/property_graph.py",
+        "tests/test_indexing_property_graph.py"
+      ],
+      "acceptance": [
+        "`tests/test_indexing_property_graph.py::test_retriever_keeps_the_matched_leaf_text_when_it_merges_to_the_parent` exists and passes: for a row whose leaf text is `LEAF` and whose parent text is `PARENT ... LEAF ...`, the node's `text` is the parent's and `metadata['matched_text']` is the leaf's",
+        "`tests/test_indexing_property_graph.py::test_expansion_and_ancestor_nodes_keep_the_matched_leaf_text` exists and passes: the same holds for a node from link expansion and for a node from the ancestor pass",
+        "`tests/test_indexing_property_graph.py::test_matched_text_stays_out_of_the_reranker_input` exists and passes: `node.get_content(metadata_mode=MetadataMode.EMBED)` and the same call with `MetadataMode.LLM` hold the leaf's text at most once",
+        "`git diff harness/indexing/property_graph.py | grep -c '^[-+].*MATCH '` prints 0: no Cypher query changes",
+        "`tests/test_indexing_property_graph.py` and `tests/test_retrieval_steering.py` pass, including `test_retriever_meta_carries_document_provenance`",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The defect. `HierarchicalPGRetriever` builds a node in three places: `_retrieve`, `_expand` and `_expand_ancestors` (`harness/indexing/property_graph.py:717-721`, `770-773` and `840-843`). With `merge: true` each takes `parent['text']` and keeps only the leaf's id, as `matched_chunk`. The tool then cuts the parent to its first 400 characters (`harness/tools/search.py:116`), so the agent may never see the leaf that matched. The proposal lists `harness/tools/search.py` only; `exploration.md` section 7.1 found that the leaf's text is gone before the tool sees the node.\n\nThe fix is in Python only. The Cypher already returns the leaf's text: `collect({id: c.id, text: c.text, score: score, parent: parent})` in the vector query, and `best.text` in the two expansion queries. Pass it to `_node_from_row` and store it as `metadata['matched_text']`. No graph property changes and no rebuild is needed.\n\nA trap in the installed library. `SentenceTransformerRerank` scores `node.node.get_content(metadata_mode=MetadataMode.EMBED)` (llama-index-core 0.14.22, `llama_index/core/postprocessor/sbert_rerank.py:75`), and this repository builds it for the recipe `agentic_reranked` (`harness/retrieval/postprocessors.py:83-85`). A metadata key is part of that content unless the node excludes it. Put `matched_text` into the node's `excluded_embed_metadata_keys` and `excluded_llm_metadata_keys`, or the reranker scores a passage that holds the leaf twice.\n\nSide effect to record in the outcome: each retriever span in a trace grows by about 500 characters per node (`exploration.md` section 12).\n\nNo caller yet: TASK-011 reads `matched_text` in the search tool.",
+      "outcome": "harness/indexing/property_graph.py: _node_from_row takes matched_text and stores it as metadata['matched_text'] when the node's text is the parent's (it is omitted when the node is the leaf itself), with the key in excluded_embed_metadata_keys and excluded_llm_metadata_keys. _retrieve passes r['text'], _expand and _expand_ancestors pass best['text']: the Cypher already returned them, and no MATCH line changed (git diff count 0). 3 new tests (vector node, link-expansion and ancestor nodes, get_content(EMBED/LLM) holds the leaf at most once). tests/test_indexing_property_graph.py and tests/test_retrieval_steering.py pass (38), including test_retriever_meta_carries_document_provenance. Side effect: each retriever span in a trace grows by the leaf's text per merged node, about 500 characters (exploration.md section 12). No graph change, no rebuild. make test: 718 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-011",
+      "title": "Render a search result as the matched leaf first, then its parent, up to a limit, and give the judge the same text",
+      "type": "mechanism",
+      "status": "completed",
+      "dependencies": [
+        "TASK-010"
+      ],
+      "files": [
+        "harness/tools/search.py",
+        "harness/tools/corrective_search.py",
+        "tests/test_tools.py",
+        "tests/test_tools_corrective.py",
+        "tests/test_chain_from_trace.py"
+      ],
+      "acceptance": [
+        "`tests/test_tools.py::test_ema_search_shows_a_leaf_that_starts_after_character_400_of_its_parent` exists and passes: for a parent of 2,100 characters whose leaf starts at character 900, the tool's output contains the whole leaf",
+        "`tests/test_tools.py::test_passage_is_the_leaf_first_then_the_parent_without_the_repeat` exists and passes: the body starts with the leaf's text, and the leaf's text occurs in it exactly once",
+        "`tests/test_tools.py::test_passage_is_cut_at_the_limit` exists and passes: with a limit of 600, no body is longer than 600 characters",
+        "`tests/test_tools.py::test_passage_without_a_parent_is_the_chunk_text` exists and passes: a node without `matched_text`, or whose `matched_text` equals its text, renders as its own text up to the limit",
+        "`tests/test_tools.py::test_passages_from_nodes_returns_what_the_agent_read` exists and passes: after one `ema_search` call inside `capture_search_nodes`, `passages_from_nodes(captured)` equals the list of body lines of the tool's output",
+        "`tests/test_tools_corrective.py::test_corrective_search_renders_with_the_same_limit` exists and passes",
+        "`tests/test_chain_from_trace.py::test_chain_is_rebuilt_from_an_output_with_long_bodies` exists and passes: `harness/export/chain_from_trace.py` parses an output rendered by the new function into the same node list",
+        "`grep -c '_SNIPPET_MAX' harness/tools/search.py` prints 0",
+        "The tests that exist today in `tests/test_tools.py`, `tests/test_tools_corrective.py`, `tests/test_chain_from_trace.py`, `tests/test_export_chain.py` and `tests/test_tools_topic_context.py` pass",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The defect. `format_nodes` cuts each passage to `_SNIPPET_MAX = 400` characters (`harness/tools/search.py:29` and `:116`). With `merge: true` the passage is the parent chunk, so the agent reads the parent's first 400 characters. The faithfulness judge reads `passages_from_nodes`, which returns `node.text` in full (`search.py:76-87`). In the stored traces, 4,875 retrieved passages have a median of 2,130 characters; 98.8% are longer than 400 (`exploration.md` section 4). A faithfulness score compares the answer with text the agent did not read.\n\nDecision C of the proposal: the agent reads the matched leaf first, then its parent, up to about 2,000 characters, and the judge reads the same text.\n\nThe rendering rule. The proposal leaves the overlap open: the parent's text contains the leaf's. This is the plan's rule.\n1. Collapse whitespace in both texts, as today.\n2. No `matched_text`, or it equals the node's text: the body is the text, cut to the limit.\n3. Otherwise the body is the leaf, then a short marker, then the parent with the leaf's first occurrence taken out. Where the leaf was, a gap marker joins the text before it and the text after it. Cut the whole body to the limit.\n4. If the leaf is not found in the parent, the body is the leaf, the marker and the whole parent, cut to the limit.\n5. The body stays on one line. `harness/export/chain_from_trace.py:37-41` reads the output line by line (`_NODE_LINE`, `_NOTE_LINE`), and `_NOTE_LINE` treats a line that is one bracketed phrase as a steering note. So no body may consist of a bracketed marker alone.\n\nThe same text for the judge. A limit of 2,000 still cuts 60.6% of the stored parents, so `passages_from_nodes` cannot return `node.text` any more. The tool writes the body it rendered onto the node as `metadata['agent_text']` before it hands the node to the sink (`sink_nodes`, `search.py:63-73`), and `passages_from_nodes` returns `agent_text` when a node has one and `node.text` otherwise. Three readers follow without a change of their own: `harness/agents/workflow_adapter.py:96` (and through it the inline judge, `app.py:742-750`), `harness/eval/predict.py:66`, and `harness/eval/bootstrap.py:60`.\n\nThe limit in this task is a parameter of the two tool builders (`build_ema_search_tool`, `build_corrective_search_tool`) with a default of 2,000, defined as one constant. Where the setting lives in configuration is TASK-012 and waits on the owner. This task does not depend on that answer.\n\nWhat changes for a user of the app, to say in the outcome. Every recipe's agent reads about five times the text per search result: 10 passages of 2,000 characters are about 5,000 tokens, where 10 of 400 were about 1,000. `corrective_search` shows the longer text to its grader on each cycle (`harness/tools/corrective_search.py:105`, `:119`, `:131`).\n\nLeave alone. `topic_context` renders each chunk in full under a token budget (`harness/tools/topic_context.py:229-254`); its nodes get no `agent_text`. Citation attribution keeps the full parent text (`workflow_adapter.py:100-108`); the proposal excludes it. `harness/tools/events.py` records node references and no passage text.",
+      "outcome": "harness/tools/search.py: _SNIPPET_MAX removed; DEFAULT_PASSAGE_CHARS = 2000 defined once; render_passage(text, matched_text, limit) gives one line: the leaf, ' || in its section: ', then the parent with the leaf's first occurrence replaced by ' [...] ' (the whole parent when the leaf is not found; the plain text when there is no leaf or it equals the text), cut to the limit. format_nodes(nodes, passage_chars) renders it and writes the body to metadata['agent_text'] (excluded from EMBED/LLM content); passages_from_nodes returns agent_text when present, else node.text. ema_search and corrective_search render before they sink, and both builders take passage_chars (default 2000); corrective_search's grader reads the same bodies. 7 new tests (leaf at character 900 of a 2,100-character parent is in the output; leaf first and once; limit 600 holds; no-parent case; passages_from_nodes equals the tool's body lines; corrective_search uses the same limit; chain_from_trace parses 3 nodes and 1 note from an output with long bodies and a bracketed leaf). The existing tests of test_tools, test_tools_corrective, test_chain_from_trace, test_export_chain and test_tools_topic_context pass (81 with the new ones). Change for app users: each search result can be about 5 times longer (10 x 2,000 characters, about 5,000 tokens, where 10 x 400 was about 1,000), and corrective_search's grader reads the longer text on every cycle. topic_context, citation attribution and harness/tools/events.py are unchanged. Lint first failed with I001 (import order in corrective_search.py), fixed with ruff --fix. make test: 725 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-012",
+      "title": "Make the passage limit a key of the index profile, and stamp it on the trace",
+      "type": "contract",
+      "status": "completed",
+      "dependencies": [
+        "TASK-011"
+      ],
+      "decision": "docs/pm/decisions/2026-11-23_passage-limit-location.md",
+      "files": [
+        "harness/indexing/profiles.py",
+        "harness/configs/index/neo4j_hier.yaml",
+        "harness/configs/index/neo4j_steered.yaml",
+        "harness/configs/index/neo4j_tree.yaml",
+        "harness/recipes/config.py",
+        "tests/test_indexing_profiles.py",
+        "tests/test_recipes.py"
+      ],
+      "acceptance": [
+        "Before any edit: `grep -c '^status: settled' docs/pm/decisions/2026-11-23_passage-limit-location.md` prints 1, and the note's answer is option (a). If it prints 0, stop: the task waits on the owner. If the answer is (b) or (c), stop: this task is written for (a) and the plan has to be corrected first",
+        "`tests/test_indexing_profiles.py::test_passage_chars_defaults_to_2000_and_must_be_positive` exists and passes: a profile without the key gives 2000; the value 0 raises `ValueError`",
+        "`for f in neo4j_hier neo4j_steered neo4j_tree; do grep -c 'passage_chars' harness/configs/index/$f.yaml; done` prints at least 1 three times",
+        "`tests/test_recipes.py::test_resolved_attributes_stamp_the_passage_limit` exists and passes: `resolved_attributes(passage_chars=600)` holds `ema.retrieval.passage_chars` with the value 600, and the call without the argument has no such key",
+        "`grep -rn '2000' harness/tools/search.py harness/indexing/profiles.py | grep -ci 'passage'` prints 1: the default is defined once and read by both modules",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "This task waits on the owner. The proposal says 'a limit set in the tool's config', and no tool has a config file: `harness/configs/` has no `tools/` folder, and a tool receives its arguments from `assemble_agent` (`harness/agents/session.py:59-70`). `exploration.md` section 11, question 2, puts the choice to the owner. The decision note gives the three options.\n\nThe task is written for option (a), the assistant's recommendation: a key `passage_chars` in the `retrieval` block of the index profile, beside `k` and `merge`. If the owner chooses the recipe (b) or a new tool config file (c), the files and the tests of this task and of TASK-013 change. Do not improvise: correct the plan first.\n\nThe stored shape, for option (a). `RetrievalConfig` (`harness/indexing/profiles.py:188-225`) gets `passage_chars: int`, parsed and validated in `from_dict` the way `k` is (lines 207-209). The three profiles under `harness/configs/index/` state the key, so a reader sees it. The profiles are authored data: edit them by hand in the commit of this task.\n\nWhat happens to what exists. A profile without the key reads as 2,000, so a profile in a `$EMA_CONFIG_DIR` written earlier keeps working. Nothing is stored in Mongo or in the graph. A trace made before this task has no `ema.retrieval.passage_chars`; read its absence as the 400-character cut.\n\nWhy the limit goes on the trace. Two runs with different limits give the agent different text, so their numbers do not compare. `Recipe.resolved_attributes` already stamps `retrieval.k` when it is supplied (`harness/recipes/config.py:186-187`); do the same for the limit. TASK-008 copies these attributes to the run.\n\nOne default, defined once. TASK-011 defines the constant for the tool builders. This task makes the profile's default the same constant, not a second literal.\n\nNo caller yet: TASK-013 passes the profile's value to the tools.",
+      "outcome": "Decision note settled by the owner on 2026-11-23 ('agree', option (a)); grep '^status: settled' = 1. harness/indexing/profiles.py: RetrievalConfig.passage_chars, default DEFAULT_PASSAGE_CHARS imported from harness/tools/search.py (the literal is defined once: grep 2000 + passage over the two files = 1), parsed in from_dict, ValueError when <= 0. The three profiles neo4j_hier, neo4j_steered and neo4j_tree state passage_chars: 2000 (authored data, edited by hand). Recipe.resolved_attributes(passage_chars=) stamps ema.retrieval.passage_chars only when supplied. A profile without the key (e.g. an older one under $EMA_CONFIG_DIR) reads as 2000; a trace made before this work has no ema.retrieval.passage_chars and means the 400-character cut. 2 new tests. No caller yet: TASK-013. make test: 727 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-013",
+      "title": "Pass the profile's passage limit from build_recipe to the two search tools",
+      "type": "wiring",
+      "status": "completed",
+      "dependencies": [
+        "TASK-012"
+      ],
+      "files": [
+        "harness/recipes/build.py",
+        "harness/agents/session.py",
+        "tests/test_recipes.py"
+      ],
+      "acceptance": [
+        "`tests/test_recipes.py::test_profile_passage_limit_reaches_ema_search` exists and passes: a recipe built on a profile with `passage_chars: 600` gives an `ema_search` tool whose bodies are at most 600 characters, and the adapter's attributes hold `ema.retrieval.passage_chars` with the value 600",
+        "`tests/test_recipes.py::test_profile_passage_limit_reaches_corrective_search` exists and passes for the recipe `crag_agentic`",
+        "`tests/test_recipes.py::test_build_recipe_wires_agent_from_recipe` and `::test_build_recipe_naive_single_tool` pass",
+        "`grep -c 'passage_chars' harness/recipes/build.py` prints at least 2: the value goes to the tools and to `resolved_attributes`",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Why this is a task of its own. TASK-012 adds a key that nothing reads. A profile key without a reader is the defect of `harness/configs/parser_preference.yaml`, which no code reads (`docs/PLANNING_WORKFLOW.md`, rule 1).\n\nThe path. `build_recipe` loads the profile (`harness/recipes/build.py:42-46`) and calls `assemble_agent` (lines 81-89). `assemble_agent` passes its keyword arguments to `build_agent` (`harness/agents/session.py:60-70`), which forwards them to every tool builder (`harness/agents/registry.py:51-63`). A builder takes what it knows and ignores the rest through `**_` (`harness/tools/search.py:131`, `harness/tools/corrective_search.py:53`). So one more keyword argument reaches `ema_search` and `corrective_search`, and no other tool changes.\n\nAlso pass the value to `recipe.resolved_attributes` at `build.py:102-104`, so that the trace and the run carry the limit that was in force.\n\nThe tests build a recipe offline already: `tests/test_recipes.py:153-173` replaces `load_index_profile`, `build_retriever` and `get_llm_for_model`. Use a fake retriever whose nodes carry `matched_text`.\n\nThe command that reaches this code with real data is `scripts/run_eval.py`, in TASK-015. `app.py` reaches it on every turn, through the same `build_recipe`.\n\nIf the owner chose option (b) or (c) in the decision note, this task changes with TASK-012.",
+      "outcome": "harness/recipes/build.py reads profile.retrieval.passage_chars, passes it to assemble_agent and to recipe.resolved_attributes (grep passage_chars in build.py = 3). harness/agents/session.py: assemble_agent(passage_chars=) forwards it to build_agent only when set (a None would reach the tools' slice as [:None], i.e. no cut); build_agent hands it to every tool builder, and only ema_search and corrective_search read it. tests/test_recipes.py: _fake_profile gains passage_chars; 2 new tests (a profile with 600 gives ema_search bodies <= 600 that start with the leaf, and corrective_search bodies <= 600 for crag_agentic; the adapter's attributes hold ema.retrieval.passage_chars 600). test_build_recipe_wires_agent_from_recipe and test_build_recipe_naive_single_tool pass. Real data, read-only, no model call (Neo4j container healthy, mongod active): build_recipe('naive_rag') on the live graph, one ema_search call for 'nitrosamine acceptable intake limit' in 6.3 s: 9 results, all 9 nodes carry matched_text, all 9 bodies start with the leaf, body lengths 1439-2000, in 7 of 9 the leaf starts after character 400 of its parent (the old cut hid it), passages_from_nodes equals the 9 bodies, ema.retrieval.passage_chars=2000 on the adapter. make test: 729 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-014",
+      "title": "Say in the docs what the agent reads, how the two earlier result pages were made, and how to choose the judge",
+      "type": "documentation",
+      "status": "completed",
+      "dependencies": [
+        "TASK-007",
+        "TASK-008",
+        "TASK-009",
+        "TASK-013"
+      ],
+      "files": [
+        "docs/tools/ema_search.md",
+        "docs/eval/2026-07-13_topic_subgraphs.md",
+        "docs/eval/2026-07-20_tree_seeding.md",
+        "docs/RECIPES.md",
+        "docs/RETRIEVAL.md"
+      ],
+      "acceptance": [
+        "`grep -c 'passage_chars' docs/tools/ema_search.md` prints at least 1, and `grep -ci 'matched leaf' docs/tools/ema_search.md` prints at least 1",
+        "`grep -c 'passage_chars' docs/RETRIEVAL.md` prints at least 1",
+        "`grep -c -- '--judge' docs/RECIPES.md` prints at least 1, and the page shows one summary line with `n=`, `failed=` and `judge_invalid=`",
+        "For each of the two `docs/eval/` pages: `head -20 <page> | grep -c '400'` prints at least 1, and `head -20 <page> | grep -ci 'judge'` prints at least 1",
+        "`git diff docs/eval/2026-07-13_topic_subgraphs.md docs/eval/2026-07-20_tree_seeding.md | grep -c '^-[^-]'` prints 0: the two pages get an added note and lose no line",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The proposal lists three documentation parts beside the reset call of TASK-001. This task does those three and two lines that keep new options from being undocumented.\n\n1. `docs/tools/ema_search.md`. The section 'Output format' (lines 31-49) shows a one-sentence body. Say what the agent reads now: the matched leaf first, then its parent, up to `passage_chars` characters, on one line. Say that the faithfulness judge receives the same text. The section 'Observability' (lines 85-92) says the sink feeds 'the faithfulness judge's context passages'; make it say which text.\n\n2. The two earlier result pages. Each gets one note near its top, and nothing else on the page changes. The note states how the numbers were made: with the 400-character cut, with the generator's model as the judge, and with means that print no n. It says that they do not compare with a number from the runner of this work unit, and that the question of repeating them is asked again when backlog row 11 has shipped (`DECISIONS.md`, 'Earlier evaluation numbers are not repeated before the corpus repair'). The note is the assistant's addition and says so, with the date. Do not write a model id from memory: read which model was bound to `roles.judge` at the page's commit with `git show <commit>:harness/configs/models.yaml`. The pages name their commits in their first lines (`199f995`, `f9bba89`).\n\n3. `docs/RECIPES.md`. It shows the runner's command at line 119. Add `--judge`, one printed summary with its counts, and the sentence that the generator and the judge are both Claude models. `docs/RECIPES.md` lines 81-83 and 90-96 describe the inline judge and the stamping; say there that the runner does not run the few-shot layer and the inline judge, and prints a line when a recipe declares one.\n\n4. `docs/RETRIEVAL.md`. Name the profile key `passage_chars` where the page describes the `retrieval` block of a profile.\n\nLeft for `/ship`, on purpose: the banners and 'Key decisions' of `CLAUDE.md`, the backlog row, the proposal, the entries in `DECISIONS.md` for the two decision notes, and `docs/pm/_Archive.md`. Other pages mention `scripts/run_eval.py` in passing (`docs/SETUP.md`, `docs/ONBOARDING.md`, `docs/ARCHITECTURE.md`, `docs/VISUALIZATION.md`); read each for a sentence this work made false, and change only such a sentence.",
+      "outcome": "docs/tools/ema_search.md: new subsection 'What the agent reads in each result' (matched leaf first, then its parent, up to passage_chars from the index profile, one line, matched_text/agent_text, the judge reads the same text, the old 400-character cut and the live 7-of-9 observation); Observability says which text the judge receives; the recipe example names passage_chars (passage_chars 4x, 'matched leaf' 3x). docs/RETRIEVAL.md §6 profile block shows passage_chars. docs/RECIPES.md: --judge with an example, the default judge, the two run tags, the same-family sentence, one sample summary with n=, failed=, judge_invalid= (marked as shape, not a result), and a bullet that few-shot and the inline judge run in app.py only and print a NOTE line. The two docs/eval pages each got one note in their first 20 lines (400 and judge present; 0 lines removed), labelled as the assistant's, with the judge binding read at the page's commit (git show 199f995 / f9bba89: roles.judge = claude_opus = claude-opus-4-7, every recipe generating with claude_opus, _SNIPPET_MAX = 400); the seeding note says the probe's vector ranks depend on neither point, only section 6 does. Other pages read: docs/ARCHITECTURE.md:155-159 was false (predict_fn, three tags) and was corrected; docs/ONBOARDING.md, docs/VISUALIZATION.md and docs/SETUP.md hold no sentence this work made false (ONBOARDING's 'works live' refers to the 2026-07 verification; the rewritten runner's first live run is TASK-015). Left for /ship as planned: CLAUDE.md banners, the backlog row, the proposal, DECISIONS.md, docs/pm/_Archive.md. make test: 729 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-015",
+      "title": "Run the runner once on the live graph and write down what the store shows",
+      "type": "measurement",
+      "status": "completed",
+      "dependencies": [
+        "TASK-001",
+        "TASK-008",
+        "TASK-009",
+        "TASK-013",
+        "TASK-014",
+        "TASK-016",
+        "TASK-017",
+        "TASK-018"
+      ],
+      "decision": "docs/pm/decisions/2026-11-23_late-agent-trace.md",
+      "files": [
+        "docs/eval/YYYY-MM-DD_eval_runner_live_check.md"
+      ],
+      "acceptance": [
+        "Before the run: `grep -c '^status: settled' docs/pm/decisions/2026-11-23_live-check-run.md` prints 1 and the note holds the owner's yes with the number of questions. If it prints 0, stop: the task waits on the owner",
+        "Before the run, read-only: `select count(*) from runs` gives 17 and `select count(*) from trace_info` gives 114 in `mlflow.db`, and no experiment is named `eval_reliability_smoke`. Write the three results into the outcome. A different number means another run happened in between: say which",
+        "The command is run exactly as the settled note states it. For 3 questions: `.venv/bin/python scripts/run_eval.py --recipe naive_rag --types T1 T2 T3 --limit 1 --experiment eval_reliability_smoke > <log> 2>&1`, with the exit status kept. It exits with status 0",
+        "`grep -c 'Event loop is closed' <log>` prints 0",
+        "The log holds one summary line per question type with `n=1`, and one line that names the generator `claude-opus-4-7` and the judge `claude-opus-5-5`",
+        "`select count(*) from runs r join experiments e on e.experiment_id = r.experiment_id where e.name = 'eval_reliability_smoke'` gives one run per question type (3 or 4)",
+        "Each of those runs holds the tags `ema.generator_model` = `claude-opus-4-7`, `ema.judge_model` = `claude-opus-5-5`, `ema.recipe` = `naive_rag` and `ema.retrieval.index_profile`, and the metrics `n`, `failed` and `judge_invalid`: `select key, value from tags where run_uuid = ?` and `select key, value from metrics where run_uuid = ?`",
+        "`select value from trace_tags where key = 'ema.bench_id'` gives exactly the ids that ran (`T1-001`, `T2-001`, `T3-001`, and `T4-001` for 4 questions). Each of those traces also holds the trace tag `ema.recipe` = `naive_rag`",
+        "For each of those traces, `select name, parent_span_id from spans where trace_id = ?` gives more than one span, and the span without a parent is named `AgentWorkflowAdapter.invoke`",
+        "For each finished item, `select name, value from assessments where trace_id = ?` gives one `faithfulness` and one `correctness` row on the agent's own trace, each with an integer from 1 to 5. A row that is not such a number is listed on the page, not hidden",
+        "For one trace: every entry of `context_passages` in the root span's output occurs verbatim in the output of one of the trace's tool spans, and no entry is longer than 2,000 characters",
+        "After the run: the experiment `ema_nlp` still holds 17 runs and 114 traces",
+        "`docs/eval/YYYY-MM-DD_eval_runner_live_check.md` exists, with the date of the run. It names the command, the commit of the code, `benchmark/benchmark.jsonl` at commit `ad4b214`, the item ids, both model ids, the run ids, n per type, the failed items by id, the counts before and after, and every criterion above with its result. It says that the generator and the judge are of one model family, and that the judge values of this run are a check of the runner and not a result for `naive_rag`",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Why this run exists. The runner's tests are offline, and a stand-in proves only the call shape that the test's author wrote (`docs/PLANNING_WORKFLOW.md`, rule 10). Two points have no proof yet (`exploration.md` section 5.1): that a trace made by `mlflow.llama_index.autolog()` inside the runner's loop is the one the judge values land on, and that the trace is written before the runner reads it. It is also the first run of the new passage text, of the new judge and of `--experiment` with the run tags, on real data (rule 6: a step is done when the entry point ran on real data).\n\nThis is the only paid run of the work unit, apart from the one short completion of TASK-009.\n\nThe plan of the run, fixed before it.\n- Items: `benchmark/benchmark.jsonl` at commit `ad4b214`, the first item of each question type that runs: `T1-001`, `T2-001`, `T3-001`, and `T4-001` if the owner chose 4 questions. No repeat.\n- Arms: one. This run compares nothing. It checks the runner.\n- Models: generator `claude-opus-4-7` (the recipe `naive_rag` names `claude_opus`); judge `claude-opus-5-5` (`roles.judge` after TASK-009). Both are Claude models.\n- Metric: none is reported as a result. The page lists the values per item with n = 1 per type.\n- What would show the work is not done: a line with `Event loop is closed`; judge values on a trace with the single span `root_span`; a trace without `ema.bench_id`; a run without one of the two model tags; a passage the judge received that the agent did not read.\n- Cost and time: in the decision note, with the arithmetic. About 14 generator calls and 6 judge calls for 3 questions; about 19 and 8 for 4.\n\nPlan decision, not in the proposal: the run goes to its own experiment, `eval_reliability_smoke`, through the existing option `--experiment` (`scripts/run_eval.py:24`). The experiment `ema_nlp` then keeps only runs that count. Without the option the run lands in `ema_nlp`, since `EMA_MLFLOW_EXPERIMENT` is unset on this machine.\n\nBefore the run. Neo4j and the GPU must answer: `scripts/start_services.sh`, then one retrieval. The run embeds about 15 queries on the GPU and writes nothing to the graph. Open `mlflow.db` read-only for every check: `sqlite3.connect('file:mlflow.db?mode=ro', uri=True)`.\n\nThe store. The run appends to `mlflow.db`: one experiment, one run per question type, and at least one trace per item. Whether a judge call writes a trace of its own is not known; count the traces of the new experiment and write the number down. The run cannot be undone by a command of this repository. A second run adds a second set of runs and changes none of the first.\n\nIf a criterion fails. Do not patch around it inside this task. Write what the store shows to the page, open a decision note under `docs/pm/decisions/` when the owner has to choose, and stop. The proposal names one fallback for the trace question: keep `predict_fn`, with one worker (`MLFLOW_GENAI_EVAL_MAX_WORKERS=1`) and one long-lived event loop. That fallback judges a failed row again, so it is the owner's choice and not a quiet change.\n\nNot verified by this run: a failed item on the live path (no failure can be forced there), and a judge of another provider (no key exists on 2026-11-23).\n\nFirst run 2026-11-23 19:57 (outcome above): T1's agent trace arrived too late. The owner chose 'fix it now' (decision note 2026-11-23_late-agent-trace.md); TASK-017 and TASK-018 fix it, then this run is repeated as the same command into the same experiment, which then holds the runs of both attempts.",
+      "outcome": "Second attempt, after TASK-017 and TASK-018: 2026-11-23 20:30:43-20:33:31, exit 0, the same command into eval_reliability_smoke. Runs ed9ebce6 (T1), a67a2090 (T2), ef8c9329 (T3), a099e716 (T4); agent traces tr-da7daf69, tr-5729a943, tr-a3c26f08, tr-655e9b82, 33 spans each, root AgentWorkflowAdapter.invoke, ema.bench_id + ema.recipe on each. Before 21 runs / 119 traces (ema_nlp 17/114, smoke 4/5); after 25 / 123 (ema_nlp 17/114, smoke 8/9). 0 'Event loop is closed', 0 'Failed to end span'. Summary n=1 per type, failed=0, judge_invalid=0, no_trace=0; all 4 runs hold the required tags and metrics; 8 judge values, JSON integers, on the agent's own traces. Criterion 11 (passages in the root span) not checkable as written; 38 result bodies, max 2000. Cost not measured (no token usage on traces). First attempt (19:57, runs ffebfc1d/7995304e/dd2db3ef/5ab99b52) failed criterion 8-10 for T1 (late trace); both attempts are on docs/eval/2026-11-23_eval_runner_live_check.md. make test: 736 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "id": "TASK-016",
+      "title": "Send the workspace header on every Anthropic request when ANTHROPIC_WORKSPACE_ID is set",
+      "type": "mechanism",
+      "status": "completed",
+      "dependencies": [],
+      "decision": "docs/pm/decisions/2026-11-23_api-key-workspace.md",
+      "files": [
+        "harness/models.py",
+        "harness/llms.py",
+        "harness/eval/judges.py",
+        "harness/configs/models.yaml",
+        "tests/test_models.py",
+        "tests/test_llms.py",
+        "tests/test_eval_judges.py"
+      ],
+      "acceptance": [
+        "`tests/test_models.py::test_workspace_header_only_when_the_variable_is_set` passes: no variable gives {}, a set variable gives {'anthropic-workspace-id': <value>}",
+        "`tests/test_models.py::test_call_anthropic_sends_the_workspace_header` passes: the client of _call_anthropic is built with the header",
+        "`tests/test_llms.py::test_agent_model_sends_the_workspace_header` passes: the LlamaIndex Anthropic client built by _make_anthropic carries the header, and carries none when the variable is unset",
+        "`tests/test_eval_judges.py::test_anthropic_judge_sends_the_workspace_header` passes: build_judge passes extra_headers with the header for an anthropic model, and none for an openai model",
+        "With the owner's workspace ID in the credentials file, the free model listing through the configured endpoint returns the model ids, among them claude-opus-4-7 and claude-opus-5-5",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Added on 2026-11-23 on the owner's choice (b) in the decision note. The key in the credentials file is organization-scoped, and the API answered the free model listing with 400 'This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header'. The installed anthropic SDK 0.105.2 has no setting for it. Installed APIs that carry the header: llama-index-llms-anthropic 0.11.5 Anthropic(default_headers=...) (base.py:229); anthropic.Anthropic(default_headers=...); mlflow 3.14.0 make_judge(extra_headers=...) (make_judge.py:121, gateway_adapter.py:553-554). Unset variable: no header, no behaviour change. Not verified offline: whether the configured endpoint passes the header on; the free listing checks that.",
+      "outcome": "harness/models.py: WORKSPACE_ENV / WORKSPACE_HEADER and anthropic_headers() ({'anthropic-workspace-id': ANTHROPIC_WORKSPACE_ID} when set, else {}), read at call time; _call_anthropic builds its client with default_headers. harness/llms.py: _make_anthropic passes default_headers to LlamaIndex Anthropic (both its sync and async client carry the header). harness/eval/judges.py: build_judge passes extra_headers for an anthropic model (mlflow 3.14.0 make_judge.py:121, gateway_adapter.py:553). harness/configs/models.yaml comment names the variable. 4 new tests. Unset variable: no header. Real check, free: with the owner's workspace ID in the credentials file, GET /v1/models through the configured endpoint listed 15 models, among them claude-opus-4-7 and claude-opus-5-5 (it had answered 400 'not scoped to a workspace' without the header). Listing workspaces with this key is not permitted (403). make test: 733 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "type": "mechanism",
+      "status": "completed",
+      "dependencies": [],
+      "decision": "docs/pm/decisions/2026-11-23_late-agent-trace.md",
+      "id": "TASK-017",
+      "title": "Build the anthropic SDK's response-model serializers before the first traced call",
+      "files": [
+        "harness/llms.py",
+        "tests/test_llms.py"
+      ],
+      "acceptance": [
+        "`tests/test_llms.py::test_first_traced_response_serializes` passes: in a fresh interpreter, a response built by the SDK's construct_type (tool_use block with caller, usage with cache_creation and output_tokens_details) fails mlflow's dump_span_attribute_value before the warm-up and succeeds after building the wrapper",
+        "One real structured call with claude-opus-4-7 under autolog in a fresh process, to a scratch store, logs no 'Failed to end span'",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The defect, found 2026-11-23 after TASK-015's first run. The SDK builds responses with construct_type, without validation, so classes with defer_build keep a MockValSer serializer until something calls model_dump on them directly. autolog's CHAT_MODEL span of the parent achat closes before the wrapper's sanitize step and serializes the raw response through mlflow's TraceJSONEncoder (mlflow/tracing/utils/__init__.py:77) -> TypeError 'MockValSer' object is not an instance of 'SchemaSerializer'. Found unbuilt in the live response of claude-opus-4-7: ToolUseBlock, DirectCaller, CacheCreation, OutputTokensDetails (Haiku's response did not fail). Only the first such call of a process fails, since the sanitize step then builds the classes. Reproduced offline with construct_type; model_construct does not reproduce it.",
+      "outcome": "harness/llms.py: warm_anthropic_models() builds every unbuilt pydantic class of the loaded anthropic.types modules (model_rebuild(force=True)), once per process (382 classes, 0.09 s; second call 0); _make_anthropic calls it before the first traced call. Cause found with 3 short structured calls of claude-opus-4-7 to a scratch store (Haiku did not fail) and mlflow's debug traceback: TraceJSONEncoder.default -> model_dump -> TypeError 'MockValSer'; unbuilt in the live response: ToolUseBlock, DirectCaller, CacheCreation, OutputTokensDetails. Reproduced offline only with the SDK's construct_type (model_construct does not). New test test_first_traced_response_serializes runs in a fresh interpreter (2.4 s): BEFORE the dump fails with MockValSer, AFTER _make_anthropic it is OK (skips if a library upgrade removes the defect). Real check: the same structured call with claude-opus-4-7 after the fix logged 0 'Failed to end span', and the trace holds the _Anthropic.achat CHAT_MODEL span that T1's trace lacked. make test: 736 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    },
+    {
+      "type": "mechanism",
+      "status": "completed",
+      "dependencies": [],
+      "decision": "docs/pm/decisions/2026-11-23_late-agent-trace.md",
+      "id": "TASK-018",
+      "title": "Take each item's trace id from the adapter's own root span",
+      "files": [
+        "harness/agents/workflow_adapter.py",
+        "harness/eval/predict.py",
+        "tests/test_eval_predict.py",
+        "tests/test_eval_runner.py"
+      ],
+      "acceptance": [
+        "`tests/test_eval_predict.py::test_predict_items_prefers_the_trace_id_the_agent_returns` passes: an ainvoke result with trace_id gives that id even when the trace-id function returns nothing new",
+        "`tests/test_eval_runner.py::test_adapter_returns_its_own_trace_id` passes: AgentWorkflowAdapter.ainvoke returns the id of the trace that holds its root span",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The newest-trace-of-the-process lookup (mlflow.get_last_active_trace_id) gave nothing for T1 because the trace was written late. The adapter knows its own root span; its id does not depend on when the exporter writes the trace. The fallback to trace_id_fn stays for a failed item and for a runnable without the key.",
+      "outcome": "harness/agents/workflow_adapter.py: ainvoke returns trace_id, the id of the trace of its own root span (None when tracing is off); app.py reads only named keys, so the extra key changes nothing there. harness/eval/predict.py: apredict_items uses that id first and falls back to trace_id_fn (failed item, runnable without the key). 2 new tests (predict prefers the returned id when trace_id_fn gives nothing; the adapter's id is the trace whose root span is AgentWorkflowAdapter.invoke). make test: 736 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0)."
+    }
+  ]
+}

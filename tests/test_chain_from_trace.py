@@ -242,3 +242,29 @@ def test_tree_view_fields_recovered_from_retriever_spans_and_path_kv():
     (node2,) = step2.nodes
     assert node2.topic_path == "medicines/human"
     assert node2.source_type == ""
+
+
+def test_chain_is_rebuilt_from_an_output_with_long_bodies():
+    """Bodies grew from 400 to 2,000 characters with markers; the line parser must hold."""
+    from llama_index.core.schema import NodeWithScore, TextNode
+
+    from harness.export.chain_from_trace import _nodes_from_output, _notes_from_output
+    from harness.tools.search import format_nodes
+
+    leaf = "[see annex] the limit is 96 ng/day"
+    nodes = [
+        NodeWithScore(
+            node=TextNode(
+                text=f"{'context ' * 150}{leaf} {'more ' * 200}",
+                metadata={"source_url": f"https://ema.eu/d{i}", "matched_text": leaf,
+                          "retrieval_origin": "vector" if i == 0 else "link_expansion"},
+            ),
+            score=0.9 - i / 10,
+        )
+        for i in range(3)
+    ]
+    raw = "[routing: rule 'x' -> prefer qa]\n\n" + format_nodes(nodes)
+    parsed = _nodes_from_output(raw, {})
+    assert [n.source_url for n in parsed] == [f"https://ema.eu/d{i}" for i in range(3)]
+    assert [n.retrieval_origin for n in parsed] == ["vector", "link_expansion", "link_expansion"]
+    assert _notes_from_output(raw) == ["[routing: rule 'x' -> prefer qa]"]

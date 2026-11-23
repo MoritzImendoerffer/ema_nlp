@@ -32,6 +32,7 @@ def assemble_agent(
     router: Any = None,
     hubs: Any = None,
     subgraph: Any = None,
+    passage_chars: int | None = None,
 ) -> Any:
     """Wire a FunctionAgent whose ``ema_search`` runs the config-driven pipeline.
 
@@ -42,7 +43,9 @@ def assemble_agent(
     ``QueryRouter`` from the recipe's ``retrieval.routing`` table, or None) gives
     ``ema_search`` its per-query source-category prior. ``hubs`` (a loaded
     ``HubsConfig``) + ``subgraph`` (a ``SubgraphPolicy``) configure the
-    ``topic_context`` tool when the toolset names it.
+    ``topic_context`` tool when the toolset names it. ``passage_chars`` (the index
+    profile's ``retrieval.passage_chars``) caps each result body of ``ema_search`` and
+    ``corrective_search``; None keeps the tools' default.
     """
     transform = None
     postprocessors: list = []
@@ -57,6 +60,8 @@ def assemble_agent(
             llm=llm,
             doc_type_priority=getattr(pipeline_config, "doc_type_priority", None),
         )
+    # Forwarded only when set: a None would reach the tools' slice as [:None], no cut.
+    extra: dict[str, Any] = {} if passage_chars is None else {"passage_chars": passage_chars}
     return build_agent(
         llm=llm,
         config=agent_config,
@@ -67,6 +72,7 @@ def assemble_agent(
         router=router,
         hubs=hubs,
         subgraph=subgraph,
+        **extra,
     )
 
 

@@ -38,9 +38,9 @@ class _FakeRetriever(BaseRetriever):
         return [NodeWithScore(node=TextNode(text="x", metadata={"source_url": "u"}), score=1.0)]
 
 
-def _fake_profile(*_a, **_k):
-    """A minimal stand-in for an IndexProfile (build_recipe reads profile.retrieval.k)."""
-    return SimpleNamespace(retrieval=SimpleNamespace(k=10))
+def _fake_profile(*_a, passage_chars=2000, **_k):
+    """A minimal stand-in for an IndexProfile (build_recipe reads retrieval.k and .passage_chars)."""
+    return SimpleNamespace(retrieval=SimpleNamespace(k=10, passage_chars=passage_chars))
 
 
 # --- config loading ---------------------------------------------------------
@@ -243,3 +243,68 @@ def test_tree_agent_recipe_wires_tree_profile():
     assert r.tools == ["ema_search", "resolve_substance"]
     assert r.routing is None  # traversal showcase: no routing prior
     assert r.pipeline is None
+
+
+def test_resolved_attributes_stamp_the_passage_limit():
+    """Two runs with different limits give the agent different text; the trace must say which."""
+    from harness.recipes import get_recipe
+
+    recipe = get_recipe("naive_rag")
+    assert recipe.resolved_attributes(passage_chars=600)["ema.retrieval.passage_chars"] == 600
+    assert "ema.retrieval.passage_chars" not in recipe.resolved_attributes()
+
+
+# --- the profile's passage limit reaches the tools (eval reliability, TASK-013) ---
+
+_LEAF = "LEAF the acceptable intake is 96 ng/day"
+
+
+class _LongRetriever(BaseRetriever):
+    """Merged nodes: a 2,100-character parent that holds the matched leaf."""
+
+    def _retrieve(self, query_bundle: QueryBundle):
+        parent = ("context " * 120) + _LEAF + (" more" * 200)
+        return [
+            NodeWithScore(
+                node=TextNode(text=parent, metadata={"source_url": f"u{i}", "matched_text": _LEAF}),
+                score=0.9,
+            )
+            for i in range(2)
+        ]
+
+
+def _bodies(out: str) -> list[str]:
+    lines = out.splitlines()
+    return [lines[i + 1] for i, line in enumerate(lines) if line.startswith("[") and " source=" in line]
+
+
+def _build_on_600(monkeypatch, recipe_name):
+    monkeypatch.setattr(idx, "load_index_profile", lambda *_a, **_k: _fake_profile(passage_chars=600))
+    monkeypatch.setattr(idx, "build_retriever", lambda profile, index: _LongRetriever())
+    monkeypatch.setattr(llms, "get_llm_for_model", lambda model, temperature_override=None: MockLLM())
+    adapter = build_recipe(get_recipe(recipe_name), index=None)
+    tools = {t.metadata.name: t for t in adapter._session.agent.tools}
+    return adapter, tools
+
+
+def test_profile_passage_limit_reaches_ema_search(monkeypatch):
+    """A profile key that no code reads is a defect; this one must reach the tool."""
+    adapter, tools = _build_on_600(monkeypatch, "naive_rag")
+    bodies = _bodies(str(tools["ema_search"].call(query="ndma")))
+    assert len(bodies) == 2
+    assert all(len(b) <= 600 and b.startswith(_LEAF) for b in bodies)
+    assert adapter.config_attributes["ema.retrieval.passage_chars"] == 600
+
+
+def test_profile_passage_limit_reaches_corrective_search(monkeypatch):
+    class _Grader:
+        def chat(self, messages):
+            content = '{"per_doc": [{"qa_id": "a", "score": 2}], "missing_facts": []}'
+            return SimpleNamespace(message=SimpleNamespace(content=content))
+
+    monkeypatch.setattr(llms, "get_llm", lambda role: _Grader())
+    adapter, tools = _build_on_600(monkeypatch, "crag_agentic")
+    bodies = _bodies(str(tools["corrective_search"].call(query="ndma")))
+    assert len(bodies) == 2
+    assert all(len(b) <= 600 for b in bodies)
+    assert adapter.config_attributes["ema.retrieval.passage_chars"] == 600

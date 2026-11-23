@@ -43,6 +43,8 @@ def build_recipe(
     if retrieval_k:
         profile.retrieval.k = retrieval_k
     effective_k = profile.retrieval.k
+    # What one search result shows the agent (and the judge): the profile decides.
+    passage_chars = profile.retrieval.passage_chars
     retriever = build_retriever(profile, index)
     effective_model = model or recipe.model
     effective_temp = temperature if temperature is not None else recipe.temperature
@@ -86,6 +88,7 @@ def build_recipe(
         router=router,
         hubs=hubs,
         subgraph=recipe.subgraph,
+        passage_chars=passage_chars,
     )
     log.info(
         "built recipe %r: tools=%s pipeline=%s routing=%s model=%s k=%s",
@@ -100,6 +103,9 @@ def build_recipe(
     # Stamp the EFFECTIVE config (override-applied), not the recipe defaults, so the trace
     # reflects what actually ran.
     attrs = recipe.resolved_attributes(
-        model=effective_model, temperature=effective_temp, retrieval_k=effective_k
+        model=effective_model,
+        temperature=effective_temp,
+        retrieval_k=effective_k,
+        passage_chars=passage_chars,
     )
     return AgentWorkflowAdapter(session, extra_attributes=attrs)

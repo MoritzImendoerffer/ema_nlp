@@ -153,11 +153,17 @@ autolog + `harness.obs.tracing.traced`) and the feedback stack (`query_cache.py`
 ## 6. Evaluation harness — rebuilt (2026-07-04)
 
 The recipe × benchmark eval vehicle lives at `harness/eval/runner.py` + `scripts/run_eval.py`:
-it builds a recipe (the same `build_recipe` path the app uses), wraps it as an `mlflow.genai`
-`predict_fn` (which carries the retrieved passages as `context_passages` for the faithfulness
-judge), and evaluates it over `benchmark/benchmark.jsonl` — **one MLflow run per question type
-(T1–T4)**, tagged `ema.recipe` / `ema.benchmark` / `ema.question_type`. MLflow is the system
-of record for results. Still missing: closed-book baselines, the lift metric, and the ablation
+it builds a recipe (the same `build_recipe` path the app uses), runs every question on one
+event loop, and hands only the finished answers (with the passages the agent read as
+`context_passages`) to the `mlflow.genai` judges over `benchmark/benchmark.jsonl` — **one
+MLflow run per question type (T1–T4)**, tagged `ema.recipe` / `ema.benchmark` /
+`ema.question_type`, both model ids and the resolved recipe. A failed agent run is listed by
+id and left out of every mean; every mean prints its n (since 2026-11-23). Each run holds the
+metrics `n`, `failed`, `judge_invalid`, `no_trace` and per judge `<name>_n` and `<name>_mean`;
+failed items go to the run as `failed_rows.json`; every item's trace is tagged `ema.bench_id`.
+The live check of 2026-11-23 ran this path on the live graph
+([`eval/2026-11-23_eval_runner_live_check.md`](eval/2026-11-23_eval_runner_live_check.md)). MLflow is the
+system of record for results. Still missing: closed-book baselines, the lift metric, and the ablation
 grid (the pre-refactor suite remains archived on `archive/pre-llamaindex-refactor`). The
 methodology (T1–T4 types, lift, contamination handling) is documented in
 `project_roadmap/{ROADMAP,ABLATIONS,LEAKAGE}.md`. The chat-time faithfulness `Judge`
@@ -203,12 +209,12 @@ scripts/start_services.sh
 # Seed a small parsed_documents subset (until full backfill on GPU)
 python scripts/backfill_parsed_documents_subset.py --max-html 12 --max-pdf 30
 
-# Build the index + verify retrieval (Python)
+# Verify retrieval on the existing index (Python; opens the graph, writes nothing).
+# Building or rebuilding the graph: docs/RETRIEVAL.md §6, which says what a reset deletes.
 python - <<'PY'
-from harness.indexing import load_index_profile, build_index, build_retriever
+from harness.indexing import load_index_profile, open_index, build_retriever
 p = load_index_profile()
-idx = build_index(p, reset=True)
-r = build_retriever(p, idx)
+r = build_retriever(p, open_index(p))
 print(len(r.retrieve("nitrosamine acceptable intake limit")))
 PY
 

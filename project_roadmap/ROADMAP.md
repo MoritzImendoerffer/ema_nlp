@@ -15,7 +15,7 @@
 > | 1.5 Leakage verification | ◻ planned | methodology in [`LEAKAGE.md`](LEAKAGE.md) |
 > | 1.7 Narrative corpus | ✅ done | now the Neo4j `PropertyGraphIndex`, not pgvector |
 > | 2 Benchmark | 🟡 drafted | 45 items (20 T1 / 10 T2 / 10 T3 / 5 T4); contamination screen still TODO |
-> | 3 Baseline RAG + eval | 🟡 partial | retrieval + the agent are live; the recipe × benchmark eval runner (`scripts/run_eval.py`) is runtime-verified (2026-07-13); **closed-book baselines + lift scoring still TODO** ([`docs/next/closed_book_lift.md`](../docs/next/closed_book_lift.md)). Retrieval gained tree-aware traversal (2026-07-20); its seeding is being fixed ([measurement](../docs/eval/2026-07-20_tree_seeding.md) → [plan](../docs/next/tree_retrieval_followups.md)) |
+> | 3 Baseline RAG + eval | 🟡 partial | retrieval + the agent are live; the recipe × benchmark eval runner (`scripts/run_eval.py`) is runtime-verified (2026-07-13), and was rebuilt and checked live on 2026-11-23 so that a failed run is counted, not judged ([live check](../docs/eval/2026-11-23_eval_runner_live_check.md)); **closed-book baselines + lift scoring still TODO** ([`docs/next/closed_book_lift.md`](../docs/next/closed_book_lift.md)). Retrieval gained tree-aware traversal (2026-07-20); its seeding is being fixed ([measurement](../docs/eval/2026-07-20_tree_seeding.md) → [plan](../docs/next/tree_retrieval_followups.md)) |
 > | 4 Ablations | ◻ planned | Ablation B's agent already exists (`harness/agents/`); A1's acronym dictionary is built (`harness/configs/retrieval/acronyms.yaml`) |
 > | 5 Writeup | ◻ planned | |
 >

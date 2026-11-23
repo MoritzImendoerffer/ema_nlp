@@ -233,3 +233,23 @@ def test_corrective_search_sink_gets_best_nodes():
     with capture_search_nodes() as sink:
         tool.call(query="q")
     assert [nws.node.metadata["doc_id"] for nws in sink] == ["d1"]
+
+
+def test_corrective_search_renders_with_the_same_limit():
+    """corrective_search shows the agent and its grader the bodies ema_search shows."""
+    from harness.tools.search import capture_search_nodes, passages_from_nodes
+
+    class _LongRetriever(_FakeRetriever):
+        def _retrieve(self, query_bundle):
+            nodes = super()._retrieve(query_bundle)
+            nodes[0].node.text = "x " * 1500
+            return nodes
+
+    tool = get_tool(
+        "corrective_search", retriever=_LongRetriever(), llm=_FakeLLM([_SUFFICIENT]), passage_chars=600
+    )
+    with capture_search_nodes() as captured:
+        out = str(tool.call(query="ndma ai"))
+    (passage,) = passages_from_nodes(captured)
+    assert len(passage) <= 600
+    assert passage in out

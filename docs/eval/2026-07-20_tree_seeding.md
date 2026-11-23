@@ -6,6 +6,17 @@
 (79,882 docs / 5.82M chunks / 99,520 `LINKS_TO`). Probe was read-only; no code
 changed for this report.*
 
+> **How these numbers were made** — a note added on 2026-11-23 by the assistant (Claude),
+> not by the owner; the page is otherwise unchanged. The vector ranks of the read-only probe
+> (sections 2–5) depend on neither point below. The live agent run of section 6 and its judge
+> scores do. At commit `f9bba89` the agent read each search result cut to its first 400
+> characters, while the faithfulness judge read the whole passage, and the judge
+> (`roles.judge` = `claude_opus`, `claude-opus-4-7`) was the model that generated the
+> answer. These scores do not compare with a number from the runner of work unit
+> `2026-11-23_26_eval-reliability`. Whether to repeat them is asked again when backlog row 11
+> has shipped (`DECISIONS.md`, "Earlier evaluation numbers are not repeated before the
+> corpus repair").
+
 ## 1. Question
 
 The tree traversal landed and works, but the first live showcase run seeded on

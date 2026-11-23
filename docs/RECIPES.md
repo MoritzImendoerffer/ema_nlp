@@ -82,6 +82,10 @@ recipe:
   the score is shown in the chat and logged to MLflow as an LLM-judge assessment. Add
   `judge.threshold` to turn the score into a *recommendation*: a below-threshold (or
   unscorable) answer ships with a visible ⚠️ caution note — it is never blocked.
+- **The few-shot layer and the inline judge run in the chat app (`app.py`) only.** The
+  benchmark runner (`scripts/run_eval.py`) does not run them: under the runner,
+  `regulatory_fewshot` and `agentic_judged` behave like `regulatory_agent`. The runner
+  prints one `NOTE:` line in its summary for each of the two layers a recipe declares.
 - **`retrieval.routing`** — set to a `configs/routing/<name>.yaml` table to give `ema_search`
   a per-query source-category prior (keyword rules → prefer/filter categories). Combine with
   a steered index profile (`neo4j_steered`: category quotas + LINKS_TO expansion) for the
@@ -117,7 +121,28 @@ appears in the UI dropdown; or run it directly:
 ```bash
 python scripts/run_agent_demo.py --recipe <name> "What is the AI for NDMA?"
 python scripts/run_eval.py --recipe <name> --types T1 --limit 2   # benchmark smoke run
+python scripts/run_eval.py --recipe <name> --judge claude_sonnet  # another judge for one run
 ```
+
+`--judge` takes a key of the `models:` section of `harness/configs/models.yaml` and
+overrides `roles.judge` (since 2026-11-23 `claude_opus_5_5`, a model no recipe generates
+with) for one run; `--model` does the same for the generator. Every run is tagged with
+both model ids (`ema.generator_model`, `ema.judge_model`) and with the resolved recipe.
+The models at hand are Claude's, so the generator and the judge are both Claude models;
+a page in `docs/eval/` that reports a judged number says so.
+
+The runner prints one header and one line per question type. A failed agent run is
+listed by id and left out of every mean, and every mean carries its own n (the numbers
+below show the shape, not a result):
+
+```
+generator=claude-opus-4-7 judge=claude-opus-5-5
+T1: n=3 failed=1 judge_invalid=0 faithfulness=4.500 (n=2) correctness=4.000 (n=2)
+  failed T1-002: RuntimeError: Event loop is closed
+```
+
+The runner's live check of 2026-11-23, with what the store holds after a run:
+[`eval/2026-11-23_eval_runner_live_check.md`](eval/2026-11-23_eval_runner_live_check.md).
 
 ### Example 1 — plain "simple RAG" (retrieve once, answer)
 

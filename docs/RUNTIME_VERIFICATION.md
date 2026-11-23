@@ -82,8 +82,10 @@ p = load_index_profile(); r = build_retriever(p, open_index(p))
 print("hits:", len(r.retrieve("nitrosamine acceptable intake limit")))
 PY
 ```
-Expect ~10 hits. If 0/errors → the volume was wiped; only then rebuild with
-`harness.indexing.build_index(p, reset=True)`.
+Expect ~10 hits. If 0/errors → the volume was wiped. A rebuild with
+`harness.indexing.build_index(p, reset=True)` deletes every node and edge of the live graph
+first, then re-embeds 5.82 million chunks. `CLAUDE.md` rule 4 asks for the owner's go-ahead
+before it runs.
 
 ## 5. Verification tasks (do in order; fix-on-fail, then commit + HISTORY row)
 

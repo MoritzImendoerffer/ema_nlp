@@ -48,6 +48,31 @@ Per line: source URL, category, score, plus
 Both tags exist so the agent can *see* the shape of its evidence — the source-type
 mix and where in the hierarchy it sits — and steer a follow-up call.
 
+### What the agent reads in each result
+
+The line under the header is the body, always one line. Since 2026-11-23 it is the
+**matched leaf** first — the small chunk the vector search hit — and then its parent
+chunk, up to `passage_chars` characters (default 2,000):
+
+```
+<matched leaf> || in its section: <parent text before the leaf> [...] <parent text after it>
+```
+
+- `passage_chars` is a key of the index profile's `retrieval` block
+  (`harness/configs/index/*.yaml`). The value in force is stamped on every trace and
+  evaluation run as `ema.retrieval.passage_chars`.
+- A node without a separate leaf (no merge, or the leaf is the whole chunk) shows its
+  own text, cut to the same limit.
+- The leaf's text comes from `metadata['matched_text']`, which the retriever keeps when
+  it merges a leaf to its parent (`harness/indexing/property_graph.py`).
+- The rendered body is written to the node as `metadata['agent_text']`. The faithfulness
+  judge receives exactly this text, so it grades the answer against what the agent read.
+
+Before 2026-11-23 the body was the parent's first 400 characters. On a live
+`ema_search` call for "nitrosamine acceptable intake limit" (2026-11-23), the matched leaf
+started after character 400 of its parent in 7 of 9 results, so the agent did not see it,
+while the judge read the whole parent.
+
 ## Steering precedence
 
 ```
@@ -73,7 +98,8 @@ Recipe side:
 orchestration:
   tools: [ema_search, resolve_substance]
 retrieval:
-  index_profile: neo4j_tree     # which retriever config (see retriever.md)
+  index_profile: neo4j_tree     # which retriever config (see retriever.md); it also sets
+                                # passage_chars, the characters of one result body
   routing: default              # optional keyword→category priors
   pipeline: none                # optional query-expansion + rerank pipeline
 ```
@@ -85,7 +111,9 @@ When `retrieval.pipeline` is set, the tool runs the config-driven pipeline
 ## Observability
 
 - Feeds every node into the shared **sink** (`sink_nodes`) → citations,
-  reference cards, and the faithfulness judge's context passages.
+  reference cards, and the faithfulness judge's context passages. The judge's passages
+  are the rendered bodies (`metadata['agent_text']`, read by `passages_from_nodes`), not
+  the full parent text; citations still use the full text.
 - Records a `ChainStep` (`record_tool_event`) with args, notes, per-node
   provenance and duration → the chain HTML ([`chain_events.md`](chain_events.md)).
 - Runs inside MLflow autolog spans; the nested RETRIEVER span carries full node

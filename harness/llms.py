@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -114,8 +115,55 @@ def get_llm_for_model(model_name: str, temperature_override: float | None = None
 # "`temperature` is deprecated for this model" — the Claude 5 family). The
 # installed llama-index ANTHROPIC_NO_TEMP_MODELS list covers only opus-4-7/4-8,
 # so the wrapper strips it for these too. Prefix match (not substring): a
-# substring "-5" would wrongly hit claude-haiku-4-5.
-_NO_TEMPERATURE_PREFIXES = ("claude-sonnet-5", "claude-fable-5", "claude-mythos-5")
+# substring "-5" would wrongly hit claude-haiku-4-5. claude-opus-5 was added on
+# 2026-11-23: a real call with claude-opus-5-5 returned that 400, and the inline
+# judge (harness/judge.py, roles.judge) swallows the error and logs a warning only.
+_NO_TEMPERATURE_PREFIXES = ("claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-mythos-5")
+
+
+_ANTHROPIC_MODELS_WARMED = False
+
+
+def warm_anthropic_models() -> int:
+    """Build the serializers of the anthropic SDK's response models, once per process.
+
+    The SDK builds a response with ``construct_type``, without validation, so a model class
+    with ``defer_build`` keeps a ``MockValSer`` placeholder until something calls
+    ``model_dump`` on one of its objects directly. mlflow's LlamaIndex autolog closes the
+    ``CHAT_MODEL`` span of ``Anthropic.achat`` before :meth:`_Anthropic._sanitize` runs, and
+    serializes the raw response with its JSON encoder: "'MockValSer' object is not an
+    instance of 'SchemaSerializer'". The span never ends, and the trace is written late.
+
+    Seen on 2026-11-23 in the first item of a live evaluation run with ``claude-opus-4-7``
+    (``ToolUseBlock``, ``DirectCaller``, ``CacheCreation`` and ``OutputTokensDetails`` were
+    unbuilt); a ``claude-haiku-4-5`` response did not fail. Only the first such response of
+    a process failed, because the sanitize step then builds the classes.
+
+    Returns the number of classes built; 0 after the first call.
+    """
+    global _ANTHROPIC_MODELS_WARMED
+    if _ANTHROPIC_MODELS_WARMED:
+        return 0
+    import anthropic.types  # noqa: F401  (imports the response-model modules)
+    from pydantic import BaseModel
+
+    built = 0
+    for name, module in list(sys.modules.items()):
+        if not name.startswith("anthropic.types") or module is None:
+            continue
+        for obj in list(vars(module).values()):
+            if not (isinstance(obj, type) and issubclass(obj, BaseModel) and obj.__module__ == name):
+                continue
+            serializer = type(obj.__dict__.get("__pydantic_serializer__")).__name__
+            if obj.__pydantic_complete__ and serializer != "MockValSer":
+                continue
+            try:
+                obj.model_rebuild(force=True)
+                built += 1
+            except Exception as exc:  # a class that cannot build stays as it is
+                log.debug("could not build %s.%s: %s", name, obj.__name__, exc)
+    _ANTHROPIC_MODELS_WARMED = True
+    return built
 
 
 def _make_anthropic(model_id: str, temperature: float, max_tokens: int) -> LLM:
@@ -127,6 +175,9 @@ def _make_anthropic(model_id: str, temperature: float, max_tokens: int) -> LLM:
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         raise OSError("ANTHROPIC_API_KEY not set. Add it to ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env")
+
+    # Before the first traced call: an unbuilt SDK class makes autolog's span fail to end.
+    warm_anthropic_models()
 
     class _Anthropic(Anthropic):
         """Anthropic wrapper hardened against two library bugs (GPU walk 2026-07-07).
@@ -254,11 +305,15 @@ def _make_anthropic(model_id: str, temperature: float, max_tokens: int) -> LLM:
                 **kwargs,
             )
 
+    from harness.models import anthropic_headers
+
     return _Anthropic(
         model=model_id,
         temperature=temperature,
         max_tokens=max_tokens,
         api_key=api_key,
+        # The workspace header for an organization-scoped key; None when unset.
+        default_headers=anthropic_headers() or None,
     )
 
 

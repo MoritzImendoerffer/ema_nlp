@@ -50,6 +50,15 @@ class AgentWorkflowAdapter:
         # Resolved recipe config (honest ``ema.*`` stamping) merged onto every turn span.
         self._extra_attributes = dict(extra_attributes or {})
 
+    @property
+    def config_attributes(self) -> dict[str, Any]:
+        """A copy of the resolved recipe's ``ema.*`` attributes (read-only).
+
+        The eval runner stamps them on its runs. It reads them here instead of computing
+        them again, so the run and the trace cannot carry two different configurations.
+        """
+        return dict(self._extra_attributes)
+
     def _config_attributes(self, payload: dict) -> dict[str, Any]:
         """``ema.*`` attributes for the agent turn (one shape for all recipes).
 
@@ -119,6 +128,10 @@ class AgentWorkflowAdapter:
                 # Ordered retrieval-tool events (see harness.tools.events) — the
                 # chain_html export's data; dicts so the bundle stays JSON-ready.
                 "chain_steps": [s.to_dict() for s in chain_steps],
+                # The id of the trace this turn's root span belongs to (None when tracing
+                # is off). The eval runner links judge values to it; it does not depend on
+                # when mlflow's exporter writes the trace.
+                "trace_id": getattr(span, "trace_id", None),
             }
 
     def invoke(self, payload: dict) -> dict:

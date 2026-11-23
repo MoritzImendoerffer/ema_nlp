@@ -269,27 +269,49 @@ Configs *without* an `orchestration:` block skip answer generation silently (use
 **The assistant's reading, not the owner's words:** two numbers are compared only when the same judge model produced them. A changed judge starts a new series.  
 **The default judge:** a new entry for `claude-opus-5-5`, bound to `judge`. The owner decided this on 2026-11-23, on the assistant's recommendation, under one condition: a real judge call through the configured endpoint first shows that the model is served and that mlflow's request is accepted. If the call is refused, the question is open again. The binding stays fixed for a series of runs.  
 **Supersedes:** the open question "LLM judge model choice" in `OPEN_QUESTIONS.md`.  
-**Ref:** [`docs/next/eval_reliability.md`](docs/next/eval_reliability.md), decision B
+**Ref:** the eval-reliability proposal (backlog row 9; delivered and deleted 2026-11-23, in git at `a1c587c`), decision B
 
 ### A failed run is listed and left out of the mean
 **Decided:** 2026-11-23, by the owner, on the assistant's recommendation.  
 **What:** A benchmark item whose agent run ended with an error gets no judge call. It is listed by its id and left out of every mean. Each mean is printed with the number of items, the number of failed items and the number of judge values that were not numbers.  
 **Why:** A crash of the harness is not a wrong answer, and a judged crash is not a score. Five evaluation traces ended with `RuntimeError: Event loop is closed` and were judged all the same; one of them holds correctness 5 beside faithfulness 1. The alternative was to count a failed row as the lowest score. That mixes the reliability of the harness into the quality of the answers; a count such as `failed=7 of 45` beside the mean shows it separately.  
 **What follows:** Two arms are compared by their means together with their failed counts. A mean over fewer rows is not a better mean.  
-**Ref:** [`docs/next/eval_reliability.md`](docs/next/eval_reliability.md), decision A; [`docs/eval/2026-11-23_pkr_testbed_review.md`](docs/eval/2026-11-23_pkr_testbed_review.md), section 4
+**Ref:** the eval-reliability proposal (backlog row 9; delivered and deleted 2026-11-23, in git at `a1c587c`), decision A; [`docs/eval/2026-11-23_pkr_testbed_review.md`](docs/eval/2026-11-23_pkr_testbed_review.md), section 4
 
 ### The agent reads the passage that is judged
 **Decided:** 2026-11-23, by the owner, on the assistant's recommendation.  
 **What:** A search result that the agent reads holds the matched leaf first, then its parent chunk, up to a limit of about 2,000 characters. The limit is a setting of the tool. The faithfulness judge receives the same text.  
 **Why:** `harness/tools/search.py:116` cuts each passage to 400 characters before the agent reads it. With `merge: true` that passage is the parent chunk, so the agent reads the parent's first 400 characters and not the leaf that matched. The judge receives the full passage; the review measured a median of 2,112 characters in the stored traces. A faithfulness score then compares the answer with text that the agent did not read.  
 **Cost:** A search result takes about five times the tokens of today. The alternative was the matched leaf alone, about 128 tokens. It was not taken, because the retriever merges to parents for the reason that a leaf alone often lacks its context.  
-**Ref:** [`docs/next/eval_reliability.md`](docs/next/eval_reliability.md), decision C
+**Ref:** the eval-reliability proposal (backlog row 9; delivered and deleted 2026-11-23, in git at `a1c587c`), decision C
 
 ### Earlier evaluation numbers are not repeated before the corpus repair
 **Decided:** 2026-11-23, by the owner, on the assistant's recommendation.  
 **What:** The T1 to T4 tables of 2026-07-13 and the seeding measurements of 2026-07-20 stay as they are. They were made with the 400-character cut, with the generator's model as judge, and with means that print no n. They do not compare with a number from the runner that backlog row 9 delivers. Whether to repeat them is asked again when backlog row 11 has shipped.  
 **Why:** The corpus repair of row 11 changes the index, and a repeat before it would be repeated again.  
-**Ref:** [`docs/next/eval_reliability.md`](docs/next/eval_reliability.md), decision D; [`docs/eval/2026-07-13_topic_subgraphs.md`](docs/eval/2026-07-13_topic_subgraphs.md); [`docs/eval/2026-07-20_tree_seeding.md`](docs/eval/2026-07-20_tree_seeding.md)
+**Ref:** the eval-reliability proposal (backlog row 9; delivered and deleted 2026-11-23, in git at `a1c587c`), decision D; [`docs/eval/2026-07-13_topic_subgraphs.md`](docs/eval/2026-07-13_topic_subgraphs.md); [`docs/eval/2026-07-20_tree_seeding.md`](docs/eval/2026-07-20_tree_seeding.md)
+
+### The passage limit is a key of the index profile
+**Decided:** 2026-11-23, by the owner ("agree"), on the assistant's recommendation.  
+**What:** `retrieval.passage_chars` in `harness/configs/index/*.yaml`, beside `k` and `merge`, default 2,000. `build_recipe` passes it to `ema_search` and `corrective_search`; every trace and evaluation run carries it as `ema.retrieval.passage_chars`.  
+**Why:** The profile already decides whether a parent exists (`merge`). One profile gives one passage shape to every recipe on it, so two recipes on one index read the same text and their numbers compare. The alternatives were a recipe key and a new tool config file.  
+**Ref:** [`docs/pm/decisions/2026-11-23_passage-limit-location.md`](docs/pm/decisions/2026-11-23_passage-limit-location.md)
+
+### The runner's live check: 4 questions on the API
+**Decided:** 2026-11-23, by the owner ("run 4", then "Option 1": the API, not the `claude` CLI).  
+**What:** One paid run of `naive_rag` over `T1-001` to `T4-001` into the experiment `eval_reliability_smoke`, launched from the Claude Code session. It was run twice: the first found one defect, the second passed every check.  
+**Ref:** [`docs/pm/decisions/2026-11-23_live-check-run.md`](docs/pm/decisions/2026-11-23_live-check-run.md); [`docs/eval/2026-11-23_eval_runner_live_check.md`](docs/eval/2026-11-23_eval_runner_live_check.md)
+
+### An organization-scoped API key, with the workspace header
+**Decided:** 2026-11-23, by the owner ("I want option b. I have free credits on this key").  
+**What:** The key in the credentials file is scoped to the organization. `ANTHROPIC_WORKSPACE_ID` in the same file is sent as the header `anthropic-workspace-id` on every Anthropic request: the agent's model (`harness/llms.py`), `call_model` (`harness/models.py`) and the mlflow judges. Unset, nothing is sent.  
+**Why:** Without the header the API answers every request with 400 "This API key is not scoped to a workspace". The alternative was a workspace-scoped key.  
+**Ref:** [`docs/pm/decisions/2026-11-23_api-key-workspace.md`](docs/pm/decisions/2026-11-23_api-key-workspace.md)
+
+### A late agent trace was fixed before delivery, not deferred
+**Decided:** 2026-11-23, by the owner ("fix it now"), against the assistant's recommendation to defer it.  
+**What:** In the first live run, the first item's trace was written after the runner read it: the anthropic SDK left response classes with an unbuilt serializer, and autolog's span of the first `claude-opus-4-7` response could not end. `harness/llms.py` now builds those serializers once per process, and the runner takes each trace id from the adapter's own root span. The repeated run passed every check.  
+**Ref:** [`docs/pm/decisions/2026-11-23_late-agent-trace.md`](docs/pm/decisions/2026-11-23_late-agent-trace.md); [`docs/eval/2026-11-23_eval_runner_live_check.md`](docs/eval/2026-11-23_eval_runner_live_check.md)
 
 ---
 

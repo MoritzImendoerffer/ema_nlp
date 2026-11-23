@@ -37,6 +37,7 @@ retrieval:
   strategy: hierarchical
   k: 10
   merge: true
+  passage_chars: 2000              # characters of one search result (leaf, then parent)
   oversample: 4                    # candidate pool = k * oversample when steering
   category_quota:                  # guaranteed slots within the final k
     scientific_guideline: 2

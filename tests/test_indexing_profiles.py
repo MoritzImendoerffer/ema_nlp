@@ -284,3 +284,13 @@ def test_graph_rejects_nonpositive_max_ancestors():
 
     with pytest.raises(ValueError, match="max_ancestors"):
         GraphRetrievalConfig.from_dict({"max_ancestors": 0})
+
+
+def test_passage_chars_defaults_to_2000_and_must_be_positive():
+    """The agent read 400 characters while the judge read the whole parent (until 2026-11-23)."""
+    from harness.indexing.profiles import RetrievalConfig
+
+    assert RetrievalConfig.from_dict({"k": 5}).passage_chars == 2000
+    assert RetrievalConfig.from_dict({"passage_chars": 600}).passage_chars == 600
+    with pytest.raises(ValueError, match="passage_chars"):
+        RetrievalConfig.from_dict({"passage_chars": 0})

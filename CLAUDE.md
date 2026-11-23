@@ -111,7 +111,8 @@ Read `DECISIONS.md` before planning any implementation. Short summary of the one
 - **Feedback store:** MLflow trace assessments (`mlflow.log_feedback`, the Chainlit 👍/👎) — sqlite backend (`mlflow.db`), no separate database. *(Replaced the Phoenix annotation API.)*
 - **Semantic cache:** thin FAISS index over past query embeddings (`harness/index/query_cache.faiss`) — GPTCache is abandoned, do not use it
 - **Learning from feedback:** runtime few-shot injection from rated trajectories — no model training in the live path. *(A DSPy bootstrap loop — teacher → judge-filter → `BootstrapFewShot` — is now **scaffolded** in `harness/eval/bootstrap.py` on the agentic branch; deferred until ≥ 50 rated examples + a rebuilt eval harness exist.)*
-- **Credentials:** `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` via python-dotenv — never in the repo
+- **Credentials:** `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` via python-dotenv — never in the repo. The Anthropic key there is organization-scoped: `ANTHROPIC_WORKSPACE_ID` in the same file is sent as the `anthropic-workspace-id` header (`docs/SETUP.md`)
+- **Evaluation judge:** `roles.judge` = `claude-opus-5-5`, a model no recipe generates with; `scripts/run_eval.py --judge <key>` overrides it for one run, and every run records both model ids. A failed agent run is listed and left out of every mean (`DECISIONS.md`, "Evaluation design")
 
 Open decisions not yet made are in `OPEN_QUESTIONS.md`.
 
@@ -121,7 +122,7 @@ Open decisions not yet made are in `OPEN_QUESTIONS.md`.
 
 **Phase 2 — benchmark drafted.** `benchmark/benchmark.jsonl`: 45 items (20 T1 / 10 T2 / 10 T3 / 5 T4). The Phase 2.5 contamination screen (closed-book runs, `zero_shot_known` tagging) is still TODO.
 
-**Phase 3 — partial.** Retrieval + the recipe engine are live; the recipe × benchmark eval runner exists (`scripts/run_eval.py`, per-type MLflow runs). Missing: runtime verification of the runner, closed-book baselines, the lift metric.
+**Phase 3 — partial.** Retrieval + the recipe engine are live; the recipe × benchmark eval runner (`scripts/run_eval.py`, per-type MLflow runs) counts failed runs instead of judging them, prints n beside every mean, records both model ids, and was checked live on 2026-11-23 ([`docs/eval/2026-11-23_eval_runner_live_check.md`](docs/eval/2026-11-23_eval_runner_live_check.md)). Missing: closed-book baselines, the lift metric.
 
 Full phase sequence and status table: `project_roadmap/ROADMAP.md` (reconciliation banner).
 
@@ -147,7 +148,7 @@ Full phase sequence and status table: `project_roadmap/ROADMAP.md` (reconciliati
 ```bash
 pip install -e ".[dev]"       # install project + dev deps (or: uv pip install -e ".[dev]")
 scripts/start_services.sh     # start MongoDB + Neo4j (Docker) and health-check them
-make test                     # GATE: pytest without the tests marked integration (692 tests, 14 s)
+make test                     # GATE: pytest without the tests marked integration (736 tests, 18 s on 2026-11-23)
 make lint                     # GATE: ruff check .
 make test-live                # the 7 tests that read the live MongoDB
 make pm                       # regenerate docs/pm/ from the active work unit

@@ -37,7 +37,6 @@ EMA content, and nothing else of the private plan this repository rehearses.
 
 | Proposal | Backlog row | Status | What it is |
 |---|---|---|---|
-| [`eval_reliability.md`](eval_reliability.md) | 9 | proposed 2026-11-23 | A runner that counts failed runs instead of judging them, a judge model that is a setting and is recorded on every run, and an agent that reads the passage that is judged. Also removes the call that deletes the live graph from two docs pages. |
 | [`pipeline_refresh.md`](pipeline_refresh.md) | 10 | proposed 2026-11-23 | The build picks the preferred and newest parse per URL, replaces a changed document's chunks, joins the document labels, parses PDF bytes in this repository, and resets in batches. |
 | [`closed_book_lift.md`](closed_book_lift.md) | 3 | 📋 planned | The closed-book baseline and the **lift** metric, the benchmark's headline number. Doubles as the Phase 2.5 contamination screen. |
 | [`tree_retrieval_followups.md`](tree_retrieval_followups.md) | 1, 2, 4, 5, 6, 8 | 🚧 step 1 done | Fix **seeding** for tree-aware retrieval. Step 1 measured it ([report](../eval/2026-07-20_tree_seeding.md)): three distinct problems, and `oversample` is gated off in the tree profile. |

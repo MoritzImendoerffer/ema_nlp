@@ -184,6 +184,19 @@ ANTHROPIC_BASE_URL=https://gw.claudeapi.com
 EMA_LLM_MODEL=claude-sonnet-4-6
 ```
 
+**Example: an organization-scoped Anthropic key**
+
+```bash
+# ~/Nextcloud/Datasets/ema_nlp/ema_nlp.env
+ANTHROPIC_API_KEY=sk-ant-...              # scope "Organization" in the Claude Console
+ANTHROPIC_WORKSPACE_ID=wrkspc_...         # Console → Settings → Workspaces
+```
+
+A key of organization scope belongs to no workspace, and the API answers a request without
+the header `anthropic-workspace-id` with HTTP 400. When `ANTHROPIC_WORKSPACE_ID` is set, the
+agent's model, `call_model` and the evaluation judges send it as that header. A
+workspace-scoped key needs no such line.
+
 `config.py` loads this file via `python-dotenv` at import time
 (`override=False`, so a variable already set in the shell always wins).
 

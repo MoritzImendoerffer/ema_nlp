@@ -26,7 +26,16 @@ from harness.tools.registry import register_tool
 
 log = logging.getLogger(__name__)
 
-_SNIPPET_MAX = 400
+# The default number of characters of one search result that the agent reads
+# (decision C of the eval reliability proposal, 2026-11-23). Until then the cut was
+# 400: with merge=true the agent read the parent's first 400 characters, while the
+# faithfulness judge read the whole parent (98.8% of 4,875 stored passages were
+# longer than 400 characters).
+DEFAULT_PASSAGE_CHARS = 2000
+
+# Between the matched leaf and the rest of its parent, and where the leaf was cut out.
+_PARENT_MARK = " || in its section: "
+_GAP_MARK = " [...] "
 
 # Per-run sink for the ``NodeWithScore`` objects ``ema_search`` retrieves. Held in a
 # ContextVar so concurrent agent turns are isolated; ``FunctionTool`` copies the
@@ -74,21 +83,54 @@ def sink_nodes(nodes: list) -> None:
 
 
 def passages_from_nodes(nodes: list) -> list[str]:
-    """Full passage texts from captured ``NodeWithScore`` objects (empties dropped).
+    """The passage texts the agent read, from captured ``NodeWithScore`` objects.
+
+    A node rendered by :func:`format_nodes` carries ``metadata['agent_text']``, the body
+    the agent saw; it is returned instead of the full ``node.text``, so the judge grades
+    against the text the agent read. A node that was not rendered (``topic_context``)
+    gives its text. Empties are dropped.
 
     The shared extraction for everything that grades faithfulness against the real
     retrieval: the workflow adapter's ``context_passages`` result key and the eval
     ``predict_fn`` both use it, so the inline and offline judges see the same context.
     """
-    return [
-        text
-        for nws in nodes
-        if (text := (getattr(getattr(nws, "node", nws), "text", "") or "").strip())
-    ]
+    out: list[str] = []
+    for nws in nodes:
+        node = getattr(nws, "node", nws)
+        meta = getattr(node, "metadata", {}) or {}
+        text = (meta.get("agent_text") or getattr(node, "text", "") or "").strip()
+        if text:
+            out.append(text)
+    return out
 
 
-def format_nodes(nodes: list) -> str:
+def render_passage(text: str, matched_text: str | None, limit: int = DEFAULT_PASSAGE_CHARS) -> str:
+    """The one-line body of a search result: the matched leaf first, then its parent.
+
+    1. Whitespace is collapsed in both texts.
+    2. Without a leaf, or when the leaf is the whole text, the body is the text.
+    3. Otherwise the body is the leaf, a marker, and the parent with the leaf's first
+       occurrence cut out; a gap marker joins the text before and after it.
+    4. A leaf not found in the parent is followed by the whole parent.
+    The body is cut to ``limit`` characters and has no line break:
+    ``harness/export/chain_from_trace.py`` reads the tool output line by line.
+    """
+    body_text = " ".join((text or "").split())
+    leaf = " ".join((matched_text or "").split())
+    if not leaf or leaf == body_text:
+        return body_text[:limit]
+    before, found, after = body_text.partition(leaf)
+    rest = (before.rstrip() + _GAP_MARK + after.lstrip()).strip() if found else body_text
+    return (leaf + _PARENT_MARK + rest)[:limit]
+
+
+def format_nodes(nodes: list, passage_chars: int = DEFAULT_PASSAGE_CHARS) -> str:
     """Render retrieved nodes as a numbered, source-tagged context string.
+
+    Each body is :func:`render_passage` of the node, at most ``passage_chars``
+    characters. The body is also written to the node as ``metadata['agent_text']``
+    (excluded from the node's EMBED and LLM content), so :func:`passages_from_nodes`
+    gives the judge the text the agent read.
 
     Each entry is tagged with its source ``category`` (and ``via=link_expansion``
     for link-graph-expanded results) so the agent can *see* the source-type mix
@@ -113,12 +155,24 @@ def format_nodes(nodes: list) -> str:
         via = f" via={origin}" if origin and origin != "vector" else ""
         tree_path = meta.get("tree_path") or ""
         path = f" path=/{tree_path}" if tree_path else ""
-        snippet = " ".join(text.split())[:_SNIPPET_MAX]
+        body = render_passage(text, meta.get("matched_text"), passage_chars)
+        _stamp_agent_text(node, body)
         lines.append(
             f"[{i}] source={source} category={node_category(node_with_score)} "
-            f"score={score_str}{via}{path}\n{snippet}"
+            f"score={score_str}{via}{path}\n{body}"
         )
     return "\n\n".join(lines)
+
+
+def _stamp_agent_text(node: Any, body: str) -> None:
+    meta = getattr(node, "metadata", None)
+    if not isinstance(meta, dict):
+        return
+    meta["agent_text"] = body
+    for attr in ("excluded_embed_metadata_keys", "excluded_llm_metadata_keys"):
+        keys = getattr(node, attr, None)
+        if isinstance(keys, list) and "agent_text" not in keys:
+            keys.append("agent_text")
 
 
 @register_tool("ema_search")
@@ -128,12 +182,14 @@ def build_ema_search_tool(
     transform: Any = None,
     postprocessors: list | None = None,
     router: Any = None,
+    passage_chars: int = DEFAULT_PASSAGE_CHARS,
     **_: Any,
 ) -> FunctionTool:
     """Build the ``ema_search`` FunctionTool over a LlamaIndex retriever.
 
     If ``transform``/``postprocessors`` are given, the config-driven pipeline runs;
-    otherwise a plain ``retriever.retrieve`` is used.
+    otherwise a plain ``retriever.retrieve`` is used. ``passage_chars`` caps each
+    result's body (see :func:`render_passage`).
 
     Source-category steering (see docs/RETRIEVAL.md), strictly precedence-ordered:
 
@@ -231,8 +287,9 @@ def build_ema_search_tool(
         elif categories and mode == "prefer":
             nodes = sort_by_category_priority(nodes, categories)
 
+        # Render first: format_nodes writes agent_text onto each node the sink receives.
+        body = format_nodes(nodes, passage_chars)
         sink_nodes(nodes)
-        body = format_nodes(nodes)
         out = "\n".join(notes) + ("\n\n" if notes else "") + body
         record_tool_event(
             tool="ema_search",

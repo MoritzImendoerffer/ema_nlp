@@ -5,6 +5,16 @@ Code: commits `199f995` (implementation) + `02bf721`/`5c5ccce` (Claude-5 model s
 `claude/agentic-rag-foundation`. MLflow (sqlite `mlflow.db`, experiment `ema_nlp`) is the
 system of record; run IDs below.*
 
+> **How these numbers were made** — a note added on 2026-11-23 by the assistant (Claude),
+> not by the owner; the page is otherwise unchanged. At commit `199f995` the agent read each
+> search result cut to its first 400 characters, while the faithfulness judge read the whole
+> passage. The judge (`roles.judge` = `claude_opus`, `claude-opus-4-7`) was the model that
+> generated the answers. Each mean was printed without its n, and a judge value that was
+> not a number was left out without a count. These numbers do not compare with a number
+> from the runner of work unit `2026-11-23_26_eval-reliability`. Whether to repeat them is
+> asked again when backlog row 11 has shipped (`DECISIONS.md`, "Earlier evaluation numbers
+> are not repeated before the corpus repair").
+
 ## 1. Background
 
 Two retrieval needs that similarity top-k structurally cannot serve, both visible in the

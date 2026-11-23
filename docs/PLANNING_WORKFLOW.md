@@ -89,6 +89,12 @@ Where no source is named, the evidence is in
     environment on this machine (`BACKLOG.md`, the note on pushing). A check on another machine
     waits until the owner has pushed, and the decision note that asks for it names the commit
     that `git log -1` must show there.
+13. **The first call of a process can fail where every later call passes.** In the live check
+    of 2026-11-23 only the first item lost its trace: the anthropic SDK builds a response
+    class's serializer lazily, and the first `claude-opus-4-7` response was traced before
+    anything had built it. Haiku's responses did not show it. A test of such a defect runs in
+    a fresh interpreter, because inside the test process another test has already done the
+    first call.
 
 ## `docs/pm/` — the sprint you can see
 

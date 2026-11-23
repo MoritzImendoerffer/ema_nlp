@@ -660,8 +660,17 @@ class HierarchicalPGRetriever(BaseRetriever):
 
     def _node_from_row(
         self, doc: dict, *, chunk_id: str, matched_id: str, text: str, score: float,
+        matched_text: str | None = None,
         extra: dict[str, Any] | None = None,
     ) -> NodeWithScore:
+        """Build a node; ``matched_text`` is the leaf's text when ``text`` is its parent's.
+
+        With ``merge: true`` the node's text is the parent chunk, and before 2026-11-23
+        only the leaf's id survived (``matched_chunk``): the search tool then showed the
+        parent's first 400 characters, which may not hold the leaf that matched. The leaf's
+        text is kept as ``metadata['matched_text']``, and excluded from the EMBED and LLM
+        content, so a reranker does not score a passage that holds the leaf twice.
+        """
         from harness.retrieval.doc_categories import classify_source
 
         doc = doc or {}
@@ -697,9 +706,15 @@ class HierarchicalPGRetriever(BaseRetriever):
         }
         if extra:
             meta.update(extra)
-        return NodeWithScore(
-            node=TextNode(id_=chunk_id, text=text, metadata=meta), score=float(score)
+        excluded: list[str] = []
+        if matched_text and matched_text != text:
+            meta["matched_text"] = matched_text
+            excluded = ["matched_text"]
+        node = TextNode(
+            id_=chunk_id, text=text, metadata=meta,
+            excluded_embed_metadata_keys=excluded, excluded_llm_metadata_keys=excluded,
         )
+        return NodeWithScore(node=node, score=float(score))
 
     def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
         qvec = self._embed.get_query_embedding(query_bundle.query_str)
@@ -724,7 +739,7 @@ class HierarchicalPGRetriever(BaseRetriever):
             out.append(
                 self._node_from_row(
                     r.get("doc"), chunk_id=nid, matched_id=r["id"],
-                    text=text, score=r["score"],
+                    text=text, score=r["score"], matched_text=r.get("text"),
                 )
             )
         if self._quota:
@@ -777,7 +792,7 @@ class HierarchicalPGRetriever(BaseRetriever):
             out.append(
                 self._node_from_row(
                     r.get("doc"), chunk_id=nid, matched_id=best.get("id") or nid,
-                    text=text, score=best.get("score") or 0.0,
+                    text=text, score=best.get("score") or 0.0, matched_text=best.get("text"),
                     extra={
                         "retrieval_origin": "link_expansion",
                         "linked_from": list(r.get("linked_from") or []),
@@ -847,7 +862,7 @@ class HierarchicalPGRetriever(BaseRetriever):
             out.append(
                 self._node_from_row(
                     r.get("doc"), chunk_id=nid, matched_id=best.get("id") or nid,
-                    text=text, score=best.get("score") or 0.0,
+                    text=text, score=best.get("score") or 0.0, matched_text=best.get("text"),
                     extra={
                         "retrieval_origin": "tree_ancestor",
                         "linked_from": contributors.get(anc, []),

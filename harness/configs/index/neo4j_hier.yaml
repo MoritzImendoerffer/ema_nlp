@@ -25,6 +25,8 @@ retrieval:
   strategy: hierarchical            # small-to-big merge (+ optional links-to expansion)
   k: 10
   merge: true                       # merge retrieved leaf chunks up to their parents
+  passage_chars: 2000               # characters of one search result: matched leaf, then its parent;
+                                    # the faithfulness judge reads the same text
   # Source-category steering is OFF in this profile (plain top-k). The agent's
   # per-call `source_category` filter still works here (it oversamples on demand,
   # default oversample: 4). For quotas + link-graph expansion see the

@@ -19,6 +19,8 @@ from typing import Any
 
 import yaml
 
+from harness.tools.search import DEFAULT_PASSAGE_CHARS
+
 DEFAULT_PROFILE = "neo4j_hier"
 PROFILE_ENV = "EMA_INDEX_PROFILE"
 PROFILE_DIR = Path(__file__).resolve().parent.parent / "configs" / "index"
@@ -200,6 +202,12 @@ class RetrievalConfig:
     oversample: int = 4
     category_quota: dict[str, int] = field(default_factory=dict)
     graph: GraphRetrievalConfig = field(default_factory=GraphRetrievalConfig)
+    # ── what the agent reads (eval reliability, decided 2026-11-23) ────────────
+    # Characters of one search result the agent reads: the matched leaf first,
+    # then its parent (harness.tools.search.render_passage). The judge reads the
+    # same text. Here because ``merge`` decides whether a parent exists: one profile
+    # gives one passage shape to every recipe on it, so their numbers compare.
+    passage_chars: int = DEFAULT_PASSAGE_CHARS
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> RetrievalConfig:
@@ -207,6 +215,9 @@ class RetrievalConfig:
         k = int(d.get("k", 10))
         if k <= 0:
             raise ValueError("retrieval.k must be > 0")
+        passage_chars = int(d.get("passage_chars", DEFAULT_PASSAGE_CHARS))
+        if passage_chars <= 0:
+            raise ValueError("retrieval.passage_chars must be > 0")
         oversample = int(d.get("oversample", 4))
         if oversample < 1:
             raise ValueError("retrieval.oversample must be >= 1")
@@ -223,6 +234,7 @@ class RetrievalConfig:
             oversample=oversample,
             category_quota=category_quota,
             graph=GraphRetrievalConfig.from_dict(d.get("graph")),
+            passage_chars=passage_chars,
         )
 
 

@@ -28,11 +28,16 @@ from harness.eval.judges import (
     align_judge,
     build_judge,
     ema_judges,
-    judge_model_uri,
     load_judge_instructions,
+    resolve_judge_route,
 )
-from harness.eval.predict import build_predict_fn
-from harness.eval.runner import load_benchmark, run_recipe_benchmark
+from harness.eval.predict import build_predict_fn, predict_items
+from harness.eval.runner import (
+    evaluate_items,
+    format_summary,
+    load_benchmark,
+    run_recipe_benchmark,
+)
 
 __all__ = [
     "Exemplar",
@@ -42,12 +47,15 @@ __all__ = [
     "build_predict_fn",
     "compile_fewshot",
     "ema_judges",
+    "evaluate_items",
     "faithfulness_judge",
+    "format_summary",
     "generate_exemplars",
     "judge_filter",
-    "judge_model_uri",
     "load_benchmark",
     "load_judge_instructions",
+    "predict_items",
+    "resolve_judge_route",
     "review_verdict",
     "run_evaluation",
     "run_inline_judges",

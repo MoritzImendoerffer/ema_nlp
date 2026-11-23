@@ -4,7 +4,8 @@
 # To add a new model: add an entry under models: — no code changes needed.
 #
 # Supported providers:
-#   anthropic          — uses ANTHROPIC_API_KEY
+#   anthropic          — uses ANTHROPIC_API_KEY; with an organization-scoped key also
+#                        ANTHROPIC_WORKSPACE_ID (sent as the anthropic-workspace-id header)
 #   together_ai        — uses TOGETHER_API_KEY; base URL hardcoded to api.together.xyz
 #   openai_compatible  — api_base + api_key_env must be set (e.g. llama.cpp / vLLM)
 
@@ -24,11 +25,18 @@ models:
     temperature: 0.0
 
   claude_opus:
-    description: "Claude Opus 4.7 — frontier reasoning; agent, judge, and reviewer roles"
+    description: "Claude Opus 4.7 — frontier reasoning; agent and reviewer roles, and every recipe's generator"
     provider: anthropic
     model_id: claude-opus-4-7
     max_tokens: 4096
     temperature: 0.0
+
+  claude_opus_5_5:
+    description: "Claude Opus 5.5 — the default judge; no recipe generates with it"
+    provider: anthropic
+    model_id: claude-opus-5-5
+    max_tokens: 4096
+    temperature: 0.0  # read by the loader; the wrapper does not send it (the API rejects it)
 
   olmo_32b:
     description: "OLMo 2 32B (Nov 2024) — open-weight, contamination-auditable via OLMoTrace"
@@ -52,5 +60,5 @@ roles:
   grader:   claude_haiku   # CRAG relevance grader; swap to local_qwen32 for offline runs
   rewriter: claude_haiku   # CRAG query rewriter
   reranker: claude_haiku   # A3/A4 LLM reranker
-  judge:    claude_opus    # faithfulness + correctness judge (opus for reliability)
+  judge:    claude_opus_5_5  # faithfulness + correctness judge; not a generator model (decision E, 2026-11-23)
   reviewer: claude_opus    # post-generation answer reviewer — bind via a recipe's judge.model_role: reviewer

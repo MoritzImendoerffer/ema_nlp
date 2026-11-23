@@ -58,7 +58,7 @@ Decisions not yet made. Each entry has enough context to make the decision witho
 
 ### ~~LLM judge model choice~~ — RESOLVED (2026-11-23)
 **Context:** The evaluation harness needs a judge model for Faithfulness and Correctness scoring. The judge should differ from the generator model to avoid self-preference bias.  
-**Resolution:** The owner decided that the judge model is a setting, recorded on every run, and not one fixed model. The models at hand are Claude's, so the judge is another Claude model than the generator's, and a judge of another family waits for a key. See `DECISIONS.md`, "The judge model is a setting, recorded on every run". The default is a new entry for `claude-opus-5-5`, once one real judge call has shown that the endpoint serves it (decision E of [`docs/next/eval_reliability.md`](docs/next/eval_reliability.md)).
+**Resolution:** The owner decided that the judge model is a setting, recorded on every run, and not one fixed model. The models at hand are Claude's, so the judge is another Claude model than the generator's, and a judge of another family waits for a key. See `DECISIONS.md`, "The judge model is a setting, recorded on every run". The default is a new entry for `claude-opus-5-5`, once one real judge call has shown that the endpoint serves it (decision E of the eval-reliability proposal, delivered and deleted 2026-11-23; in git at `a1c587c`). The binding was made on 2026-11-23 (`DECISIONS.md`, "The judge model is a setting, recorded on every run").
 
 ---
 

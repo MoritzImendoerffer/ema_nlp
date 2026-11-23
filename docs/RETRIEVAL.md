@@ -143,6 +143,8 @@ retrieval:
   strategy: hierarchical            # small-to-big merge (+ optional links_to expansion)
   k: 10
   merge: true
+  passage_chars: 2000               # characters of one ema_search result: matched leaf, then
+                                    # its parent; the faithfulness judge reads the same text
   graph: { max_hops: 1, edge_types: [links_to], expand: false }
   # source-category steering keys (oversample, category_quota, graph.expand,
   # graph.expand_categories, graph.max_expand) — see §7; enabled in neo4j_steered.yaml
@@ -188,6 +190,9 @@ be re-run by hand; the script prints every command and stops on failure):
 
 ```bash
 # full pipeline after a new scrape (GPU host; build is hours + resumable)
+# WARNING: --reset deletes every node and edge of the live graph before the build,
+# and the build then re-embeds 5.82 million chunks. CLAUDE.md rule 4 asks for the
+# owner's go-ahead before this runs. Without --reset the build resumes.
 python scripts/update_graph.py \
     --pdf-cache ~/Nextcloud/Datasets/ema_scraper/cache/ema-sitemap \
     --full --reset --pause-every-docs 2000
@@ -219,16 +224,29 @@ re-embedding) is `enrich → propagate`. `--links-only` /
 `--reset-links` rebuilds of the `LINKS_TO` edges remain flags of
 `harness.indexing.build`.
 
-### Programmatic build + retrieve
+### Programmatic retrieve
+
+This opens the graph that exists. It writes nothing.
 
 ```python
-from harness.indexing import load_index_profile, build_index, build_retriever
+from harness.indexing import load_index_profile, open_index, build_retriever
 
 profile  = load_index_profile()                 # EMA_INDEX_PROFILE or neo4j_hier
-index    = build_index(profile, reset=True)     # embed chunks -> Neo4j + chunk vector index
+index    = open_index(profile)                  # load the existing graph, no rebuild
 retriever = build_retriever(profile, index)     # HierarchicalPGRetriever
 nodes = retriever.retrieve("nitrosamine acceptable intake limit")
 # -> list[NodeWithScore]; node.metadata has source_url, doc_id, matched_chunk
+```
+
+### Programmatic rebuild from scratch — deletes the live graph
+
+```python
+# WARNING: the reset runs MATCH (n) DETACH DELETE n. It deletes every node and
+# edge of the live graph, and the build then re-embeds 5.82 million chunks.
+# The default profile neo4j_hier is the full corpus (limit: null).
+# CLAUDE.md rule 4: ask the owner for the go-ahead before running this.
+from harness.indexing import load_index_profile, build_index
+index = build_index(load_index_profile(), reset=True)
 ```
 
 ### Retrieval at query time

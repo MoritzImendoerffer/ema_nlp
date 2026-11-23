@@ -504,3 +504,51 @@ def test_retriever_expand_and_ancestors_compose():
     assert len(store.calls) == 3  # vector + expansion + ancestors
     origins = [n.node.metadata["retrieval_origin"] for n in nodes]
     assert origins == ["vector", "link_expansion", "tree_ancestor"]
+
+
+# --- the matched leaf's text survives the merge to the parent (eval reliability, TASK-010) ---
+
+_LEAF = "LEAF the acceptable intake is 96 ng/day"
+_PARENT = f"PARENT opening text of the section. {_LEAF} closing text of the section."
+
+
+def _merged_row(i: int) -> dict:
+    row = _row(i, "epar", 0.9)
+    row["text"] = _LEAF
+    row["parent"] = {"id": f"p{i}", "text": _PARENT}
+    return row
+
+
+def test_retriever_keeps_the_matched_leaf_text_when_it_merges_to_the_parent():
+    """With merge, only the leaf's id survived; the agent saw the parent's first 400 chars."""
+    store = _SteerStore([_merged_row(0)])
+    (node,) = HierarchicalPGRetriever(store, _SteerEmbed(), k=1, merge=True).retrieve("q")
+    assert node.node.text == _PARENT
+    assert node.node.metadata["matched_text"] == _LEAF
+    assert node.node.metadata["matched_chunk"] == "c0"
+
+
+def test_expansion_and_ancestor_nodes_keep_the_matched_leaf_text():
+    best = {"id": "cl", "text": _LEAF, "score": 0.7, "parent": {"id": "pl", "text": _PARENT}}
+    expand_rows = [{"doc": {"id": "dl", "source_url": "https://ema.europa.eu/l"}, "linked_from": ["d0"], "best": best}]
+    anc_best = {"id": "ca", "text": _LEAF, "score": 0.5, "parent": {"id": "pa", "text": _PARENT}}
+    ancestor_rows = [{"doc": {"id": "anc", "source_url": "https://ema.europa.eu/a"}, "best": anc_best}]
+    seed = _merged_row(0)
+    seed["doc"]["tree_ancestor_ids"] = ["anc"]
+    store = _SteerStore([seed], expand_rows=expand_rows, ancestor_rows=ancestor_rows)
+    graph = GraphRetrievalConfig(expand=True, ancestors=True)
+    nodes = HierarchicalPGRetriever(store, _SteerEmbed(), k=1, merge=True, graph=graph).retrieve("q")
+    by_origin = {n.node.metadata["retrieval_origin"]: n.node for n in nodes}
+    for origin in ("link_expansion", "tree_ancestor"):
+        assert by_origin[origin].text == _PARENT
+        assert by_origin[origin].metadata["matched_text"] == _LEAF
+
+
+def test_matched_text_stays_out_of_the_reranker_input():
+    """SentenceTransformerRerank scores get_content(EMBED); the leaf must not count twice."""
+    from llama_index.core.schema import MetadataMode
+
+    store = _SteerStore([_merged_row(0)])
+    (node,) = HierarchicalPGRetriever(store, _SteerEmbed(), k=1, merge=True).retrieve("q")
+    for mode in (MetadataMode.EMBED, MetadataMode.LLM):
+        assert node.node.get_content(metadata_mode=mode).count(_LEAF) <= 1
