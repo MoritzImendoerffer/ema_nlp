@@ -1,12 +1,15 @@
-"""Ingest parsed_pdf.pkl files from the Scrapy cache into MongoDB.
+"""Ingest the PDFs of the Scrapy cache into MongoDB.
 
-Default mode (MIGR-004): delegates to ``corpus.parsers.pymupdf4llm`` and
-writes into the new ``parsed_documents`` collection (compound-key
-``(url, parser, parser_version)``).
+Default mode: delegates to ``corpus.parsers.pymupdf4llm``, which parses each PDF entry's
+``response_body`` with the installed pymupdf4llm and writes ``parsed_documents``
+(compound key ``(url, parser, parser_version)``). Until 2026-11-25 this mode unpickled
+the scraper's ``parsed_pdf.pkl`` holders instead; that path labelled text made by
+pymupdf4llm 0.2.9 with the installed version and was removed (decision G,
+``docs/pm/decisions/2026-11-25_pickle-reader.md``).
 
-``--legacy`` mode: keep the original behaviour — write into the legacy
-``parsed_pdfs`` collection. Retained for one transition cycle so existing
-operator workflows aren't broken before MIGR-013's backfill lands.
+``--legacy`` mode: the original behaviour, unchanged — read the ``parsed_pdf.pkl``
+holders (with the scraper's repository on the path) and write the older
+``parsed_pdfs`` collection.
 """
 
 from __future__ import annotations
@@ -134,9 +137,10 @@ def _legacy_ingest(args: argparse.Namespace) -> int:
 def main() -> int:
     cli = argparse.ArgumentParser(
         description=(
-            "Ingest parsed_pdf.pkl files into MongoDB. "
-            "Default: writes to parsed_documents via corpus.parsers.pymupdf4llm. "
-            "Use --legacy to keep writing the old parsed_pdfs collection."
+            "Ingest the PDFs of the Scrapy cache into MongoDB. "
+            "Default: parses each response_body with corpus.parsers.pymupdf4llm and "
+            "writes parsed_documents. --legacy reads parsed_pdf.pkl and writes the "
+            "old parsed_pdfs collection."
         )
     )
     cli.add_argument(
@@ -144,7 +148,7 @@ def main() -> int:
         action="store_true",
         help="Write to the legacy parsed_pdfs collection (pre-MIGR-001 behaviour).",
     )
-    cli.add_argument("--dry-run", action="store_true", help="Count pkl files; no DB writes")
+    cli.add_argument("--dry-run", action="store_true", help="Count cache entries; no DB writes")
     cli.add_argument("--limit", type=int, default=None, help="Process at most N entries")
     cli.add_argument(
         "--url", type=str, default=None, help="Restrict to a single URL (forwarded to parser CLI)"

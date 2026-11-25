@@ -18,11 +18,15 @@ Rows carry ``parser: pymupdf4llm`` and the installed library version, e.g.
 ``1.27.2.3``. The legacy rows of the same name carry ``parser_version: legacy``, and
 the preference file ranks them first (decisions A and D).
 
-:class:`LegacyPickleReader` is the old pickle reader. It is kept only until TASK-010 of
-work unit 27 removes the pickle path to ``parsed_documents`` (decision G).
+The pickle reader was removed on 2026-11-25 (decision G,
+``docs/pm/decisions/2026-11-25_pickle-reader.md``): it labelled text made by
+pymupdf4llm 0.2.9 with the installed version, which is the byte parser's key. The
+legacy text stays in ``parsed_documents`` and ``parsed_pdfs``; git keeps the reader.
 
-The CLI walks a Scrapy cache directory and writes one ``ParsedDocument``
-per PDF entry via :func:`corpus.sources.parsed_documents.write_parsed_document`.
+The CLI walks a Scrapy cache directory, parses each PDF entry's ``response_body`` and
+writes one ``ParsedDocument`` per entry via
+:func:`corpus.sources.parsed_documents.write_parsed_document`. It writes nothing into
+the cache, which is source data.
 """
 
 from __future__ import annotations
@@ -32,7 +36,6 @@ import ast
 import gzip
 import logging
 import os
-import pickle
 import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -148,58 +151,6 @@ class PymuPdf4LlmParser:
         )
 
 
-class LegacyPickleReader:
-    """The pickle reader of ``parsed_pdf.pkl`` Scrapy-cache entries (until TASK-010).
-
-    Conforms to the :class:`corpus.parsers.base.Parser` protocol.
-    """
-
-    name: str = PARSER_NAME
-    version: str = PARSER_VERSION
-
-    def parse(
-        self,
-        raw: bytes | str,
-        url: str,
-        content_type: str = "application/pdf",
-    ) -> ParsedDocument:
-        text, error, parsed_with = _load_pickle(raw)
-        meta: dict[str, object] = {}
-        if parsed_with:
-            meta["parsed_with"] = parsed_with
-        if isinstance(raw, str):
-            meta["cache_path"] = raw
-        return ParsedDocument(
-            url=url,
-            parser=self.name,
-            parser_version=self.version,
-            parsed_at=datetime.now(UTC),
-            content_type=content_type or "application/pdf",
-            text=text,
-            text_format="markdown",
-            error=error,
-            meta=meta,
-        )
-
-
-def _load_pickle(raw: bytes | str) -> tuple[str, str, str]:
-    """Return (text, error, parsed_with). Never raises."""
-    if raw is None or (isinstance(raw, (bytes, str)) and not raw):
-        return ("", "empty_input", "")
-    try:
-        if isinstance(raw, bytes):
-            doc = pickle.loads(raw)
-        else:
-            with open(raw, "rb") as f:
-                doc = pickle.load(f)
-    except Exception as exc:  # noqa: BLE001 — diagnostics flow through .error
-        return ("", f"pickle_load_failed: {exc}", "")
-    text = getattr(doc, "markdown", "") or ""
-    inner_error = getattr(doc, "error", "") or ""
-    parsed_with = getattr(doc, "parsed_with", "") or ""
-    return (text, inner_error, parsed_with)
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -221,10 +172,10 @@ def _iter_pdf_cache(cache_path: Path) -> Iterator[tuple[Path, str]]:
             yield root, url
 
 
-def _cli(argv: list[str] | None = None) -> int:
+def _cli(argv: list[str] | None = None, *, client: MongoClient | None = None) -> int:
     cli = argparse.ArgumentParser(
-        description="Walk a Scrapy cache, parse each parsed_pdf.pkl, and "
-        "write the result into the Mongo `parsed_documents` collection."
+        description="Walk a Scrapy cache, parse each PDF entry's response_body with "
+        "pymupdf4llm, and write the result into the Mongo `parsed_documents` collection."
     )
     cli.add_argument(
         "--cache",
@@ -242,11 +193,11 @@ def _cli(argv: list[str] | None = None) -> int:
     cli.add_argument(
         "--dry-run",
         action="store_true",
-        help="Run the parser but don't write to Mongo (counts only)",
+        help="Count the entries that have a response_body; parse nothing, write nothing",
     )
     args = cli.parse_args(argv)
 
-    parser = LegacyPickleReader()  # switched to the byte parser in TASK-010
+    parser = PymuPdf4LlmParser()
     print(f"Scanning {args.cache} …")
     entries: list[tuple[Path, str]] = []
     for cache_dir, url in _iter_pdf_cache(args.cache):
@@ -258,27 +209,27 @@ def _cli(argv: list[str] | None = None) -> int:
     print(f"Found {len(entries)} PDF cache entries to parse")
 
     if args.dry_run:
-        with_pkl = sum(1 for d, _ in entries if (d / "parsed_pdf.pkl").exists())
-        print(f"Dry run: {with_pkl} would be parsed (of {len(entries)})")
+        with_body = sum(1 for d, _ in entries if (d / "response_body").exists())
+        print(f"Dry run: {with_body} would be parsed (of {len(entries)})")
         return 0
 
-    client: MongoClient = MongoClient(MONGO_URI)
+    owned = client is None
+    mongo: MongoClient = MongoClient(MONGO_URI) if owned else client  # type: ignore[assignment]
     try:
-        bootstrap_indexes(client=client)
+        bootstrap_indexes(client=mongo)
         written = errors = skipped = 0
         for cache_dir, url in tqdm(entries, desc="Parsing", unit="pdf"):
-            pkl = cache_dir / "parsed_pdf.pkl"
-            if not pkl.exists():
+            body = cache_dir / "response_body"
+            if not body.exists():
                 skipped += 1
                 continue
-            with open(pkl, "rb") as f:
-                raw_bytes = f.read()
-            doc = parser.parse(raw_bytes, url=url, content_type="application/pdf")
+            doc = parser.parse(body.read_bytes(), url=url, content_type="application/pdf")
+            doc.meta["cache_path"] = str(cache_dir)
             if doc.error:
                 errors += 1
                 _log.warning("parser error for %s: %s", url, doc.error)
             try:
-                write_parsed_document(doc, client=client)
+                write_parsed_document(doc, client=mongo)
                 written += 1
             except Exception as exc:  # noqa: BLE001
                 _log.error("write failed for %s: %s", url, exc)
@@ -288,7 +239,8 @@ def _cli(argv: list[str] | None = None) -> int:
             f" errors={errors} skipped={skipped}"
         )
     finally:
-        client.close()
+        if owned:
+            mongo.close()
     return 0
 
 

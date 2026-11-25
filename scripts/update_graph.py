@@ -7,17 +7,20 @@ orders them, prints each command, and stops on the first failure — so the
 pipeline is inspectable and any stage can be re-run by hand.
 
     scrape (ema_scraper, separate project)
-      -> Mongo web_items (raw HTML) + Scrapy disk cache (parsed_pdf.pkl per PDF)
+      -> Mongo web_items (raw HTML) + Scrapy disk cache (response_body per PDF)
 
     1. parse-html   python -m corpus.parsers.trafilatura      -> parsed_documents
     2. parse-pdfs   python -m corpus.parsers.pymupdf4llm      -> parsed_documents
-                    (needs --pdf-cache pointing at the Scrapy cache root)
+                    (parses each PDF's response_body with the installed pymupdf4llm;
+                    needs --pdf-cache pointing at the Scrapy cache root)
     3. enrich       scripts/enrich_document_metadata.py       -> document_metadata
                     (badges from web_items + doc_type from the EMA JSON export)
     4. build        python -m harness.indexing.build          -> Neo4j graph
-                    (embeds chunks — hours on GPU for the full corpus; resumable,
-                    re-run to continue after a crash. Ingest joins
-                    document_metadata, so all labels are stamped at build time.)
+                    (per URL: the preferred, then newest parse; a document whose
+                    text changed is replaced, an unchanged one skipped. A full
+                    first build embeds for hours on the GPU; re-run to continue
+                    after a crash. Joins document_metadata for the documents it
+                    builds.)
     5. tree         scripts/backfill_site_tree.py             -> Neo4j SET
                     (site-tree properties: tree_parent_id/depth/path/ancestors;
                     seconds, idempotent — in the default steps. Re-run after
@@ -27,8 +30,10 @@ pipeline is inspectable and any stage can be re-run by hand.
                     optional — run after any build/links change, then propagate.
                     Kept out of the default steps.)
     7. propagate    scripts/propagate_metadata_to_graph.py    -> Neo4j SET
-                    (labels+membership patch of an EXISTING graph; not needed
-                    after a fresh build — kept out of the default steps)
+                    (labels + membership on EXISTING documents. Required after
+                    enrich or subgraphs: the build joins labels only for the
+                    documents it builds, and cannot clear a label. Kept out of
+                    the default steps)
 
 Prerequisites: ``scripts/start_services.sh`` (Mongo + Neo4j up), credentials in
 ``~/Nextcloud/Datasets/ema_nlp/ema_nlp.env``. See docs/RETRIEVAL.md §2 + §6.
@@ -82,7 +87,7 @@ def main() -> None:
              "propagate is only for patching an existing graph)",
     )
     parser.add_argument("--pdf-cache", type=Path, default=None,
-                        help="Scrapy cache root with parsed_pdf.pkl entries (parse-pdfs step)")
+                        help="Scrapy cache root; parse-pdfs parses each PDF entry's response_body")
     parser.add_argument("--limit", type=int, default=None,
                         help="cap rows/docs in every stage (smoke runs)")
     parser.add_argument("--dry-run", action="store_true",
