@@ -1,56 +1,58 @@
 ---
 type: pm-board
-epic: 2026-11-23_26_eval-reliability
-sprint: 2026-11-23_26_eval-reliability
+epic: 2026-11-23_27_pipeline-refresh
+sprint: 2026-11-23_27_pipeline-refresh
 generated: true
 tags: [pm/board]
 ---
 
-> [!warning] Generated from `.claude/work/2026-11-23_26_eval-reliability/state.json` by `scripts/pm_notes.py`.
+> [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
 > Anything written here by hand is lost on the next run.
 
 # Board — the active epic
 
-**[[epic|2026-11-23_26_eval-reliability]]** · **18 of 18 done**
+**[[epic|2026-11-23_27_pipeline-refresh]]** · **0 of 18 done** · 18 todo
 
 [[epic|Why this epic]] · [[_Archive|Finished epics]] · [[BACKLOG|What is open, in order]]
 
 ## Waiting on the project owner
 
 **This is the only section that is yours.** Each is an argument a person has to settle.
-None of them blocks the work below.
+**One of them blocks a task below**, named in its own row: until it is settled that work cannot start.
 
-*None.*
+| Decision | Waiting on | Blocks |
+|---|---|---|
+| [[2026-11-25_pickle-reader|G. What happens to the pickle reader once `parse-pdfs` reads PDF bytes]] | the lead assistant session, or the owner | [[TASK-010]] |
 
 ## Not finished — the assistant's work, not the owner's
 
 Nothing in this table needs the project owner. It is what the coding assistant has still to
 do, and it is here so the state is visible, not so anyone else acts on it.
 
-*None.*
+| Task | Status | Waiting on | Kind | What it is |
+|---|---|---|---|---|
+| [[TASK-001]] | `todo` | the assistant | contract | Give parser_preference.yaml a reader that understands name@version |
+| [[TASK-002]] | `todo` | the assistant | mechanism | Select one row per URL: the first matching preference entry, then the newest parsed_at |
+| [[TASK-003]] | `todo` | the assistant | contract | Put parser, parser_version and text_sha256 on the :Document node |
+| [[TASK-004]] | `todo` | the assistant | mechanism | Make the real build join document_metadata |
+| [[TASK-005]] | `todo` | the assistant | mechanism | Name the graph's writes and deletes in one module, with an in-memory double that models deletion |
+| [[TASK-006]] | `todo` | the assistant | mechanism | Resume by comparison: skip, stamp or replace each document |
+| [[TASK-007]] | `todo` | the assistant | mechanism | Add prune: delete documents whose URL has no clean row, whatever the scope |
+| [[TASK-008]] | `todo` | the assistant | mechanism | Make the reset delete corpus nodes in batches and keep every other node |
+| [[TASK-009]] | `todo` | the assistant | mechanism | Add a PDF parser that reads bytes with the installed pymupdf4llm |
+| [[TASK-010]] | `todo` | the assistant | wiring | Wire parse-pdfs to the byte parser and settle the pickle reader |
+| [[TASK-011]] | `todo` | the assistant | wiring | Expose --prune on the build and the pipeline, and say what --reset deletes |
+| [[TASK-012]] | `todo` | the assistant | mechanism | Write the backfill that stamps the parse identity on existing documents |
+| [[TASK-013]] | `todo` | the assistant | measurement | Measure the deletes and the reset on a throwaway Neo4j |
+| [[TASK-014]] | `todo` | the assistant | mechanism | Fix the delete and reset batch sizes from the measurement |
+| [[TASK-015]] | `todo` | the assistant | checkpoint | Checkpoint: report the code and the measurement, and ask for the two live runs |
+| [[TASK-016]] | `todo` | the assistant | data | Backfill the parse identity on the live graph |
+| [[TASK-017]] | `todo` | the assistant | data | Run one URL through parse-pdfs and build on the live stores |
+| [[TASK-018]] | `todo` | the assistant | documentation | Write down what each pipeline step can and cannot refresh |
 
 ## Done
 
-| Task | Status | Waiting on | Kind | What it is |
-|---|---|---|---|---|
-| [[TASK-001]] | `done` | — | documentation | Take the call that deletes the live graph out of three docs pages |
-| [[TASK-002]] | `done` | — | mechanism | Add a prediction loop that runs every question on one event loop and records whether the agent finished |
-| [[TASK-003]] | `done` | — | mechanism | Make the faithfulness and the correctness judge return an integer |
-| [[TASK-004]] | `done` | — | mechanism | Add the pure functions for the judged rows, the counts and the printed summary |
-| [[TASK-005]] | `done` | — | wiring | Switch the driver to the prediction loop: a failed item gets no judge call, and a run gets its tags when it opens |
-| [[TASK-006]] | `done` | — | mechanism | Map each provider of models.yaml to the name, the key and the endpoint that an mlflow judge needs |
-| [[TASK-007]] | `done` | — | wiring | Add `--judge` to scripts/run_eval.py and record the generator's and the judge's model id on every run |
-| [[TASK-008]] | `done` | — | wiring | Stamp the resolved recipe on every evaluation run, and print which declared layers the runner does not run |
-| [[TASK-009]] | `done` | — | contract | Bind the judge role to a new models.yaml entry for claude-opus-5-5, and stop sending temperature to that model |
-| [[TASK-010]] | `done` | — | mechanism | Keep the matched leaf's text on a retrieved node when the retriever merges to the parent |
-| [[TASK-011]] | `done` | — | mechanism | Render a search result as the matched leaf first, then its parent, up to a limit, and give the judge the same text |
-| [[TASK-012]] | `done` | — | contract | Make the passage limit a key of the index profile, and stamp it on the trace |
-| [[TASK-013]] | `done` | — | wiring | Pass the profile's passage limit from build_recipe to the two search tools |
-| [[TASK-014]] | `done` | — | documentation | Say in the docs what the agent reads, how the two earlier result pages were made, and how to choose the judge |
-| [[TASK-015]] | `done` | — | measurement | Run the runner once on the live graph and write down what the store shows |
-| [[TASK-016]] | `done` | — | mechanism | Send the workspace header on every Anthropic request when ANTHROPIC_WORKSPACE_ID is set |
-| [[TASK-017]] | `done` | — | mechanism | Build the anthropic SDK's response-model serializers before the first traced call |
-| [[TASK-018]] | `done` | — | mechanism | Take each item's trace id from the adapter's own root span |
+*None.*
 
 ---
 

@@ -1,9 +1,12 @@
 # A pipeline that can refresh the graph: the newest parse wins, a changed document is replaced
 
 **Status:** proposed 2026-11-23 · backlog row 10 · work unit
-`2026-11-23_27_pipeline-refresh`, opened 2026-11-23 on branch `pipeline-refresh`. Explored,
-not yet planned. The exploration corrects open question C and adds three questions: read
-`.claude/work/2026-11-23_27_pipeline-refresh/exploration.md` beside this file.
+`2026-11-23_27_pipeline-refresh`, opened 2026-11-23 on branch `pipeline-refresh`. Planned
+2026-11-25 (18 tasks). The exploration corrects open question C and adds three questions: read
+`.claude/work/2026-11-23_27_pipeline-refresh/exploration.md` beside this file. Open questions
+A and B, and the exploration's D, E and F, were answered on 2026-11-25 by the lead assistant
+session under the owner's delegation; the owner can overrule each one
+(`docs/pm/decisions/2026-11-25_*.md`).
 
 Written by Claude (Fable 5.2) from the review of 2026-11-23
 ([`../eval/2026-11-23_pkr_testbed_review.md`](../eval/2026-11-23_pkr_testbed_review.md),

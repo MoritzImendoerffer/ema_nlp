@@ -1,0 +1,303 @@
+{
+  "status": "planning_complete",
+  "proposal": "docs/next/pipeline_refresh.md",
+  "planned_at": "2026-11-25",
+  "planned_by": "Claude (Opus 5.5)",
+  "current_task": null,
+  "baseline": {
+    "make_test": "736 passed, 2 skipped, 7 deselected, 31 warnings in 19.31 s (2026-11-25, branch pipeline-refresh at 9dfc405 plus the uncommitted bookkeeping)",
+    "make_lint": "All checks passed (exploration.md, 2026-11-23); not re-run at planning",
+    "parsed_documents": "80,083 rows: application/pdf pymupdf4llm legacy 58,121; text/html trafilatura legacy 21,957; application/pdf llamahub_pdf_PDFReader 0.6.0 5 (read-only aggregate, 2026-11-25)",
+    "neo4j": "7,515,276 nodes (Chunk 7,435,393; Document 79,882; _Neodash_Dashboard 1); HAS_CHUNK 7,435,393; PARENT_OF 7,114,468; LINKS_TO 99,520 (exploration.md section 4.2, 2026-11-23)"
+  },
+  "decisions": [
+    {"note": "docs/pm/decisions/2026-11-25_pdf-parser-order.md", "blocks": "TASK-001", "question": "A: which PDF parse the preference file names first", "answer": "legacy rows first; decided by the lead assistant session under the owner's delegation of 2026-11-25; the owner can overrule"},
+    {"note": "docs/pm/decisions/2026-11-25_removed-urls.md", "blocks": "TASK-007", "question": "B: is a URL that left the source deleted from the graph", "answer": "kept by default, --prune deletes; lead assistant session, owner can overrule"},
+    {"note": "docs/pm/decisions/2026-11-25_legacy-parser-name.md", "blocks": "TASK-001", "question": "D: how the legacy PDF rows and the byte parser are told apart", "answer": "D1, a preference entry may name a version (pymupdf4llm@legacy); lead assistant session, owner can overrule"},
+    {"note": "docs/pm/decisions/2026-11-25_pdf-ocr.md", "blocks": "TASK-009", "question": "E: does the byte parser run OCR", "answer": "OCR on, options explicit and recorded in meta; lead assistant session, owner can overrule"},
+    {"note": "docs/pm/decisions/2026-11-25_unlisted-parser.md", "blocks": "TASK-002", "question": "F: a URL whose clean rows all come from an unlisted parser", "answer": "fall back to the newest clean row, warn and count; lead assistant session, owner can overrule"},
+    {"note": "docs/pm/decisions/2026-11-25_pickle-reader.md", "blocks": "TASK-010", "question": "G: what happens to the pickle reader once parse-pdfs reads bytes", "answer": null},
+    {"note": "docs/pm/decisions/2026-11-25_live-graph-runs.md", "blocks": "TASK-016, TASK-017", "question": "the go-ahead for the backfill and the one-URL live run, with counts and hours (written by TASK-015)", "answer": null}
+  ],
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "title": "Give parser_preference.yaml a reader that understands name@version",
+      "type": "contract",
+      "status": "pending",
+      "dependencies": [],
+      "files": ["harness/configs/parser_preference.yaml", "harness/indexing/parser_preference.py", "tests/test_parser_preference.py"],
+      "acceptance": [
+        "`tests/test_parser_preference.py::test_loads_shipped_file` passes: the shipped file loads as {'application/pdf': [('pymupdf4llm', 'legacy'), ('pymupdf4llm', None)], 'text/html': [('trafilatura', None)]}",
+        "`tests/test_parser_preference.py::test_entry_with_version_matches_that_version_only` and `::test_entry_without_version_matches_every_version` pass",
+        "`tests/test_parser_preference.py::test_malformed_file_raises` passes: a top-level list, an empty entry and 'a@' each raise ValueError",
+        "`grep -c 'does NOT yet' harness/configs/parser_preference.yaml` prints 0",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Decisions A and D (docs/pm/decisions/2026-11-25_pdf-parser-order.md, 2026-11-25_legacy-parser-name.md). The file becomes: application/pdf: [pymupdf4llm@legacy, pymupdf4llm]; text/html: [trafilatura]. An entry 'name' matches every version of that parser; 'name@version' matches that version only.\n\nThe header of the file says today (lines 3-9) that nothing reads it; replace it with what the reader does and a pointer to decision D. The file is authored data (CLAUDE.md rule 3): edited by hand here, read by code, written by no tool.\n\nA reader existed once: `git show a70c38c:harness/embed_pg.py`, lines 86-122 (`load_parser_preference`). Do not restore its command-line override: the proposal does not ask for one (rule 1).\n\nKeep the reader pure (path in, mapping out) so TASK-002 can test selection without a file."
+    },
+    {
+      "id": "TASK-002",
+      "title": "Select one row per URL: the first matching preference entry, then the newest parsed_at",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-001"],
+      "files": ["harness/indexing/ingest.py", "tests/test_indexing_ingest.py"],
+      "acceptance": [
+        "`tests/test_indexing_ingest.py::test_preferred_parser_row_wins` passes: rows (u, pymupdf4llm, legacy) and (u, pymupdf4llm, 1.27.2.3) inserted in both orders, the legacy row is yielded both times",
+        "`tests/test_indexing_ingest.py::test_newest_row_of_one_parser_wins` passes: (u, trafilatura, legacy, parsed_at 2026-05-27) and (u, trafilatura, 2.0.0, parsed_at 2026-11-25), the 2.0.0 row is yielded",
+        "`tests/test_indexing_ingest.py::test_unlisted_parser_falls_back_to_newest` passes: a URL with only llamahub_pdf_PDFReader rows yields the newest one, a warning is logged and the fallback count is 1",
+        "`tests/test_indexing_ingest.py::test_old_rule_row_is_the_first_row_of_the_cursor` passes: iter_source_groups yields the selected row and the first clean row the cursor gave for the URL",
+        "The 7 tests that tests/test_indexing_ingest.py holds today pass unchanged",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Today `iter_source_rows` (harness/indexing/ingest.py:159-196) reads `find({'error': ''}).sort('url', 1)` and keeps the first row per URL (line 182). The sort makes the rows of one URL adjacent (index url_idx), so selection groups consecutive rows; no second query.\n\nKeep the signature `iter_source_rows(scope, *, client)` (callers: `_embed_pass` and `_links_pass` in property_graph.py, `ingest()`). Add `iter_source_groups(scope, *, client, preference=None)` yielding a small dataclass with `selected` and `old_rule`. `old_rule` is the first clean row the cursor yields for the URL: the rule before this change. TASK-006 and TASK-012 need it, because the proposal says that a graph document without the three values 'counts as built from the row that the old rule would have picked'.\n\nContent type to preference key: 'pdf' in content_type gives 'application/pdf', 'html' gives 'text/html' (the same test as ingest.py:184-186). Store values today are exactly 'application/pdf' and 'text/html'.\n\nTies on parsed_at: the larger `_id` wins. A row without parsed_at counts as the oldest. `scope.limit` counts URLs, as today. Decision F: a URL whose rows match no entry falls back to its newest clean row; log one warning per URL and a total at the end of the pass."
+    },
+    {
+      "id": "TASK-003",
+      "title": "Put parser, parser_version and text_sha256 on the :Document node",
+      "type": "contract",
+      "status": "pending",
+      "dependencies": [],
+      "files": ["harness/indexing/ingest.py", "harness/indexing/property_graph.py", "tests/test_indexing_property_graph.py"],
+      "acceptance": [
+        "`tests/test_indexing_property_graph.py::test_entity_carries_parse_identity` passes: `_entity_for(doc).properties` holds parser, parser_version, and text_sha256 equal to `hashlib.sha256(row['text'].encode('utf-8')).hexdigest()`",
+        "`tests/test_indexing_property_graph.py::test_parse_identity_leaves_chunks_unchanged` passes: the chunk ids, texts and leaf flags of build_ingested_doc equal those of chunk_document for the same text",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "`build_ingested_doc` (ingest.py:108-116) already puts `parser` in `metadata`; add `parser_version` and `text_sha256` there, and write all three in `_entity_for` (property_graph.py:172-203). Hash the row's `text` exactly as stored (`pd.get('text', '') or ''`), UTF-8, 64 hex characters.\n\nDo not add them to `base_meta` (ingest.py:128-133), which goes into the chunk nodes: the chunk ids and texts must stay. The exploration (section 4.3) checked 80 of 80 documents: today's rows rebuild exactly the chunk ids in the graph.\n\nStored shape: the 79,882 existing :Document nodes do not have the three properties until TASK-016. `MATCH (d:Document) RETURN count(d.parser), count(d.parser_version), count(d.text_sha256)` gave 0, 0, 0 on 2026-11-23."
+    },
+    {
+      "id": "TASK-004",
+      "title": "Make the real build join document_metadata",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": [],
+      "files": ["harness/indexing/ingest.py", "harness/indexing/property_graph.py", "tests/test_indexing_property_graph.py"],
+      "acceptance": [
+        "`tests/test_indexing_property_graph.py::test_build_joins_document_metadata` passes: the build over mongomock, with a document_metadata row that holds doc_type, upserts a :Document entity whose properties hold that doc_type",
+        "`grep -c 'counted_metadata_lookup' harness/indexing/ingest.py harness/indexing/property_graph.py` shows at least one use in each file: ingest() and the build share one function",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Defect 4 of the proposal: `_embed_pass` calls `build_ingested_doc(row, chunking=chunking, html_lookup=lookup)` at property_graph.py:307 without the metadata lookup. Only `ingest()` joins (ingest.py:213-228), and only tests call `ingest()`.\n\nMove the miss-counting wrapper (ingest.py:216-221) into a named function both call. Use `mongo_metadata_lookup(client)` from harness/indexing/document_metadata.py. Let `build_property_graph_index` accept an injected `metadata_lookup` for tests, as it accepts `html_lookup`.\n\nWhat the join cannot do (exploration 3.4): it reaches only documents the build builds, and it cannot clear a label (`_clean` drops None, property_graph.py:88). `propagate` stays a required step for label changes; TASK-018 says so in the docs. On a fresh build the join must reproduce doc_type on 55,930 documents, audience 20,386, site_topic 5,947, topic_hubs 49 (exploration 3.4). No fresh build is part of this item."
+    },
+    {
+      "id": "TASK-005",
+      "title": "Name the graph's writes and deletes in one module, with an in-memory double that models deletion",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": [],
+      "files": ["harness/indexing/graph_ops.py", "tests/graph_double.py", "tests/test_graph_ops.py"],
+      "acceptance": [
+        "harness/indexing/graph_ops.py defines a class with the methods upsert, document_states, delete_document_chunks, stamp_parse_identity, delete_documents and reset_corpus, each sending Cypher through `store.structured_query` or the store's upsert methods",
+        "`tests/test_graph_ops.py::test_cypher_shapes` passes: the chunk delete starts at `MATCH (d:Document {id:` and follows HAS_CHUNK; the reset names :Chunk and :Document and uses `IN TRANSACTIONS OF`; no query contains `MATCH (n) DETACH DELETE n` or `WHERE n.id IN`",
+        "`tests/test_graph_ops.py::test_double_delete_removes_chunks_and_their_edges` passes on the in-memory double in tests/graph_double.py, which keeps nodes and edges by id",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Why: exploration finding 7. `_FakeStore` and `_RecordingStore` (tests/test_indexing_property_graph.py:98-162) record a query and return []. A test of 'no chunk of the first build remains' passes on them whatever the code does (rule 10 of docs/PLANNING_WORKFLOW.md). So the build talks to named operations, and the test double implements those operations on dicts. The Cypher itself is run on a real Neo4j in TASK-013.\n\nCypher to use (exploration 5.1, from EXPLAIN in a read session): `MATCH (d:Document {id: $id})-[:HAS_CHUNK]->(c:Chunk) DETACH DELETE c` plans as NodeIndexSeek on ema_document_id. Do not use `Neo4jPropertyGraphStore.delete` (llama_index/graph_stores/neo4j/neo4j_property_graph.py:738-770): its plan is AllNodesScan over 7.5 million nodes on each call. DETACH removes the PARENT_OF edges; the :Document node keeps LINKS_TO, category, tree_* and topic_hubs.\n\n`CALL { ... } IN TRANSACTIONS OF n ROWS` needs an autocommit transaction, which `structured_query` gives (verified for `_delete_links`, property_graph.py:352-364). Batch sizes are parameters; TASK-014 fixes them from the measurement.\n\ndocument_states: `MATCH (d:Document) RETURN d.id, d.parser, d.parser_version, d.text_sha256, EXISTS { (d)-[:HAS_CHUNK]->() }` (79,882 rows live). stamp_parse_identity: UNWIND of {id, parser, parser_version, text_sha256} rows, one SET per document."
+    },
+    {
+      "id": "TASK-006",
+      "title": "Resume by comparison: skip, stamp or replace each document",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-002", "TASK-003", "TASK-004", "TASK-005"],
+      "files": ["harness/indexing/property_graph.py", "tests/test_indexing_property_graph.py"],
+      "acceptance": [
+        "`tests/test_indexing_property_graph.py::test_changed_text_replaces_chunks` passes: a document of 6 leaves, then its row changed to a text of 2 leaves, built again: the double holds 2 leaves for it and no chunk id of the first build",
+        "`::test_unchanged_document_is_skipped` passes: the second build embeds nothing",
+        "`::test_equal_text_new_version_stamps_only` passes: rows (u, trafilatura, legacy) then (u, trafilatura, 2.0.0) with equal text: nothing is embedded and the :Document's parser_version becomes 2.0.0",
+        "`::test_text_without_chunks_keeps_old_chunks` passes: a new text that chunks to nothing leaves the old chunks in place and is counted",
+        "`::test_unstamped_document_counts_as_old_rule_row` passes: a graph document without the three values whose selected row is its old-rule row embeds nothing",
+        "`::test_failed_upsert_is_replaced_again` passes: an upsert that raises after the delete leaves values that do not match the row, and the next build replaces the document",
+        "The pass ends with one log line that counts new, replaced, stamped, skipped and fallback documents",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Replaces `_existing_doc_ids` (property_graph.py:233-238, used at :304), which skips every document that has a chunk.\n\nPer selected row, with the graph's state from document_states:\n- no :Document with chunks: build it (new);\n- values present, text_sha256 equal, parser and version equal: skip;\n- text_sha256 equal, parser or version different: stamp the two properties, touch no chunk (exploration 3.3: parse-html reproduces the legacy text on 200 of 200 sampled pages under a new version; without this rule the first run re-embeds 143,804 HTML leaves for nothing);\n- text_sha256 different: replace;\n- values absent (not backfilled): compare with the old-rule row from TASK-002. Same row: skip. Same hash: stamp. Other hash: replace.\n\nHash the row text before chunking, and chunk only to build or replace. Chunk first, delete afterwards (exploration 3.8: `chunk_document` returns [] when the splitter fails, chunking.py:66-78).\n\nDelete the old chunks of the replaced documents inside `flush()`, just before the upsert, to keep the window without chunks short (one flush holds about 4,000 chunks). The three values ride on the entity, which `upsert_nodes` writes after the chunks (neo4j_property_graph.py:361-403). So a crash at any point leaves values that do not match, and the next build replaces again (exploration 5.2). State this invariant in the docstring.\n\n`resume=False` (`--no-resume`) today re-MERGEs every document without deleting, which leaves stale chunks when a text got shorter. After this task it replaces every document: the plan's choice.\n\nThe comparison does not cover `chunk_sizes` or the embedding model (exploration 3.8). TASK-018 writes that down."
+    },
+    {
+      "id": "TASK-007",
+      "title": "Add prune: delete documents whose URL has no clean row, whatever the scope",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-005"],
+      "files": ["harness/indexing/property_graph.py", "tests/test_indexing_property_graph.py"],
+      "acceptance": [
+        "`tests/test_indexing_property_graph.py::test_prune_deletes_document_without_clean_row` passes",
+        "`::test_prune_ignores_scope_limit` passes: with scope.limit = 1, a document that has a clean row outside the first URL stays",
+        "`::test_prune_off_by_default` passes",
+        "Prune logs the count and the first 20 URLs before it deletes anything",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Decision B (docs/pm/decisions/2026-11-25_removed-urls.md): kept by default, deleted with prune.\n\nCompare the graph with ALL clean URLs: `distinct('url', {'error': ''})` over parsed_documents, restricted to pdf and html content types. Never with the scope: `--prune --limit 200` would otherwise remove 79,682 documents (exploration 3.7).\n\nDeleting a :Document deletes its chunks and its LINKS_TO edges. `tree_parent_id` and `topic_hubs` on other documents then describe edges that are gone until the steps `tree` and `subgraphs` run again; log that hint after a prune that deleted anything.\n\nLive: 0 graph documents lack a clean row today (exploration 4.3), so a prune would delete nothing."
+    },
+    {
+      "id": "TASK-008",
+      "title": "Make the reset delete corpus nodes in batches and keep every other node",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-005"],
+      "files": ["harness/indexing/property_graph.py", "tests/test_indexing_property_graph.py"],
+      "acceptance": [
+        "`tests/test_indexing_property_graph.py::test_reset_keeps_other_nodes` passes on the in-memory double: a node labelled _Neodash_Dashboard survives, no :Document or :Chunk remains",
+        "`grep -rn 'MATCH (n) DETACH DELETE n' harness/ scripts/` prints nothing",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Defect 5 of the proposal: `reset=True` runs `MATCH (n) DETACH DELETE n` (property_graph.py:453) on 7.5 million nodes and 14.6 million relationships in one transaction, with a 2 GB heap and `dbms.memory.transaction.total.max` 1.40 GiB. It also deletes the NeoDash dashboard node (one node, label `_Neodash_Dashboard` only).\n\nDelete :Chunk first, then :Document, through graph_ops.reset_corpus, in batches. Start with 10,000 rows per transaction as a module constant; TASK-014 fixes it from the measurement.\n\nThe reset is not run on the live graph in this item (proposal: 'It makes the reset safe to run; running it is the owner's decision')."
+    },
+    {
+      "id": "TASK-009",
+      "title": "Add a PDF parser that reads bytes with the installed pymupdf4llm",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": [],
+      "files": ["corpus/parsers/pymupdf4llm.py", "tests/test_parsers_pymupdf4llm.py"],
+      "acceptance": [
+        "`tests/test_parsers_pymupdf4llm.py::test_pdf_parser_reads_bytes` passes: the bytes of tests/fixtures/fixture_pdf_0.pdf give more than 1,000 characters of text, error '', and the module `parsers` is not imported",
+        "`::test_gzip_body_is_decompressed` passes: `gzip.compress(fixture)` gives the same text as the plain bytes",
+        "`::test_meta_records_options` passes: meta holds use_ocr True, header True, footer True, layout True, and the versions of pymupdf4llm, pymupdf and pymupdf-layout",
+        "`::test_not_a_pdf_returns_error` passes: b'hello' gives empty text and an error that starts with 'pdf_open_failed'",
+        "The 13 tests that tests/test_parsers_pymupdf4llm.py holds today pass: the pickle reader stays until TASK-010",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Defect 1 of the proposal: the module parses no PDF; it unpickles the scraper's `parsed_pdf.pkl` (corpus/parsers/pymupdf4llm.py:100) and fails with `pickle_load_failed: No module named 'parsers'` outside the scraper's path.\n\nInstalled library, read on 2026-11-25 (.venv/lib/python3.13/site-packages/pymupdf4llm/__init__.py): pymupdf4llm 1.27.2.3, pymupdf 1.27.2.3, pymupdf-layout 1.27.2.3. `to_markdown(*args, **kwargs)` goes to `_layout_to_markdown` when `_use_layout` is True, and it is True on import here. `_layout_to_markdown(doc, *, ..., footer=True, header=True, use_ocr=True, ...)`: the three options are keyword-only. Open bytes with `pymupdf.open(stream=raw, filetype='pdf')`.\n\nDecision E (docs/pm/decisions/2026-11-25_pdf-ocr.md): pass use_ocr=True, header=True, footer=True explicitly; record them, layout mode and the three versions in meta. OCR uses /usr/bin/tesseract, outside .venv: the tests must not compare OCR text, only length, error and stability.\n\nA body that starts with the bytes 1f 8b is decompressed with gzip first (exploration: one 'bad magic' entry starts with 1f8b0800, Content-Encoding gzip). Whether the 6,760 such PDFs are parsed is row 11's data task.\n\nThe library prints to standard output ('=== Document parser messages ===', 'OCR on page.number=0/1'). Do not assert on stdout.\n\nThe fixture took 1.56 s and 1.85 s on the CPU and gave 11,906 characters with the same SHA-256 both times (exploration 6.2).\n\nName: parser `pymupdf4llm`, version = the installed library version. Keep the pickle reader in the module under another class name and keep `_cli` on it: switching the CLI waits for decision G (TASK-010)."
+    },
+    {
+      "id": "TASK-010",
+      "title": "Wire parse-pdfs to the byte parser and settle the pickle reader",
+      "type": "wiring",
+      "status": "pending",
+      "dependencies": ["TASK-009"],
+      "files": ["corpus/parsers/pymupdf4llm.py", "scripts/update_graph.py", "scripts/ingest_parsed_pdfs.py", "tests/test_parsers_pymupdf4llm.py", "tests/test_update_graph.py"],
+      "acceptance": [
+        "`tests/test_parsers_pymupdf4llm.py::test_cli_parses_response_body` passes: a temporary cache folder with `meta` {'url': 'https://www.ema.europa.eu/en/documents/x.pdf'} and `response_body` = the fixture PDF writes one row to mongomock with parser pymupdf4llm, the installed version and non-empty text",
+        "`tests/test_update_graph.py::test_dry_run_lists_parse_pdfs` passes: `update_graph.py --dry-run --pdf-cache X` prints `corpus.parsers.pymupdf4llm --cache X`",
+        "Decision G is applied as its note says (docs/pm/decisions/2026-11-25_pickle-reader.md)",
+        "`grep -n 'not needed' scripts/update_graph.py` prints nothing: the docstring no longer says that propagate is not needed after a fresh build",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Blocked on decision G. The note recommends G1: the pickle path to parsed_documents is removed, `scripts/ingest_parsed_pdfs.py` keeps `--legacy` and its default mode delegates to the byte parser through `_cli` (it imports `_cli` at line 29).\n\nThe cache walker `_iter_pdf_cache` (pymupdf4llm.py:116-130) keeps its `.pdf` suffix test. The 805 `.pdf-N` URLs are row 11's: the plan's choice, since exploration 6.4 asked the plan to name the item. `scripts/ingest_parsed_pdfs.py:44-57` holds a copy of the walker.\n\nThe CLI reads `response_body` of each entry and writes nothing into the cache (the scraper wrote parsed_pdf.pkl there; exploration 6.1).\n\nThe docstring of scripts/update_graph.py is wrong at lines 18-20 (the cache holds parsed_pdf.pkl per PDF) and 29-31 (propagate 'not needed after a fresh build'); exploration 3.4 says why propagate stays required."
+    },
+    {
+      "id": "TASK-011",
+      "title": "Expose --prune on the build and the pipeline, and say what --reset deletes",
+      "type": "wiring",
+      "status": "pending",
+      "dependencies": ["TASK-007", "TASK-008"],
+      "files": ["harness/indexing/build.py", "scripts/update_graph.py", "tests/test_update_graph.py"],
+      "acceptance": [
+        "`.venv/bin/python -m harness.indexing.build --help` lists --prune, and the help of --reset contains 'Document and Chunk' and 'batches'",
+        "`tests/test_update_graph.py::test_dry_run_forwards_prune` passes: `update_graph.py --dry-run --steps build --prune` prints a build command that ends with --prune",
+        "`tests/test_update_graph.py::test_build_cli_forwards_prune` passes: build.main with --prune calls build_index with prune=True (build_index replaced by a recorder)",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The help text of --reset today says 'DETACH DELETE the graph first' (build.py:41, update_graph.py:96). After TASK-008 it deletes :Document and :Chunk nodes in batches and keeps other nodes. Rule 7 of docs/PLANNING_WORKFLOW.md: a command that deletes appears with its warning in the same block.\n\nThe module docstring of build.py shows `--full --reset` as its first example (line 10); put the warning beside it."
+    },
+    {
+      "id": "TASK-012",
+      "title": "Write the backfill that stamps the parse identity on existing documents",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-002", "TASK-003", "TASK-005"],
+      "files": ["scripts/backfill_parse_identity.py", "tests/test_backfill_parse_identity.py"],
+      "acceptance": [
+        "`tests/test_backfill_parse_identity.py::test_backfill_stamps_old_rule_row` passes: a graph document without the values gets the parser, version and text hash of its old-rule row",
+        "`::test_backfill_is_resumable` passes: a second run stamps 0 documents",
+        "`::test_backfill_dry_run_writes_nothing` passes",
+        "`::test_verify_compares_chunk_ids` passes: `--verify N` rebuilds the chunk ids of N sampled documents and prints 'verify: k of N equal'",
+        "The script prints how many URLs have an old-rule row that differs from the selected row",
+        "`.venv/bin/python scripts/backfill_parse_identity.py --help` exits 0",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The proposal: 'A backfill script sets them from the row that the old rule picked, without touching a chunk.' Old rule = the first clean row the cursor yields per URL (TASK-002's `old_rule`). For all 80,078 clean URLs today the old-rule row and the selected row are the same row (5 URLs have two rows; their second row is an unlisted llamahub fixture), so the printed difference count should be 0.\n\nIt stamps only `WHERE d.text_sha256 IS NULL`, in UNWIND batches through graph_ops.stamp_parse_identity, so it can stop and resume. It hashes the text of every row: 1,979 MB of data in parsed_documents. It never writes a chunk, an edge or a Mongo row.\n\n`--verify` repeats the exploration's 80-of-80 check (section 4.3) on a sample: build_ingested_doc of the row gives exactly the chunk ids that `MATCH (d:Document {id: $id})-[:HAS_CHUNK]->(c)` returns.\n\nNo live run in this task: that is TASK-016, after the owner's yes."
+    },
+    {
+      "id": "TASK-013",
+      "title": "Measure the deletes and the reset on a throwaway Neo4j",
+      "type": "measurement",
+      "status": "pending",
+      "dependencies": ["TASK-005", "TASK-006", "TASK-007", "TASK-008"],
+      "files": ["tests/test_graph_ops_neo4j.py", "docs/eval/2026-11-25_graph_delete_measurement.md"],
+      "acceptance": [
+        "A container `ema_neo4j_scratch` (image neo4j:5.26, bolt on host port 7688, no named volume, heap 2G, transaction memory limit 1.4G as on the live server) ran the measurement and was removed afterwards; `docker ps` lists ema_neo4j and ema_neodash unchanged before and after",
+        "`EMA_SCRATCH_NEO4J_URI=bolt://localhost:7688 .venv/bin/python -m pytest -m integration tests/test_graph_ops_neo4j.py` passes; without the variable every test in that file is skipped, and a URI with port 7687 makes the tests fail before they connect",
+        "docs/eval/2026-11-25_graph_delete_measurement.md answers with the query beside each number: (1) does a deleted chunk leave the vector index ema_chunk_embedding at once; (2) the duration and outcome of deleting one document with 26,000 chunks in one transaction and in batches; (3) the rate of the batched reset in nodes per second for 10,000 and 50,000 rows per batch, and the hours that rate gives for the 7,515,275 corpus nodes of the live graph",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Open measurements of the exploration (lines 517-521): whether a deleted chunk leaves the vector index at once (5.1), the batch size for node deletes (5.3), and how long a batched reset takes. The third one, the backfill's duration and the embedding rate of a replace, needs the live stores and goes to TASK-015 (read-only) and TASK-016/017.\n\nThis is a systems measurement, not a comparison of recipes: no benchmark items, no models, no judge, 0 paid calls, no GPU. The 'arms' are the batch sizes.\n\nThe lead session asked to be told before the container starts. Neo4j community holds one database, and deploy/neo4j/docker-compose.yml fixes `container_name: ema_neo4j` and its volumes (exploration 5.4), so the scratch instance is a `docker run` with its own name and port, written into the eval page. The code reads NEO4J_URI from the environment (property_graph.py:72); check that the env file loaded by config.py does not override a NEO4J_URI set in the shell (python-dotenv's default is override=False) before any write.\n\nSynthetic data, made with plain Cypher: one :Document with 26,000 :__Node__:Chunk nodes (the biggest live document has 25,916), 2,000 characters of text each, a 1,024-float embedding on 20,000 leaves, HAS_CHUNK and PARENT_OF edges, the vector index created as `ensure_chunk_vector_index` does, plus a _Neodash_Dashboard node. For the reset rate, a few hundred thousand chunk nodes are enough to scale from.\n\nThe live upsert path uses APOC (`apoc.map.clean`, neo4j_property_graph.py:386). If the integration test runs the build's upsert, start the container with NEO4J_PLUGINS='[\"apoc\"]' as the live compose file does (line 22)."
+    },
+    {
+      "id": "TASK-014",
+      "title": "Fix the delete and reset batch sizes from the measurement",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-013"],
+      "files": ["harness/indexing/graph_ops.py", "harness/indexing/property_graph.py"],
+      "acceptance": [
+        "The batch-size constants in harness/indexing/graph_ops.py equal the values that docs/eval/2026-11-25_graph_delete_measurement.md recommends, and a comment beside each links that page",
+        "If the page says that one document's replace needs batching, delete_document_chunks batches; a test asserts the batch clause",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "A separate task so that the measurement records numbers and this task changes code: the measurement page is the reason for the constants."
+    },
+    {
+      "id": "TASK-015",
+      "title": "Checkpoint: report the code and the measurement, and ask for the two live runs",
+      "type": "checkpoint",
+      "status": "pending",
+      "dependencies": ["TASK-010", "TASK-011", "TASK-012", "TASK-014", "TASK-018"],
+      "files": ["docs/pm/decisions/2026-11-25_live-graph-runs.md", "docs/eval/2026-11-25_graph_delete_measurement.md"],
+      "acceptance": [
+        "docs/pm/decisions/2026-11-25_live-graph-runs.md exists with status open and states, for the backfill and for the one-URL run: the counts before and after, the hours, the way back, and 0 paid model calls",
+        "The backfill's hours come from `scripts/backfill_parse_identity.py --dry-run --limit 1000` on the live stores (read-only), scaled to 79,882 documents, with the arithmetic written out",
+        "The owner (or the lead session, if the owner delegates it) has answered in the note; TASK-016 does not start before"
+      ],
+      "notes": "The proposal's last paragraph: the replace step and the reset are the first code here that deletes from the live graph; the first live run is a data task on one document, with the counts before and after. CLAUDE.md rule 4: ask before a run that deletes.\n\nA finding for the note: under decision A a byte parse of a URL that has a legacy row does not replace it, so a one-URL run cannot exercise the live replace by itself. Two shapes to offer: (a) one of the gzip PDFs, which have no legacy row: the byte parser decompresses it, the build adds one new document, every other document is skipped; (b) one legacy PDF, parsed with the byte parser, with the PDF list of parser_preference.yaml put in the other order for one build: exactly that URL has a row of the new parser, so exactly one document is replaced; restoring the file and building again puts the legacy text back. (b) edits an authored file for one run, so it needs the owner's explicit yes.\n\nThe read-only dry run is allowed without asking: it writes to neither store."
+    },
+    {
+      "id": "TASK-016",
+      "title": "Backfill the parse identity on the live graph",
+      "type": "data",
+      "status": "pending",
+      "dependencies": ["TASK-015"],
+      "files": [],
+      "acceptance": [
+        "Before: `MATCH (d:Document) WHERE d.text_sha256 IS NULL RETURN count(d)` = 79,882; `MATCH (c:Chunk) RETURN count(c)` = 7,435,393; `MATCH ()-[r:LINKS_TO]->() RETURN count(r)` = 99,520 (re-run the queries and write the results into the task before the run)",
+        "After: the same three queries give 0, 7,435,393 and 99,520",
+        "`scripts/backfill_parse_identity.py --verify 100` prints 'verify: 100 of 100 equal'",
+        "A second run stamps 0 documents"
+      ],
+      "notes": "Writes to the live Neo4j: blocked on docs/pm/decisions/2026-11-25_live-graph-runs.md.\n\nRepeatable: yes, it stamps only documents without text_sha256. Way back: `MATCH (d:Document) CALL { WITH d REMOVE d.parser, d.parser_version, d.text_sha256 } IN TRANSACTIONS OF 10000 ROWS` restores the earlier state exactly, since no document had these properties (count 0, 0, 0 on 2026-11-23). Hours: from TASK-015's dry run. GPU: none. Paid calls: 0.\n\nThe NeoDash dashboard and every chunk, vector and edge stay as they are."
+    },
+    {
+      "id": "TASK-017",
+      "title": "Run one URL through parse-pdfs and build on the live stores",
+      "type": "data",
+      "status": "pending",
+      "dependencies": ["TASK-016", "TASK-010"],
+      "files": [],
+      "acceptance": [
+        "The URL, the shape the owner chose in the decision note, and the counts before and after are written into docs/eval/ (the :Document count, the URL's :Chunk and leaf counts, the build's log line of new, replaced, stamped and skipped documents)",
+        "The build embeds only that document's leaves; every other document is skipped",
+        "The duration of the build's full comparison pass is recorded, with the embedding rate of the one document"
+      ],
+      "notes": "Writes one row to the live parsed_documents and changes one document in the live graph: blocked on docs/pm/decisions/2026-11-25_live-graph-runs.md.\n\nExploration 3.6: the proposal's command (`--steps parse-pdfs,build --limit 20`) parses the first 20 PDFs in os.walk order and builds the first 20 URLs in URL order, two unrelated sets. Use `corpus.parsers.pymupdf4llm --url <url>` and then a build whose comparison skips every other document.\n\nThis run gives the first recorded embedding rate of a replace in this repository (exploration section 8, 'Cost')."
+    },
+    {
+      "id": "TASK-018",
+      "title": "Write down what each pipeline step can and cannot refresh",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": ["TASK-006", "TASK-007", "TASK-008", "TASK-010", "TASK-011", "TASK-012"],
+      "files": ["docs/RETRIEVAL.md", "scripts/propagate_metadata_to_graph.py", "harness/indexing/build.py"],
+      "acceptance": [
+        "The node model of docs/RETRIEVAL.md lists parser, parser_version and text_sha256 on :Document",
+        "`grep -n 'propagate.*unnecessary\\|not needed after a fresh build' docs/RETRIEVAL.md scripts/update_graph.py scripts/propagate_metadata_to_graph.py` prints nothing",
+        "docs/RETRIEVAL.md says that the comparison ignores chunk_sizes and the embedding model, and names the backfill script",
+        "Every line of docs/RETRIEVAL.md that shows `--reset` has the word 'deletes' within 6 lines (rule 7)",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Exploration 3.4 names three texts that state the wrong thing: the docstring of scripts/update_graph.py (lines 18-20, 29-31; fixed in TASK-010), docs/RETRIEVAL.md lines 220-223, and the docstring of scripts/propagate_metadata_to_graph.py (lines 7-9).\n\nCLAUDE.md also has lines on parse-pdfs and the pipeline that become untrue (exploration section 7). They are left for /ship, with the owner present: CLAUDE.md is the project's instruction file.\n\n/ship deletes backlog row 10 and the proposal, moves the settled decisions into DECISIONS.md, and appends to .claude/HISTORY.md."
+    }
+  ]
+}

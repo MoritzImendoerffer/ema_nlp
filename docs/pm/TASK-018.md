@@ -1,40 +1,43 @@
 ---
 type: pm-task
-epic: 2026-11-23_26_eval-reliability
-sprint: 2026-11-23_26_eval-reliability
+epic: 2026-11-23_27_pipeline-refresh
+sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-018
-status: done
-kind: mechanism
-title: "Take each item's trace id from the adapter's own root span"
+status: todo
+kind: documentation
+title: "Write down what each pipeline step can and cannot refresh"
 generated: true
-waiting_on: —
-tags: [pm/task, pm/done]
+waiting_on: the assistant
+tags: [pm/task, pm/todo]
 ---
 
-> [!warning] Generated from `.claude/work/2026-11-23_26_eval-reliability/state.json` by `scripts/pm_notes.py`.
+> [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
 > Anything written here by hand is lost on the next run.
 
-# TASK-018 — Take each item's trace id from the adapter's own root span
+# TASK-018 — Write down what each pipeline step can and cannot refresh
 
-**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
 
 ## Why it exists
 
-The newest-trace-of-the-process lookup (mlflow.get_last_active_trace_id) gave nothing for T1 because the trace was written late. The adapter knows its own root span; its id does not depend on when the exporter writes the trace. The fallback to trace_id_fn stays for a failed item and for a runnable without the key.
+Exploration 3.4 names three texts that state the wrong thing: the docstring of scripts/update_graph.py (lines 18-20, 29-31; fixed in TASK-010), docs/RETRIEVAL.md lines 220-223, and the docstring of scripts/propagate_metadata_to_graph.py (lines 7-9).
+
+CLAUDE.md also has lines on parse-pdfs and the pipeline that become untrue (exploration section 7). They are left for /ship, with the owner present: CLAUDE.md is the project's instruction file.
+
+/ship deletes backlog row 10 and the proposal, moves the settled decisions into DECISIONS.md, and appends to .claude/HISTORY.md.
 
 ## Acceptance criteria
 
-- [x] `tests/test_eval_predict.py::test_predict_items_prefers_the_trace_id_the_agent_returns` passes: an ainvoke result with trace_id gives that id even when the trace-id function returns nothing new
-- [x] `tests/test_eval_runner.py::test_adapter_returns_its_own_trace_id` passes: AgentWorkflowAdapter.ainvoke returns the id of the trace that holds its root span
-- [x] `make test` passes and `make lint` passes, each run on its own line
+- [ ] The node model of docs/RETRIEVAL.md lists parser, parser_version and text_sha256 on :Document
+- [ ] `grep -n 'propagate.*unnecessary\|not needed after a fresh build' docs/RETRIEVAL.md scripts/update_graph.py scripts/propagate_metadata_to_graph.py` prints nothing
+- [ ] docs/RETRIEVAL.md says that the comparison ignores chunk_sizes and the embedding model, and names the backfill script
+- [ ] Every line of docs/RETRIEVAL.md that shows `--reset` has the word 'deletes' within 6 lines (rule 7)
+- [ ] `make test` passes and `make lint` passes, each run on its own line
 
-## What was built
-
-harness/agents/workflow_adapter.py: ainvoke returns trace_id, the id of the trace of its own root span (None when tracing is off); app.py reads only named keys, so the extra key changes nothing there. harness/eval/predict.py: apredict_items uses that id first and falls back to trace_id_fn (failed item, runnable without the key). 2 new tests (predict prefers the returned id when trace_id_fn gives nothing; the adapter's id is the trace whose root span is AgentWorkflowAdapter.invoke). make test: 736 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0).
+**Depends on:** [[TASK-006]], [[TASK-007]], [[TASK-008]], [[TASK-010]], [[TASK-011]], [[TASK-012]]
 
 ## Files it touched
 
-- `harness/agents/workflow_adapter.py`
-- `harness/eval/predict.py`
-- `tests/test_eval_predict.py`
-- `tests/test_eval_runner.py`
+- [[RETRIEVAL]] — `docs/RETRIEVAL.md`
+- `scripts/propagate_metadata_to_graph.py`
+- `harness/indexing/build.py`

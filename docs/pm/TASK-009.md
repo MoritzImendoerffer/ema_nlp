@@ -1,59 +1,49 @@
 ---
 type: pm-task
-epic: 2026-11-23_26_eval-reliability
-sprint: 2026-11-23_26_eval-reliability
+epic: 2026-11-23_27_pipeline-refresh
+sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-009
-status: done
-kind: contract
-title: "Bind the judge role to a new models.yaml entry for claude-opus-5-5, and stop sending temperature to that model"
+status: todo
+kind: mechanism
+title: "Add a PDF parser that reads bytes with the installed pymupdf4llm"
 generated: true
-waiting_on: —
-tags: [pm/task, pm/done]
+waiting_on: the assistant
+tags: [pm/task, pm/todo]
 ---
 
-> [!warning] Generated from `.claude/work/2026-11-23_26_eval-reliability/state.json` by `scripts/pm_notes.py`.
+> [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
 > Anything written here by hand is lost on the next run.
 
-# TASK-009 — Bind the judge role to a new models.yaml entry for claude-opus-5-5, and stop sending temperature to that model
+# TASK-009 — Add a PDF parser that reads bytes with the installed pymupdf4llm
 
-**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
 
 ## Why it exists
 
-What changes. `harness/configs/models.yaml` gets one entry for the model id `claude-opus-5-5` (provider `anthropic`), and `roles.judge` (line 55) names it. All ten recipes generate with `claude_opus`, which is `claude-opus-4-7` (lines 26-31). After this task the default judge is a model that no recipe generates with. This is decision E of the proposal.
+Defect 1 of the proposal: the module parses no PDF; it unpickles the scraper's `parsed_pdf.pkl` (corpus/parsers/pymupdf4llm.py:100) and fails with `pickle_load_failed: No module named 'parsers'` outside the scraper's path.
 
-The condition of decision E is met. On 2026-11-23 `GET /v1/models` on the configured endpoint listed `claude-opus-5-5` among 15 ids, and two real judge calls through `build_judge` with `anthropic:/claude-opus-5-5` returned a value (`exploration.md` section 8.1). If this task runs on a later day, ask the endpoint again; the call costs nothing. Write no model id from memory.
+Installed library, read on 2026-11-25 (.venv/lib/python3.13/site-packages/pymupdf4llm/__init__.py): pymupdf4llm 1.27.2.3, pymupdf 1.27.2.3, pymupdf-layout 1.27.2.3. `to_markdown(*args, **kwargs)` goes to `_layout_to_markdown` when `_use_layout` is True, and it is True on import here. `_layout_to_markdown(doc, *, ..., footer=True, header=True, use_ocr=True, ...)`: the three options are keyword-only. Open bytes with `pymupdf.open(stream=raw, filetype='pdf')`.
 
-The second reader of `roles.judge`, which the proposal does not name. `harness/judge.py:71` builds its model with `harness.llms.get_llm(model_role)`, and that path sends `temperature: 0.0`. One real call with `claude-opus-5-5` on that path returned `400 invalid_request_error: temperature is deprecated for this model` (`exploration.md` section 8.2). `_NO_TEMPERATURE_PREFIXES` (`harness/llms.py:118`) holds `claude-sonnet-5`, `claude-fable-5` and `claude-mythos-5`, and not `claude-opus-5`. `run_inline_judges` swallows a judge error and logs a warning (`harness/eval/inline_judge.py:104-105`). Without the prefix, the recipe `agentic_judged` loses its inline judge on every turn with no visible sign. So the prefix and the binding land in one task. The real call in the acceptance list is the proof; a unit test proves only the wrapper.
+Decision E (docs/pm/decisions/2026-11-25_pdf-ocr.md): pass use_ocr=True, header=True, footer=True explicitly; record them, layout mode and the three versions in meta. OCR uses /usr/bin/tesseract, outside .venv: the tests must not compare OCR text, only length, error and stability.
 
-The entry keeps a `temperature` field: the loader reads it without a default (`float(d['temperature'])` in `harness/llms.py`), and the wrapper strips it before the request.
+A body that starts with the bytes 1f 8b is decompressed with gzip first (exploration: one 'bad magic' entry starts with 1f8b0800, Content-Encoding gzip). Whether the 6,760 such PDFs are parsed is row 11's data task.
 
-Plan decision: the entry's key is `claude_opus_5_5`. `tests/test_models.py::test_models_yaml_has_all_models` checks a subset of names and needs no change.
+The library prints to standard output ('=== Document parser messages ===', 'OCR on page.number=0/1'). Do not assert on stdout.
 
-What happens to what was written before. The 17 runs and the 85 judge values per judge in `mlflow.db` were judged by the model bound to `roles.judge` at the time, and carry no judge tag. They stay as they are. A number from the new judge starts a new series: two numbers compare only when the same judge produced them (`DECISIONS.md`, 'The judge model is a setting'). No number is repeated now (decision D).
+The fixture took 1.56 s and 1.85 s on the CPU and gave 11,906 characters with the same SHA-256 both times (exploration 6.2).
 
-Why after TASK-007: from the first run with the new judge, the run records which model judged it.
-
-The same family. The generator and the judge are both Claude models. Every `docs/eval/` page that reports a judged number has to say so (decision B).
+Name: parser `pymupdf4llm`, version = the installed library version. Keep the pickle reader in the module under another class name and keep `_cli` on it: switching the CLI waits for decision G (TASK-010).
 
 ## Acceptance criteria
 
-- [x] `.venv/bin/python -c "from harness.models import load_model_for_role as f; print(f('judge').model_id)"` prints `claude-opus-5-5`
-- [x] `tests/test_llms.py::test_opus_5_5_drops_temperature` exists and passes: the wrapper built for the model id `claude-opus-5-5` has no `temperature` in its `_model_kwargs`
-- [x] `tests/test_models.py::test_no_recipe_generates_with_the_judge_model` exists and passes: for each of the 10 files in `harness/configs/recipes/`, the model id of the recipe's model differs from the model id of `roles.judge`
-- [x] `tests/test_models.py::test_judge_role_is_opus` passes unchanged
-- [x] One real call, which costs one short completion: `.venv/bin/python -c "import config; from harness.judge import Judge; print(Judge().faithfulness('What is 2 + 2?', '4', ['2 + 2 is 4.']))"` prints a result whose `score` is between 1 and 5, and the output holds no line with the word `deprecated`
-- [x] `make test` passes and `make lint` passes, each run on its own line
-
-**Depends on:** [[TASK-007]]
-
-## What was built
-
-harness/configs/models.yaml: new entry claude_opus_5_5 (provider anthropic, model_id claude-opus-5-5, max_tokens 4096, temperature 0.0 kept for the loader), roles.judge -> claude_opus_5_5; the claude_opus description no longer claims the judge role. harness/llms.py: 'claude-opus-5' added to _NO_TEMPERATURE_PREFIXES. load_model_for_role('judge').model_id prints claude-opus-5-5. New tests: test_opus_5_5_drops_temperature; test_no_recipe_generates_with_the_judge_model (all 10 recipes generate with a model id other than the judge's). test_judge_role_is_opus passes unchanged. The endpoint was not asked again: same day as exploration section 8.1 (2026-11-23). One real call, one short completion, through harness/judge.py: Judge().faithfulness('What is 2 + 2?', '4', ['2 + 2 is 4.']) returned {'score': 5, ...}, exit 0, 0 lines with 'deprecated'. Earlier runs in mlflow.db stay as they are, judged by claude-opus-4-7 and untagged; a number from the new judge starts a new series. Generator and judge are both Claude models. make test: 715 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0).
+- [ ] `tests/test_parsers_pymupdf4llm.py::test_pdf_parser_reads_bytes` passes: the bytes of tests/fixtures/fixture_pdf_0.pdf give more than 1,000 characters of text, error '', and the module `parsers` is not imported
+- [ ] `::test_gzip_body_is_decompressed` passes: `gzip.compress(fixture)` gives the same text as the plain bytes
+- [ ] `::test_meta_records_options` passes: meta holds use_ocr True, header True, footer True, layout True, and the versions of pymupdf4llm, pymupdf and pymupdf-layout
+- [ ] `::test_not_a_pdf_returns_error` passes: b'hello' gives empty text and an error that starts with 'pdf_open_failed'
+- [ ] The 13 tests that tests/test_parsers_pymupdf4llm.py holds today pass: the pickle reader stays until TASK-010
+- [ ] `make test` passes and `make lint` passes, each run on its own line
 
 ## Files it touched
 
-- `harness/configs/models.yaml`
-- `harness/llms.py`
-- `tests/test_llms.py`
-- `tests/test_models.py`
+- `corpus/parsers/pymupdf4llm.py`
+- `tests/test_parsers_pymupdf4llm.py`

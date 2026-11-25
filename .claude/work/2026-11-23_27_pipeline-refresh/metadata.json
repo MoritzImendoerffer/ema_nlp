@@ -1,0 +1,21 @@
+{
+  "id": "2026-11-23_27_pipeline-refresh",
+  "proposal": "docs/next/pipeline_refresh.md",
+  "backlog_row": 10,
+  "created_at": "2026-11-23",
+  "status": "planned",
+  "branch": "pipeline-refresh",
+  "branched_from": "develop@9dfc405",
+  "proposal_stands": true,
+  "next": "/next",
+  "planned_at": "2026-11-25",
+  "decisions": {
+    "A": "settled 2026-11-25 by the lead assistant session under the owner's delegation (owner can overrule): legacy PDF rows first — docs/pm/decisions/2026-11-25_pdf-parser-order.md",
+    "B": "settled 2026-11-25, same label: removed URLs kept, --prune deletes — docs/pm/decisions/2026-11-25_removed-urls.md",
+    "C": "dissolved by the exploration (section 3.2)",
+    "D": "settled 2026-11-25, same label: D1, pymupdf4llm@legacy — docs/pm/decisions/2026-11-25_legacy-parser-name.md",
+    "E": "settled 2026-11-25, same label: OCR on, options recorded — docs/pm/decisions/2026-11-25_pdf-ocr.md",
+    "F": "settled 2026-11-25, same label: fall back to the newest clean row with a warning — docs/pm/decisions/2026-11-25_unlisted-parser.md",
+    "G": "open: what happens to the pickle reader — docs/pm/decisions/2026-11-25_pickle-reader.md (blocks TASK-010)"
+  }
+}

@@ -1,46 +1,40 @@
 ---
 type: pm-task
-epic: 2026-11-23_26_eval-reliability
-sprint: 2026-11-23_26_eval-reliability
+epic: 2026-11-23_27_pipeline-refresh
+sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-016
-status: done
-kind: mechanism
-title: "Send the workspace header on every Anthropic request when ANTHROPIC_WORKSPACE_ID is set"
+status: todo
+kind: data
+title: "Backfill the parse identity on the live graph"
 generated: true
-waiting_on: —
-tags: [pm/task, pm/done]
+waiting_on: the assistant
+tags: [pm/task, pm/todo]
 ---
 
-> [!warning] Generated from `.claude/work/2026-11-23_26_eval-reliability/state.json` by `scripts/pm_notes.py`.
+> [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
 > Anything written here by hand is lost on the next run.
 
-# TASK-016 — Send the workspace header on every Anthropic request when ANTHROPIC_WORKSPACE_ID is set
+# TASK-016 — Backfill the parse identity on the live graph
 
-**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
 
 ## Why it exists
 
-Added on 2026-11-23 on the owner's choice (b) in the decision note. The key in the credentials file is organization-scoped, and the API answered the free model listing with 400 'This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header'. The installed anthropic SDK 0.105.2 has no setting for it. Installed APIs that carry the header: llama-index-llms-anthropic 0.11.5 Anthropic(default_headers=...) (base.py:229); anthropic.Anthropic(default_headers=...); mlflow 3.14.0 make_judge(extra_headers=...) (make_judge.py:121, gateway_adapter.py:553-554). Unset variable: no header, no behaviour change. Not verified offline: whether the configured endpoint passes the header on; the free listing checks that.
+Writes to the live Neo4j: blocked on docs/pm/decisions/2026-11-25_live-graph-runs.md.
+
+Repeatable: yes, it stamps only documents without text_sha256. Way back: `MATCH (d:Document) CALL { WITH d REMOVE d.parser, d.parser_version, d.text_sha256 } IN TRANSACTIONS OF 10000 ROWS` restores the earlier state exactly, since no document had these properties (count 0, 0, 0 on 2026-11-23). Hours: from TASK-015's dry run. GPU: none. Paid calls: 0.
+
+The NeoDash dashboard and every chunk, vector and edge stay as they are.
 
 ## Acceptance criteria
 
-- [x] `tests/test_models.py::test_workspace_header_only_when_the_variable_is_set` passes: no variable gives {}, a set variable gives {'anthropic-workspace-id': <value>}
-- [x] `tests/test_models.py::test_call_anthropic_sends_the_workspace_header` passes: the client of _call_anthropic is built with the header
-- [x] `tests/test_llms.py::test_agent_model_sends_the_workspace_header` passes: the LlamaIndex Anthropic client built by _make_anthropic carries the header, and carries none when the variable is unset
-- [x] `tests/test_eval_judges.py::test_anthropic_judge_sends_the_workspace_header` passes: build_judge passes extra_headers with the header for an anthropic model, and none for an openai model
-- [x] With the owner's workspace ID in the credentials file, the free model listing through the configured endpoint returns the model ids, among them claude-opus-4-7 and claude-opus-5-5
-- [x] `make test` passes and `make lint` passes, each run on its own line
+- [ ] Before: `MATCH (d:Document) WHERE d.text_sha256 IS NULL RETURN count(d)` = 79,882; `MATCH (c:Chunk) RETURN count(c)` = 7,435,393; `MATCH ()-[r:LINKS_TO]->() RETURN count(r)` = 99,520 (re-run the queries and write the results into the task before the run)
+- [ ] After: the same three queries give 0, 7,435,393 and 99,520
+- [ ] `scripts/backfill_parse_identity.py --verify 100` prints 'verify: 100 of 100 equal'
+- [ ] A second run stamps 0 documents
 
-## What was built
-
-harness/models.py: WORKSPACE_ENV / WORKSPACE_HEADER and anthropic_headers() ({'anthropic-workspace-id': ANTHROPIC_WORKSPACE_ID} when set, else {}), read at call time; _call_anthropic builds its client with default_headers. harness/llms.py: _make_anthropic passes default_headers to LlamaIndex Anthropic (both its sync and async client carry the header). harness/eval/judges.py: build_judge passes extra_headers for an anthropic model (mlflow 3.14.0 make_judge.py:121, gateway_adapter.py:553). harness/configs/models.yaml comment names the variable. 4 new tests. Unset variable: no header. Real check, free: with the owner's workspace ID in the credentials file, GET /v1/models through the configured endpoint listed 15 models, among them claude-opus-4-7 and claude-opus-5-5 (it had answered 400 'not scoped to a workspace' without the header). Listing workspaces with this key is not permitted (403). make test: 733 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0).
+**Depends on:** [[TASK-015]]
 
 ## Files it touched
 
-- `harness/models.py`
-- `harness/llms.py`
-- `harness/eval/judges.py`
-- `harness/configs/models.yaml`
-- `tests/test_models.py`
-- `tests/test_llms.py`
-- `tests/test_eval_judges.py`
+- not recorded

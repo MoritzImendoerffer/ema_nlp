@@ -1,53 +1,45 @@
 ---
 type: pm-task
-epic: 2026-11-23_26_eval-reliability
-sprint: 2026-11-23_26_eval-reliability
+epic: 2026-11-23_27_pipeline-refresh
+sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-013
-status: done
-kind: wiring
-title: "Pass the profile's passage limit from build_recipe to the two search tools"
+status: todo
+kind: measurement
+title: "Measure the deletes and the reset on a throwaway Neo4j"
 generated: true
-waiting_on: —
-tags: [pm/task, pm/done]
+waiting_on: the assistant
+tags: [pm/task, pm/todo]
 ---
 
-> [!warning] Generated from `.claude/work/2026-11-23_26_eval-reliability/state.json` by `scripts/pm_notes.py`.
+> [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
 > Anything written here by hand is lost on the next run.
 
-# TASK-013 — Pass the profile's passage limit from build_recipe to the two search tools
+# TASK-013 — Measure the deletes and the reset on a throwaway Neo4j
 
-**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
 
 ## Why it exists
 
-Why this is a task of its own. TASK-012 adds a key that nothing reads. A profile key without a reader is the defect of `harness/configs/parser_preference.yaml`, which no code reads (`docs/PLANNING_WORKFLOW.md`, rule 1).
+Open measurements of the exploration (lines 517-521): whether a deleted chunk leaves the vector index at once (5.1), the batch size for node deletes (5.3), and how long a batched reset takes. The third one, the backfill's duration and the embedding rate of a replace, needs the live stores and goes to TASK-015 (read-only) and TASK-016/017.
 
-The path. `build_recipe` loads the profile (`harness/recipes/build.py:42-46`) and calls `assemble_agent` (lines 81-89). `assemble_agent` passes its keyword arguments to `build_agent` (`harness/agents/session.py:60-70`), which forwards them to every tool builder (`harness/agents/registry.py:51-63`). A builder takes what it knows and ignores the rest through `**_` (`harness/tools/search.py:131`, `harness/tools/corrective_search.py:53`). So one more keyword argument reaches `ema_search` and `corrective_search`, and no other tool changes.
+This is a systems measurement, not a comparison of recipes: no benchmark items, no models, no judge, 0 paid calls, no GPU. The 'arms' are the batch sizes.
 
-Also pass the value to `recipe.resolved_attributes` at `build.py:102-104`, so that the trace and the run carry the limit that was in force.
+The lead session asked to be told before the container starts. Neo4j community holds one database, and deploy/neo4j/docker-compose.yml fixes `container_name: ema_neo4j` and its volumes (exploration 5.4), so the scratch instance is a `docker run` with its own name and port, written into the eval page. The code reads NEO4J_URI from the environment (property_graph.py:72); check that the env file loaded by config.py does not override a NEO4J_URI set in the shell (python-dotenv's default is override=False) before any write.
 
-The tests build a recipe offline already: `tests/test_recipes.py:153-173` replaces `load_index_profile`, `build_retriever` and `get_llm_for_model`. Use a fake retriever whose nodes carry `matched_text`.
+Synthetic data, made with plain Cypher: one :Document with 26,000 :__Node__:Chunk nodes (the biggest live document has 25,916), 2,000 characters of text each, a 1,024-float embedding on 20,000 leaves, HAS_CHUNK and PARENT_OF edges, the vector index created as `ensure_chunk_vector_index` does, plus a _Neodash_Dashboard node. For the reset rate, a few hundred thousand chunk nodes are enough to scale from.
 
-The command that reaches this code with real data is `scripts/run_eval.py`, in TASK-015. `app.py` reaches it on every turn, through the same `build_recipe`.
-
-If the owner chose option (b) or (c) in the decision note, this task changes with TASK-012.
+The live upsert path uses APOC (`apoc.map.clean`, neo4j_property_graph.py:386). If the integration test runs the build's upsert, start the container with NEO4J_PLUGINS='["apoc"]' as the live compose file does (line 22).
 
 ## Acceptance criteria
 
-- [x] `tests/test_recipes.py::test_profile_passage_limit_reaches_ema_search` exists and passes: a recipe built on a profile with `passage_chars: 600` gives an `ema_search` tool whose bodies are at most 600 characters, and the adapter's attributes hold `ema.retrieval.passage_chars` with the value 600
-- [x] `tests/test_recipes.py::test_profile_passage_limit_reaches_corrective_search` exists and passes for the recipe `crag_agentic`
-- [x] `tests/test_recipes.py::test_build_recipe_wires_agent_from_recipe` and `::test_build_recipe_naive_single_tool` pass
-- [x] `grep -c 'passage_chars' harness/recipes/build.py` prints at least 2: the value goes to the tools and to `resolved_attributes`
-- [x] `make test` passes and `make lint` passes, each run on its own line
+- [ ] A container `ema_neo4j_scratch` (image neo4j:5.26, bolt on host port 7688, no named volume, heap 2G, transaction memory limit 1.4G as on the live server) ran the measurement and was removed afterwards; `docker ps` lists ema_neo4j and ema_neodash unchanged before and after
+- [ ] `EMA_SCRATCH_NEO4J_URI=bolt://localhost:7688 .venv/bin/python -m pytest -m integration tests/test_graph_ops_neo4j.py` passes; without the variable every test in that file is skipped, and a URI with port 7687 makes the tests fail before they connect
+- [ ] docs/eval/2026-11-25_graph_delete_measurement.md answers with the query beside each number: (1) does a deleted chunk leave the vector index ema_chunk_embedding at once; (2) the duration and outcome of deleting one document with 26,000 chunks in one transaction and in batches; (3) the rate of the batched reset in nodes per second for 10,000 and 50,000 rows per batch, and the hours that rate gives for the 7,515,275 corpus nodes of the live graph
+- [ ] `make test` passes and `make lint` passes, each run on its own line
 
-**Depends on:** [[TASK-012]]
-
-## What was built
-
-harness/recipes/build.py reads profile.retrieval.passage_chars, passes it to assemble_agent and to recipe.resolved_attributes (grep passage_chars in build.py = 3). harness/agents/session.py: assemble_agent(passage_chars=) forwards it to build_agent only when set (a None would reach the tools' slice as [:None], i.e. no cut); build_agent hands it to every tool builder, and only ema_search and corrective_search read it. tests/test_recipes.py: _fake_profile gains passage_chars; 2 new tests (a profile with 600 gives ema_search bodies <= 600 that start with the leaf, and corrective_search bodies <= 600 for crag_agentic; the adapter's attributes hold ema.retrieval.passage_chars 600). test_build_recipe_wires_agent_from_recipe and test_build_recipe_naive_single_tool pass. Real data, read-only, no model call (Neo4j container healthy, mongod active): build_recipe('naive_rag') on the live graph, one ema_search call for 'nitrosamine acceptable intake limit' in 6.3 s: 9 results, all 9 nodes carry matched_text, all 9 bodies start with the leaf, body lengths 1439-2000, in 7 of 9 the leaf starts after character 400 of its parent (the old cut hid it), passages_from_nodes equals the 9 bodies, ema.retrieval.passage_chars=2000 on the adapter. make test: 729 passed, 2 skipped, 7 deselected (exit 0). make lint: All checks passed (exit 0).
+**Depends on:** [[TASK-005]], [[TASK-006]], [[TASK-007]], [[TASK-008]]
 
 ## Files it touched
 
-- `harness/recipes/build.py`
-- `harness/agents/session.py`
-- `tests/test_recipes.py`
+- `tests/test_graph_ops_neo4j.py`
+- [[2026-11-25_graph_delete_measurement]] — `docs/eval/2026-11-25_graph_delete_measurement.md`

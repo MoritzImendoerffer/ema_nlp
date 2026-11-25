@@ -1,45 +1,39 @@
 ---
 type: pm-task
-epic: 2026-11-23_26_eval-reliability
-sprint: 2026-11-23_26_eval-reliability
+epic: 2026-11-23_27_pipeline-refresh
+sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-003
-status: done
-kind: mechanism
-title: "Make the faithfulness and the correctness judge return an integer"
+status: todo
+kind: contract
+title: "Put parser, parser_version and text_sha256 on the :Document node"
 generated: true
-waiting_on: —
-tags: [pm/task, pm/done]
+waiting_on: the assistant
+tags: [pm/task, pm/todo]
 ---
 
-> [!warning] Generated from `.claude/work/2026-11-23_26_eval-reliability/state.json` by `scripts/pm_notes.py`.
+> [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
 > Anything written here by hand is lost on the next run.
 
-# TASK-003 — Make the faithfulness and the correctness judge return an integer
+# TASK-003 — Put parser, parser_version and text_sha256 on the :Document node
 
-**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
 
 ## Why it exists
 
-The defect. Judge values are stored as text. Of the 85 stored values per judge in `mlflow.db`, 7 faithfulness values and 4 correctness values are not numbers; three of them are text, for example `" agent errored"` on trace `tr-97f5ef33` (`exploration.md` section 4).
+`build_ingested_doc` (ingest.py:108-116) already puts `parser` in `metadata`; add `parser_version` and `text_sha256` there, and write all three in `_entity_for` (property_graph.py:172-203). Hash the row's `text` exactly as stored (`pd.get('text', '') or ''`), UTF-8, 64 hex characters.
 
-The fix. `make_judge` of mlflow 3.14.0 takes `feedback_value_type` (`mlflow/genai/judges/make_judge.py:118`). `build_judge` (`harness/eval/judges.py:74-88`) already passes extra keyword arguments on. Two real judge calls on 2026-11-23 with `anthropic:/claude-opus-5-5` returned the value `5` of type `int` with `feedback_value_type=int`, and `'5'` of type `str` without it (`exploration.md` section 8.1). The present prompts work with it, so do not edit them.
+Do not add them to `base_meta` (ingest.py:128-133), which goes into the chunk nodes: the chunk ids and texts must stay. The exploration (section 4.3) checked 80 of 80 documents: today's rows rebuild exactly the chunk ids in the graph.
 
-What this does not end. A judge call that the provider refuses stores a null value with an error. Six of the eleven stored non-numbers are of that kind (credit balance). TASK-004 counts every such value; this task only removes the text values.
-
-The caller exists: `run_recipe_benchmark` builds its scorers with `ema_judges` (`harness/eval/runner.py:183`).
+Stored shape: the 79,882 existing :Document nodes do not have the three properties until TASK-016. `MATCH (d:Document) RETURN count(d.parser), count(d.parser_version), count(d.text_sha256)` gave 0, 0, 0 on 2026-11-23.
 
 ## Acceptance criteria
 
-- [x] `tests/test_eval_judges.py::test_ema_judges_ask_for_an_integer` exists and passes: with `mlflow.genai.judges.make_judge` replaced by a recorder, `ema_judges(model='anthropic:/x')` makes two calls and each receives `feedback_value_type` equal to `int`
-- [x] `git diff --stat harness/judges/` prints nothing: the two prompt files are authored data and stay as they are
-- [x] The 4 tests that exist today in `tests/test_eval_judges.py` pass unchanged
-- [x] `make test` passes and `make lint` passes, each run on its own line
-
-## What was built
-
-ema_judges passes feedback_value_type=int to both judges through build_judge. New test test_ema_judges_ask_for_an_integer records make_judge's kwargs: 2 calls, each with int. The 4 old tests pass unchanged; git diff --stat harness/judges/ prints nothing. make test: 697 passed, 2 skipped, 7 deselected (exit 0, run together with TASK-002). make lint: All checks passed (exit 0).
+- [ ] `tests/test_indexing_property_graph.py::test_entity_carries_parse_identity` passes: `_entity_for(doc).properties` holds parser, parser_version, and text_sha256 equal to `hashlib.sha256(row['text'].encode('utf-8')).hexdigest()`
+- [ ] `tests/test_indexing_property_graph.py::test_parse_identity_leaves_chunks_unchanged` passes: the chunk ids, texts and leaf flags of build_ingested_doc equal those of chunk_document for the same text
+- [ ] `make test` passes and `make lint` passes, each run on its own line
 
 ## Files it touched
 
-- `harness/eval/judges.py`
-- `tests/test_eval_judges.py`
+- `harness/indexing/ingest.py`
+- `harness/indexing/property_graph.py`
+- `tests/test_indexing_property_graph.py`
