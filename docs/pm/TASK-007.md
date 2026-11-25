@@ -3,12 +3,12 @@ type: pm-task
 epic: 2026-11-23_27_pipeline-refresh
 sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-007
-status: todo
+status: done
 kind: mechanism
 title: "Add prune: delete documents whose URL has no clean row, whatever the scope"
 generated: true
-waiting_on: the assistant
-tags: [pm/task, pm/todo]
+waiting_on: —
+tags: [pm/task, pm/done]
 ---
 
 > [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
@@ -16,7 +16,7 @@ tags: [pm/task, pm/todo]
 
 # TASK-007 — Add prune: delete documents whose URL has no clean row, whatever the scope
 
-**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
 
 ## Why it exists
 
@@ -30,13 +30,17 @@ Live: 0 graph documents lack a clean row today (exploration 4.3), so a prune wou
 
 ## Acceptance criteria
 
-- [ ] `tests/test_indexing_property_graph.py::test_prune_deletes_document_without_clean_row` passes
-- [ ] `::test_prune_ignores_scope_limit` passes: with scope.limit = 1, a document that has a clean row outside the first URL stays
-- [ ] `::test_prune_off_by_default` passes
-- [ ] Prune logs the count and the first 20 URLs before it deletes anything
-- [ ] `make test` passes and `make lint` passes, each run on its own line
+- [x] `tests/test_indexing_property_graph.py::test_prune_deletes_document_without_clean_row` passes
+- [x] `::test_prune_ignores_scope_limit` passes: with scope.limit = 1, a document that has a clean row outside the first URL stays
+- [x] `::test_prune_off_by_default` passes
+- [x] Prune logs the count and the first 20 URLs before it deletes anything
+- [x] `make test` passes and `make lint` passes, each run on its own line
 
 **Depends on:** [[TASK-005]]
+
+## What was built
+
+prune_documents(graph, client) in harness/indexing/property_graph.py compares every :Document's source_url with clean_source_urls (all clean pdf/html rows of parsed_documents, never the scope), logs the count and the first 20 URLs, then deletes the documents with their chunks and LINKS_TO edges and logs the tree/subgraphs hint. build_property_graph_index(prune=False) calls it when asked (decision B). 4 tests. Read-only on the live stores, 2026-11-25: 79,882 graph documents (79,882 with chunks, 0 stamped), 80,078 clean URLs, 0 prune candidates (document_states took 7.3 s). The --prune flag is wired in TASK-011. Gates: make test 775 passed, 2 skipped, 7 deselected; make lint All checks passed.
 
 ## Files it touched
 

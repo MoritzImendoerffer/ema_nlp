@@ -806,3 +806,73 @@ def test_embed_pass_logs_the_counts(caplog):
     line = [r.message for r in caplog.records if r.message.startswith("embed pass:")][-1]
     for word in ("new", "replaced", "stamped", "skipped", "preference fallbacks"):
         assert word in line
+
+
+# ── TASK-007 (unit 27): prune compares with all clean URLs, never with the scope ──
+
+_PDF2 = "https://www.ema.europa.eu/en/documents/scientific-guideline/refresh-two_en.pdf"
+
+
+def test_prune_deletes_document_without_clean_row():
+    from harness.indexing.property_graph import prune_documents
+
+    graph = InMemoryCorpusGraph()
+    _build(graph, _client_with(_prow(_text(40)), _prow(_text(40), url=_PDF2)))
+    removed = prune_documents(graph, _client_with(_prow(_text(40))))  # _PDF2 left the source
+    assert removed == [_PDF2]
+    assert set(graph.document_states()) == {doc_id_for(_PDF)}
+    assert not graph.chunks_of(doc_id_for(_PDF2))
+
+
+def test_prune_ignores_scope_limit():
+    """A narrowed scope must not delete the documents outside it (exploration 3.7)."""
+    from harness.indexing.property_graph import _embed_pass, prune_documents
+
+    graph = InMemoryCorpusGraph()
+    client = _client_with(_prow(_text(40)), _prow(_text(40), url=_PDF2))
+    _build(graph, client)
+    profile = _refresh_profile()
+    profile.index.scope.limit = 1
+    _embed_pass(profile, graph, client, lambda _u: None, _FakeEmbed(), flush_chunks=1_000_000,
+                metadata_lookup=lambda _u: None)
+    assert prune_documents(graph, client) == []
+    assert set(graph.document_states()) == {doc_id_for(_PDF), doc_id_for(_PDF2)}
+
+
+def _run_build(monkeypatch, graph, client, **kw):
+    import harness.indexing.property_graph as pg
+
+    class _NoIndex:
+        @staticmethod
+        def from_existing(**_kw):
+            return None
+
+    monkeypatch.setattr(pg, "neo4j_store_from_env", lambda: graph)
+    monkeypatch.setattr(pg, "PropertyGraphIndex", _NoIndex)
+    pg.build_property_graph_index(
+        _refresh_profile(), mongo_client=client, html_lookup=lambda _u: None,
+        embed_model=_FakeEmbed(), metadata_lookup=lambda _u: None, **kw,
+    )
+
+
+def test_prune_off_by_default(monkeypatch):
+    graph = InMemoryCorpusGraph()
+    _build(graph, _client_with(_prow(_text(40)), _prow(_text(40), url=_PDF2)))
+    only_one = _client_with(_prow(_text(40)))
+    _run_build(monkeypatch, graph, only_one)
+    assert doc_id_for(_PDF2) in graph.document_states()  # kept: decision B
+    _run_build(monkeypatch, graph, only_one, prune=True)
+    assert doc_id_for(_PDF2) not in graph.document_states()
+
+
+def test_prune_logs_the_count_before_deleting(caplog):
+    from harness.indexing.property_graph import prune_documents
+
+    graph = InMemoryCorpusGraph()
+    _build(graph, _client_with(_prow(_text(40)), _prow(_text(40), url=_PDF2)))
+    with caplog.at_level("INFO", logger="harness.indexing.property_graph"):
+        prune_documents(graph, _client_with(_prow(_text(40))))
+    messages = [r.message for r in caplog.records]
+    count_at = next(i for i, m in enumerate(messages) if "have no clean row" in m)
+    deleted_at = next(i for i, m in enumerate(messages) if m.startswith("prune: deleted"))
+    assert count_at < deleted_at and any(_PDF2 in m for m in messages[count_at:deleted_at])

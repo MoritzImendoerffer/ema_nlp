@@ -3,7 +3,7 @@
   "proposal": "docs/next/pipeline_refresh.md",
   "planned_at": "2026-11-25",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-007",
+  "current_task": "TASK-008",
   "baseline": {
     "make_test": "736 passed, 2 skipped, 7 deselected, 31 warnings in 19.31 s (2026-11-25, branch pipeline-refresh at 9dfc405 plus the uncommitted bookkeeping)",
     "make_lint": "All checks passed (exploration.md, 2026-11-23); not re-run at planning",
@@ -189,7 +189,7 @@
       "id": "TASK-007",
       "title": "Add prune: delete documents whose URL has no clean row, whatever the scope",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-005"
       ],
@@ -204,7 +204,8 @@
         "Prune logs the count and the first 20 URLs before it deletes anything",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "Decision B (docs/pm/decisions/2026-11-25_removed-urls.md): kept by default, deleted with prune.\n\nCompare the graph with ALL clean URLs: `distinct('url', {'error': ''})` over parsed_documents, restricted to pdf and html content types. Never with the scope: `--prune --limit 200` would otherwise remove 79,682 documents (exploration 3.7).\n\nDeleting a :Document deletes its chunks and its LINKS_TO edges. `tree_parent_id` and `topic_hubs` on other documents then describe edges that are gone until the steps `tree` and `subgraphs` run again; log that hint after a prune that deleted anything.\n\nLive: 0 graph documents lack a clean row today (exploration 4.3), so a prune would delete nothing."
+      "notes": "Decision B (docs/pm/decisions/2026-11-25_removed-urls.md): kept by default, deleted with prune.\n\nCompare the graph with ALL clean URLs: `distinct('url', {'error': ''})` over parsed_documents, restricted to pdf and html content types. Never with the scope: `--prune --limit 200` would otherwise remove 79,682 documents (exploration 3.7).\n\nDeleting a :Document deletes its chunks and its LINKS_TO edges. `tree_parent_id` and `topic_hubs` on other documents then describe edges that are gone until the steps `tree` and `subgraphs` run again; log that hint after a prune that deleted anything.\n\nLive: 0 graph documents lack a clean row today (exploration 4.3), so a prune would delete nothing.",
+      "outcome": "prune_documents(graph, client) in harness/indexing/property_graph.py compares every :Document's source_url with clean_source_urls (all clean pdf/html rows of parsed_documents, never the scope), logs the count and the first 20 URLs, then deletes the documents with their chunks and LINKS_TO edges and logs the tree/subgraphs hint. build_property_graph_index(prune=False) calls it when asked (decision B). 4 tests. Read-only on the live stores, 2026-11-25: 79,882 graph documents (79,882 with chunks, 0 stamped), 80,078 clean URLs, 0 prune candidates (document_states took 7.3 s). The --prune flag is wired in TASK-011. Gates: make test 775 passed, 2 skipped, 7 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-008",

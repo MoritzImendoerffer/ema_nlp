@@ -41,11 +41,12 @@ from llama_index.core.schema import NodeRelationship, NodeWithScore, QueryBundle
 from llama_index.graph_stores.neo4j import Neo4jPropertyGraphStore
 from pymongo import MongoClient
 
-from config import MONGO_URI
+from config import MONGO_DB, MONGO_URI
 from harness.indexing.chunking import doc_id_for
 from harness.indexing.document_metadata import mongo_metadata_lookup
 from harness.indexing.graph_ops import DOC_BATCH, CorpusGraph, DocState
 from harness.indexing.ingest import (
+    PARSED_COLLECTION,
     IngestedDoc,
     SelectionStats,
     SourceChoice,
@@ -54,6 +55,7 @@ from harness.indexing.ingest import (
     iter_source_groups,
     iter_source_rows,
     mongo_html_lookup,
+    preference_key,
     text_sha256,
 )
 from harness.indexing.links import ExtractedLink, extract_links
@@ -460,6 +462,44 @@ def _embed_pass(
     return stats
 
 
+def clean_source_urls(client: Any) -> set[str]:
+    """Every URL that has a clean pdf or html row in ``parsed_documents``, whatever the scope."""
+    col = client[MONGO_DB][PARSED_COLLECTION]
+    return {
+        r["url"]
+        for r in col.find({"error": ""}, {"url": 1, "content_type": 1})
+        if r.get("url") and preference_key(r.get("content_type")) is not None
+    }
+
+
+def prune_documents(graph: Any, client: Any) -> list[str]:
+    """Delete the documents whose URL has no clean row any more. Returns their URLs.
+
+    Decision B (``docs/pm/decisions/2026-11-25_removed-urls.md``): a URL that left the
+    source stays in the graph unless the build is asked to prune. The comparison is
+    with **all** clean URLs, never with the build's scope: compared with the scope,
+    ``--prune --limit 200`` would delete 79,682 of the 79,882 live documents. A
+    document without a ``source_url`` is never pruned. Deleting a document deletes its
+    chunks and its ``LINKS_TO`` edges.
+    """
+    graph = _as_graph(graph)
+    keep = clean_source_urls(client)
+    gone = [s for s in graph.document_states().values() if s.source_url and s.source_url not in keep]
+    urls = sorted(s.source_url for s in gone if s.source_url)
+    _log.info("prune: %d documents have no clean row in parsed_documents", len(urls))
+    for url in urls[:20]:
+        _log.info("prune:   %s", url)
+    if gone:
+        graph.delete_documents([s.doc_id for s in gone])
+        _log.info(
+            "prune: deleted %d documents with their chunks and LINKS_TO edges. tree_parent_id "
+            "and topic_hubs on other documents may name them until the steps tree and "
+            "subgraphs run again (scripts/update_graph.py --steps tree,subgraphs,propagate)",
+            len(gone),
+        )
+    return urls
+
+
 def _merge_links_batch(store: Neo4jPropertyGraphStore, pairs: list[dict[str, Any]]) -> None:
     """MERGE doc->doc LINKS_TO edges and stamp their typed properties.
 
@@ -563,6 +603,7 @@ def build_property_graph_index(
     links_only: bool = False,
     reset_links: bool = False,
     metadata_lookup: Any = None,
+    prune: bool = False,
 ) -> PropertyGraphIndex:
     """Build the hierarchical PropertyGraphIndex in Neo4j from Mongo (batched, resumable).
 
@@ -576,9 +617,12 @@ def build_property_graph_index(
     Pass ``reset_links=True`` to delete the existing ``LINKS_TO`` edges first (chunks
     and vectors are untouched) — use it with ``links_only=True`` to re-extract the link
     graph after a links.py change without re-embedding.
+    Pass ``prune=True`` to delete the documents whose URL has no clean row in
+    ``parsed_documents`` any more (see :func:`prune_documents`); off by default.
     """
     embed = embed_model or _embed_model(profile.index.embed_model)
     store = neo4j_store_from_env()
+    graph = _as_graph(store)
     if reset:
         store.structured_query("MATCH (n) DETACH DELETE n")
 
@@ -588,11 +632,13 @@ def build_property_graph_index(
         lookup = html_lookup or mongo_html_lookup(client)
         if not links_only:
             _embed_pass(
-                profile, CorpusGraph(store), client, lookup, embed,
+                profile, graph, client, lookup, embed,
                 flush_chunks=flush_chunks, resume=resume,
                 pause_every_docs=pause_every_docs, pause_seconds=pause_seconds,
                 metadata_lookup=metadata_lookup,
             )
+        if prune:
+            prune_documents(graph, client)
         if reset_links:
             _log.info("reset_links: deleting existing LINKS_TO edges (chunks/vectors untouched)")
             _delete_links(store)
