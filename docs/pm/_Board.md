@@ -11,7 +11,7 @@ tags: [pm/board]
 
 # Board — the active epic
 
-**[[epic|2026-11-23_27_pipeline-refresh]]** · **8 of 18 done** · 10 todo
+**[[epic|2026-11-23_27_pipeline-refresh]]** · **9 of 18 done** · 9 todo
 
 [[epic|Why this epic]] · [[_Archive|Finished epics]] · [[BACKLOG|What is open, in order]]
 
@@ -29,7 +29,6 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 
 | Task | Status | Waiting on | Kind | What it is |
 |---|---|---|---|---|
-| [[TASK-009]] | `todo` | the assistant | mechanism | Add a PDF parser that reads bytes with the installed pymupdf4llm |
 | [[TASK-010]] | `todo` | the assistant | wiring | Wire parse-pdfs to the byte parser and settle the pickle reader |
 | [[TASK-011]] | `todo` | the assistant | wiring | Expose --prune on the build and the pipeline, and say what --reset deletes |
 | [[TASK-012]] | `todo` | the assistant | mechanism | Write the backfill that stamps the parse identity on existing documents |
@@ -52,6 +51,7 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 | [[TASK-006]] | `done` | — | mechanism | Resume by comparison: skip, stamp or replace each document |
 | [[TASK-007]] | `done` | — | mechanism | Add prune: delete documents whose URL has no clean row, whatever the scope |
 | [[TASK-008]] | `done` | — | mechanism | Make the reset delete corpus nodes in batches and keep every other node |
+| [[TASK-009]] | `done` | — | mechanism | Add a PDF parser that reads bytes with the installed pymupdf4llm |
 
 ---
 

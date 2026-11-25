@@ -1,15 +1,25 @@
-"""pymupdf4llm parser — wraps ``parsed_pdf.pkl`` files from the Scrapy cache.
+"""pymupdf4llm parser — parses PDF bytes with the pymupdf4llm installed in ``.venv``.
 
-The upstream ``ema_scraper`` pipeline parses PDFs with pymupdf4llm and
-pickles a small holder object (``PdfDocument`` with ``markdown``, ``error``,
-``parsed_with``) per cached URL. This parser unpickles such a holder and
-emits a ``ParsedDocument`` for the Mongo ``parsed_documents`` collection.
+Until 2026-11-25 this module parsed no PDF. It unpickled the ``parsed_pdf.pkl`` holders
+that the scraper's repository wrote into the Scrapy cache, which needs the scraper's
+classes on the path: outside ``scripts/ingest_parsed_pdfs.py`` every entry failed with
+``pickle_load_failed: No module named 'parsers'``, so the pipeline's ``parse-pdfs`` step
+wrote nothing usable. :class:`PymuPdf4LlmParser` now opens the PDF bytes itself.
 
-``raw`` semantics for ``parse``:
-    bytes  — raw pickle bytes (preferred; the CLI reads files and passes
-             bytes so the parser stays I/O-free).
-    str    — filesystem path to a ``parsed_pdf.pkl`` file (convenience for
-             ad-hoc scripts).
+``parse(raw, url, content_type)``: ``raw`` is the PDF as bytes, as a cache entry's
+``response_body`` holds it. A body that starts with the gzip magic bytes ``1f 8b`` is
+decompressed first (the cache stores some bodies gzip-encoded). The text is
+``pymupdf4llm.to_markdown`` with ``use_ocr``, ``header`` and ``footer`` passed
+explicitly, and the row's ``meta`` records them with layout mode and the library
+versions (decision E, ``docs/pm/decisions/2026-11-25_pdf-ocr.md``). OCR uses the
+system's Tesseract, so another machine can give other text.
+
+Rows carry ``parser: pymupdf4llm`` and the installed library version, e.g.
+``1.27.2.3``. The legacy rows of the same name carry ``parser_version: legacy``, and
+the preference file ranks them first (decisions A and D).
+
+:class:`LegacyPickleReader` is the old pickle reader. It is kept only until TASK-010 of
+work unit 27 removes the pickle path to ``parsed_documents`` (decision G).
 
 The CLI walks a Scrapy cache directory and writes one ``ParsedDocument``
 per PDF entry via :func:`corpus.sources.parsed_documents.write_parsed_document`.
@@ -19,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import gzip
 import logging
 import os
 import pickle
@@ -56,9 +67,89 @@ def _resolve_version() -> str:
 
 PARSER_VERSION = _resolve_version()
 
+GZIP_MAGIC = b"\x1f\x8b"
+# Passed explicitly so that a library default that changes cannot change the text
+# unnoticed; recorded in each row's meta (decision E).
+PARSE_OPTIONS: dict[str, bool] = {"use_ocr": True, "header": True, "footer": True}
+_VERSIONED_PACKAGES = ("pymupdf4llm", "pymupdf", "pymupdf-layout")
+
+
+def _package_versions() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for pkg in _VERSIONED_PACKAGES:
+        try:
+            out[pkg] = version(pkg)
+        except PackageNotFoundError:
+            out[pkg] = "unknown"
+    return out
+
+
+def parse_pdf_bytes(raw: bytes) -> tuple[str, str, dict[str, object]]:
+    """Return ``(text, error, meta)`` for the bytes of one PDF. Never raises.
+
+    Checked against the installed pymupdf4llm 1.27.2.3 (``pymupdf4llm/__init__.py``):
+    ``to_markdown(*args, **kwargs)`` goes to ``_layout_to_markdown`` when layout mode
+    is on, which it is once ``pymupdf.layout`` imports; ``use_ocr``, ``header`` and
+    ``footer`` are keyword options there. The library prints progress to standard
+    output.
+    """
+    meta: dict[str, object] = {**PARSE_OPTIONS, "versions": _package_versions(), "gzip": False}
+    if not raw:
+        return "", "empty_input", meta
+    if raw[:2] == GZIP_MAGIC:
+        try:
+            raw = gzip.decompress(raw)
+        except Exception as exc:  # noqa: BLE001 — diagnostics flow through the error
+            return "", f"gzip_failed: {exc}", meta
+        meta["gzip"] = True
+    import pymupdf
+    import pymupdf4llm
+
+    meta["layout"] = bool(getattr(pymupdf4llm, "_use_layout", False))
+    try:
+        doc = pymupdf.open(stream=raw, filetype="pdf")
+    except Exception as exc:  # noqa: BLE001
+        return "", f"pdf_open_failed: {exc}", meta
+    try:
+        text = pymupdf4llm.to_markdown(doc, **PARSE_OPTIONS)
+    except Exception as exc:  # noqa: BLE001
+        return "", f"to_markdown_failed: {exc}", meta
+    finally:
+        doc.close()
+    return str(text or ""), "", meta
+
 
 class PymuPdf4LlmParser:
-    """Parser wrapping ``parsed_pdf.pkl`` Scrapy-cache entries.
+    """Parse the bytes of a PDF with the installed pymupdf4llm.
+
+    Conforms to the :class:`corpus.parsers.base.Parser` protocol.
+    """
+
+    name: str = PARSER_NAME
+    version: str = PARSER_VERSION
+
+    def parse(
+        self,
+        raw: bytes,
+        url: str,
+        content_type: str = "application/pdf",
+    ) -> ParsedDocument:
+        text, error, meta = parse_pdf_bytes(raw if isinstance(raw, bytes) else b"")
+        return ParsedDocument(
+            url=url,
+            parser=self.name,
+            parser_version=self.version,
+            parsed_at=datetime.now(UTC),
+            content_type=content_type or "application/pdf",
+            text=text,
+            text_format="markdown",
+            error=error,
+            meta=meta,
+        )
+
+
+class LegacyPickleReader:
+    """The pickle reader of ``parsed_pdf.pkl`` Scrapy-cache entries (until TASK-010).
 
     Conforms to the :class:`corpus.parsers.base.Parser` protocol.
     """
@@ -155,7 +246,7 @@ def _cli(argv: list[str] | None = None) -> int:
     )
     args = cli.parse_args(argv)
 
-    parser = PymuPdf4LlmParser()
+    parser = LegacyPickleReader()  # switched to the byte parser in TASK-010
     print(f"Scanning {args.cache} …")
     entries: list[tuple[Path, str]] = []
     for cache_dir, url in _iter_pdf_cache(args.cache):

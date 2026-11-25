@@ -3,12 +3,12 @@ type: pm-task
 epic: 2026-11-23_27_pipeline-refresh
 sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-009
-status: todo
+status: done
 kind: mechanism
 title: "Add a PDF parser that reads bytes with the installed pymupdf4llm"
 generated: true
-waiting_on: the assistant
-tags: [pm/task, pm/todo]
+waiting_on: —
+tags: [pm/task, pm/done]
 ---
 
 > [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
@@ -16,7 +16,7 @@ tags: [pm/task, pm/todo]
 
 # TASK-009 — Add a PDF parser that reads bytes with the installed pymupdf4llm
 
-**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
 
 ## Why it exists
 
@@ -36,12 +36,16 @@ Name: parser `pymupdf4llm`, version = the installed library version. Keep the pi
 
 ## Acceptance criteria
 
-- [ ] `tests/test_parsers_pymupdf4llm.py::test_pdf_parser_reads_bytes` passes: the bytes of tests/fixtures/fixture_pdf_0.pdf give more than 1,000 characters of text, error '', and the module `parsers` is not imported
-- [ ] `::test_gzip_body_is_decompressed` passes: `gzip.compress(fixture)` gives the same text as the plain bytes
-- [ ] `::test_meta_records_options` passes: meta holds use_ocr True, header True, footer True, layout True, and the versions of pymupdf4llm, pymupdf and pymupdf-layout
-- [ ] `::test_not_a_pdf_returns_error` passes: b'hello' gives empty text and an error that starts with 'pdf_open_failed'
-- [ ] The 13 tests that tests/test_parsers_pymupdf4llm.py holds today pass: the pickle reader stays until TASK-010
-- [ ] `make test` passes and `make lint` passes, each run on its own line
+- [x] `tests/test_parsers_pymupdf4llm.py::test_pdf_parser_reads_bytes` passes: the bytes of tests/fixtures/fixture_pdf_0.pdf give more than 1,000 characters of text, error '', and the module `parsers` is not imported
+- [x] `::test_gzip_body_is_decompressed` passes: `gzip.compress(fixture)` gives the same text as the plain bytes
+- [x] `::test_meta_records_options` passes: meta holds use_ocr True, header True, footer True, layout True, and the versions of pymupdf4llm, pymupdf and pymupdf-layout
+- [x] `::test_not_a_pdf_returns_error` passes: b'hello' gives empty text and an error that starts with 'pdf_open_failed'
+- [x] The 13 tests that tests/test_parsers_pymupdf4llm.py holds today pass: the pickle reader stays until TASK-010
+- [x] `make test` passes and `make lint` passes, each run on its own line
+
+## What was built
+
+corpus/parsers/pymupdf4llm.py: parse_pdf_bytes(raw) decompresses a body starting with 1f 8b, opens it with pymupdf.open(stream=..., filetype='pdf') and calls pymupdf4llm.to_markdown(doc, use_ocr=True, header=True, footer=True); meta records the three options, layout (True here), gzip, and the versions of pymupdf4llm, pymupdf, pymupdf-layout (1.27.2.3 each). PymuPdf4LlmParser.parse(bytes) uses it (name pymupdf4llm, installed version). The pickle reader is LegacyPickleReader, still behind _cli until TASK-010; its 13 tests import it under the old name and pass. 5 new tests on tests/fixtures/fixture_pdf_0.pdf (two parses, plain and gzip, give equal text). Gates: make test 782 passed, 2 skipped, 7 deselected (21.6 s; the two parses add about 3 s); make lint All checks passed.
 
 ## Files it touched
 

@@ -16,8 +16,8 @@ from corpus.parsers.base import ParsedDocument, Parser
 from corpus.parsers.pymupdf4llm import (
     PARSER_NAME,
     PARSER_VERSION,
-    PymuPdf4LlmParser,
 )
+from corpus.parsers.pymupdf4llm import LegacyPickleReader as PymuPdf4LlmParser
 
 
 def _pickle_doc(markdown: str = "# T\n\nbody", error: str = "", parsed_with: str = "pymupdf4llm") -> bytes:
@@ -160,3 +160,66 @@ def test_parse_with_none_input_returns_error_doc() -> None:
     # is still well-formed with error='empty_input'.
     d = parser.parse(None, url="https://x.test/x.pdf", content_type="application/pdf")  # type: ignore[arg-type]
     assert d.error == "empty_input"
+
+
+# ---------------------------------------------------------------------------
+# The byte parser (TASK-009 of work unit 27)
+#
+# Until 2026-11-25 the module parsed no PDF: it unpickled the scraper's holders,
+# which failed outside the scraper's path with "No module named 'parsers'".
+# ---------------------------------------------------------------------------
+
+import gzip  # noqa: E402
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import pytest  # noqa: E402
+
+from corpus.parsers.pymupdf4llm import PymuPdf4LlmParser as BytesParser  # noqa: E402
+
+_FIXTURE = Path(__file__).parent / "fixtures" / "fixture_pdf_0.pdf"
+_URL = "https://www.ema.europa.eu/en/documents/scientific-guideline/fixture_en.pdf"
+
+
+@pytest.fixture(scope="module")
+def parsed_plain():
+    return BytesParser().parse(_FIXTURE.read_bytes(), url=_URL)
+
+
+@pytest.fixture(scope="module")
+def parsed_gzip():
+    return BytesParser().parse(gzip.compress(_FIXTURE.read_bytes()), url=_URL)
+
+
+def test_pdf_parser_reads_bytes(parsed_plain):
+    assert parsed_plain.error == ""
+    assert len(parsed_plain.text) > 1000  # 11,906 characters on 2026-11-23 (OCR on)
+    assert parsed_plain.parser == "pymupdf4llm"
+    assert parsed_plain.parser_version == PARSER_VERSION
+    assert "parsers" not in sys.modules  # the scraper's package is never imported
+
+
+def test_gzip_body_is_decompressed(parsed_plain, parsed_gzip):
+    # Two separate parses of the same PDF: equal text also shows the output is stable.
+    assert parsed_gzip.error == ""
+    assert parsed_gzip.text == parsed_plain.text
+    assert parsed_gzip.meta["gzip"] is True and parsed_plain.meta["gzip"] is False
+
+
+def test_meta_records_options(parsed_plain):
+    meta = parsed_plain.meta
+    assert meta["use_ocr"] is True and meta["header"] is True and meta["footer"] is True
+    assert meta["layout"] is True
+    assert set(meta["versions"]) == {"pymupdf4llm", "pymupdf", "pymupdf-layout"}
+    assert meta["versions"]["pymupdf4llm"] == PARSER_VERSION
+
+
+def test_not_a_pdf_returns_error():
+    doc = BytesParser().parse(b"hello", url=_URL)
+    assert doc.text == ""
+    assert doc.error.startswith("pdf_open_failed")
+
+
+def test_empty_and_bad_gzip_bodies_return_errors():
+    assert BytesParser().parse(b"", url=_URL).error == "empty_input"
+    assert BytesParser().parse(b"\x1f\x8b not gzip", url=_URL).error.startswith("gzip_failed")
