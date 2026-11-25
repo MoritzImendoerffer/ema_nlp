@@ -15,7 +15,7 @@ counted.
 
 1. **A claim cites a URL, not a passage.** The model fills `source_url`. The runner then
    copies the chunk id and the quote from the top-scoring chunk of that URL
-   (`harness/agents/runner.py:59-61`). In the stored answers, 251 of 351 claims (72%) cite
+   (`harness/agents/runner.py:77-79` chooses it, lines 59-61 apply it). In the stored answers, 251 of 351 claims (72%) cite
    at least one URL that returned several passages. The quote shown beside such a claim is
    the best-scoring passage of the document, not the one the claim came from.
 2. **The agent cannot name a passage if it wanted to.** A search result starts with
@@ -27,7 +27,10 @@ counted.
 4. **A lost answer is not counted.** When the structured output fails, the library logs a
    warning (`llama_index/core/agent/workflow/base_agent.py:600-604`, llama-index-core
    0.14.22) and the runner returns plain text (`harness/agents/runner.py:49`). Between 13
-   and 15 finished runs in the store carry no claims, and no metric says so.
+   and 15 finished runs in the store carry no claims, and no metric says so. A second way
+   to lose claims was found on 2026-11-25 (see "What was tested"): an output that is cut at
+   the token limit after the `answer` field validates as an answer with no claims, and is
+   reported as a success.
 5. **A stored chunk id will stop meaning anything.** A chunk id is the hash of the document
    id and the chunk's position (`harness/indexing/chunking.py:84`). Backlog row 10 replaces
    a changed document's chunks. After that, an id in an old trace can point at other text.
@@ -91,12 +94,41 @@ the smoke run make it a few.
   claims in the smoke run, or if an answer is lost that was not lost before, the contract is
   wrong for this output path. Report it and take open question 2 before anything else.
 
+## What was tested on 2026-11-25
+
+A second session read the installed libraries and made 3 single model calls with
+`claude-opus-4-7` from a scratch script, about 0.09 dollars. It changed no file. Versions:
+anthropic 0.105.2, llama-index-llms-anthropic 0.11.5, llama-index-core 0.14.22. The API
+documentation on citations and on search results was read on the same day.
+
+| Question | Result |
+|---|---|
+| Can a tool return passages that the API cites? | Yes. Passages returned as `search_result` blocks inside a tool result, with citations switched on, come back as citation objects on the text blocks of a plain-text answer. Each carries the source (the tag given to the passage), the block indices and `cited_text` |
+| How fine is the pointer? | One content block. In the test, `cited_text` was the whole passage block of 363 characters. A passage split into one block per sentence gives a pointer per sentence |
+| Do citations survive the structured output? | No. With the answer forced through the `RegulatoryAnswer` tool, the reply held no citation object. The model imitated a citation tag inside the answer string and wrote its own quotes. With the other output mode (`output_config.format`) the documentation states an error: citations and structured outputs are incompatible |
+| Do they survive the agent's output step today? | No. That step is a second model call over the conversation flattened to text (`llama_index/core/agent/utils.py:35-42`). For `claude-opus-4-7` it is a forced tool call (`llama_index/llms/anthropic/base.py:1121-1127`, `:959-968`) |
+| What would the output step have to be? | The tools return citable blocks (`CitableBlock`, `llama_index/core/base/llms/types.py:1025`; sent as `search_result` by `llama_index/llms/anthropic/utils.py:254-264`). The agent runs without an output class, so there is no second call. The claims are built from the cited text blocks, which the adapter already places in the reply (`base.py:411-420`). **Not tested through the `FunctionAgent`** |
+| What happens when the structured output is cut at the token limit (4,096, `harness/configs/models.yaml:31`)? | The adapter does not read the stop reason on the tool path. A cut after the `answer` field gives a partial object, which `RegulatoryAnswer` accepts because claims, citations and caveats default to empty lists: an answer without claims, reported as a success, with no warning and no retry. One of the three test calls ended this way. A cut before `answer` is complete raises, and the runner returns plain text. The stop reason is only on the trace's LLM span |
+| Are the proposal's file and line references still right? | Yes at `c2fbfea`, after two corrections that are applied above |
+
+One statement of that session was not checked by anyone else and matters for the choice:
+by an API reference cached on 2026-11-03, a forced tool choice returns an error on the
+newer models (Opus 5.5, Sonnet 5.5). If that holds, the output step of today stops working
+when the generator is upgraded, whatever this row decides. `/explore` checks it against the
+current documentation.
+
+**Consequences for the sketch.** Step 5 stores the stop reason of the output call in the
+record, and step 6 counts answers that were cut at the limit. If option (b) of question 2
+holds, steps 1 to 3 change shape: the tag is the `source` of a citable block, the quote is
+`cited_text`, and check (b) of step 4 passes by construction and remains as a test of the
+code. The record, the counts and the runner's numbers stay as sketched.
+
 ## Open questions
 
 | | Question | Options | Recommendation |
 |---|---|---|---|
 | 1 | Where does the model write the tag? | (a) in the existing `Citation.chunk_id`, which the system then overwrites with the real id; (b) in a new optional field `passage` | (b). `chunk_id` is read by the chat view and the export as a system id. One field with two meanings is how item 1 of the problem arose |
-| 2 | Who produces the quote? | (a) the model writes it; (b) the Claude API's citations feature returns a pointer into the supplied text | (a) for version 0. Test (b) with one call during exploration. With `claude-opus-4-7`, the model of every recipe today, the answer is produced through a forced tool call (`llama_index/llms/anthropic/base.py:1121-1127`, llama-index-llms-anthropic 0.11.5). `claude-haiku-4-5` takes another path (`beta.messages.parse`, line 1128). Whether citations work on either path is not known. If they do, (b) is better: the pointer is valid by construction |
+| 2 | Who produces the quote, and through which output step? | (a) the model writes tag and quote into the structured output, as sketched above; (b) the tools return their passages as citable blocks, the agent answers in plain text with the Claude API's citations switched on, and the claims are built from the cited text blocks | **Changed by the test of 2026-11-25:** try (b) first, with one run through the `FunctionAgent`, and fall back to (a) if it does not hold. With (b) the pointer and the quote are valid by construction, the second model call disappears, and the claim is a piece of the answer by construction. (b) works only on a plain-text answer, so `confidence` and `caveats` need another place. See "What was tested" |
 | 3 | Against which text is a quote checked? | (a) the window shown to the agent, about 2,000 characters; (b) the whole chunk | (a). It is the text the agent read (`DECISIONS.md`, "The agent reads the passage that is judged") |
 | 4 | Where do the record files live? | (a) `config.RESULTS_DIR/records/`, one file per evaluation run and one per day for the chat app; (b) MLflow only | (a), with the span of step 5 as the link from the trace |
 | 5 | What does a cached answer in the chat app write? It bypasses the adapter (`app.py:643-700`) | (a) nothing; (b) a line with `cached: true` and no checks | (b). An answer that reached a user and left no record is the defect this row removes |
@@ -112,7 +144,7 @@ pays for model calls.
 - Check every file and line above. They were read at `47d2cfa`, and unit 27 is changing
   the tree.
 - Check the library behaviour against the installed versions before relying on it: the
-  structured output is a second model call (`llama_index/core/agent/utils.py:36-43`), and a
+  structured output is a second model call (`llama_index/core/agent/utils.py:35-42`), and a
   `Literal` field raises for the whole answer on one wrong value
   (`llama_index/core/program/function_program.py:55`). Name the version and the file you
   read.
