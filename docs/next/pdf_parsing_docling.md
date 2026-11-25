@@ -314,6 +314,13 @@ are why the pilot exists. They are not a forecast.
 
 None of these includes pauses, crashes or restarts.
 
+**A first look on 12 EMA PDFs, 2026-11-25**
+([`../eval/2026-11-25_docling_first_look.md`](../eval/2026-11-25_docling_first_look.md)):
+2.4 seconds per page with TableFormer and 3.1 with PaddleOCR-VL, above doctool's rates. At
+those rates 1.08 million pages take 30 and 39 days. Half of the 12 were chosen for tables
+or scans, so this is no forecast either. The same look found that today's parse already
+holds 99.7% of the body words: the gain of the switch is structure and tables, not text.
+
 ## Verification
 
 - **In the gate (`make test`, in `.venv`):** the format writer and reader on a stored small
@@ -405,4 +412,9 @@ validity, rules and readability. The lead checked their main findings against th
 - The GPU: keep the 250 W cap and the pauses. The parse and a build do not run at the same
   time.
 - The parser never writes a key of another parser.
+- From the first look on 12 PDFs: Docling's export leaves out page headers, and an EMA
+  document's reference number often stands only there, so the renderer of the row's text
+  takes it from the header layer. The OCR ran in Chinese by default and returned a Chinese
+  character for an asterisk. The process used 3 to 4 CPU cores; the pilot tests two and
+  three worker processes once.
 - The pilot does not start without its decision note and the owner's yes.
