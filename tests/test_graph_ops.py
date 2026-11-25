@@ -121,3 +121,10 @@ def test_double_crash_leaves_chunks_without_entity_update():
     with pytest.raises(RuntimeError):
         _seed(g, "a", 2)
     assert "a" not in g.nodes and len(g.upserted_chunk_ids) == 2
+
+
+def test_document_chunks_reads_from_the_indexed_document():
+    rec = _Recorder(rows=[{"id": "c1", "text": "t", "is_leaf": True}])
+    assert CorpusGraph(rec).document_chunks("d1") == [{"id": "c1", "text": "t", "is_leaf": True}]
+    query, params = rec.calls[0]
+    assert "MATCH (d:Document {id: $id})-[:HAS_CHUNK]->(c:Chunk)" in query and params == {"id": "d1"}

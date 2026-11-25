@@ -73,6 +73,11 @@ DOCUMENT_STATES_QUERY = (
     "EXISTS { (d)-[:HAS_CHUNK]->(:Chunk) } AS has_chunks"
 )
 
+DOCUMENT_CHUNKS_QUERY = (
+    "MATCH (d:Document {id: $id})-[:HAS_CHUNK]->(c:Chunk) "
+    "RETURN c.id AS id, c.text AS text, c.is_leaf AS is_leaf"
+)
+
 STAMP_QUERY = (
     "UNWIND $rows AS r "
     "MATCH (d:Document {id: r.id}) "
@@ -140,6 +145,11 @@ class CorpusGraph:
             for r in rows
             if r.get("id")
         }
+
+    def document_chunks(self, doc_id: str) -> list[dict[str, Any]]:
+        """The chunks of one document as ``{id, text, is_leaf}`` (read only)."""
+        rows = self.store.structured_query(DOCUMENT_CHUNKS_QUERY, param_map={"id": doc_id}) or []
+        return [{"id": r.get("id"), "text": r.get("text"), "is_leaf": bool(r.get("is_leaf"))} for r in rows]
 
     def delete_document_chunks(
         self, doc_ids: Sequence[str], *, batch_rows: int = CHUNK_DELETE_BATCH_ROWS

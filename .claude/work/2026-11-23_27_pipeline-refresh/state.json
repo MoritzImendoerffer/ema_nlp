@@ -3,7 +3,7 @@
   "proposal": "docs/next/pipeline_refresh.md",
   "planned_at": "2026-11-25",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-012",
+  "current_task": "TASK-013",
   "baseline": {
     "make_test": "736 passed, 2 skipped, 7 deselected, 31 warnings in 19.31 s (2026-11-25, branch pipeline-refresh at 9dfc405 plus the uncommitted bookkeeping)",
     "make_lint": "All checks passed (exploration.md, 2026-11-23); not re-run at planning",
@@ -300,7 +300,7 @@
       "id": "TASK-012",
       "title": "Write the backfill that stamps the parse identity on existing documents",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-002",
         "TASK-003",
@@ -319,7 +319,8 @@
         "`.venv/bin/python scripts/backfill_parse_identity.py --help` exits 0",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "The proposal: 'A backfill script sets them from the row that the old rule picked, without touching a chunk.' Old rule = the first clean row the cursor yields per URL (TASK-002's `old_rule`). For all 80,078 clean URLs today the old-rule row and the selected row are the same row (5 URLs have two rows; their second row is an unlisted llamahub fixture), so the printed difference count should be 0.\n\nIt stamps only `WHERE d.text_sha256 IS NULL`, in UNWIND batches through graph_ops.stamp_parse_identity, so it can stop and resume. It hashes the text of every row: 1,979 MB of data in parsed_documents. It never writes a chunk, an edge or a Mongo row.\n\n`--verify` repeats the exploration's 80-of-80 check (section 4.3) on a sample: build_ingested_doc of the row gives exactly the chunk ids that `MATCH (d:Document {id: $id})-[:HAS_CHUNK]->(c)` returns.\n\nNo live run in this task: that is TASK-016, after the owner's yes."
+      "notes": "The proposal: 'A backfill script sets them from the row that the old rule picked, without touching a chunk.' Old rule = the first clean row the cursor yields per URL (TASK-002's `old_rule`). For all 80,078 clean URLs today the old-rule row and the selected row are the same row (5 URLs have two rows; their second row is an unlisted llamahub fixture), so the printed difference count should be 0.\n\nIt stamps only `WHERE d.text_sha256 IS NULL`, in UNWIND batches through graph_ops.stamp_parse_identity, so it can stop and resume. It hashes the text of every row: 1,979 MB of data in parsed_documents. It never writes a chunk, an edge or a Mongo row.\n\n`--verify` repeats the exploration's 80-of-80 check (section 4.3) on a sample: build_ingested_doc of the row gives exactly the chunk ids that `MATCH (d:Document {id: $id})-[:HAS_CHUNK]->(c)` returns.\n\nNo live run in this task: that is TASK-016, after the owner's yes.",
+      "outcome": "scripts/backfill_parse_identity.py: backfill(graph, client, dry_run, limit) stamps every :Document without text_sha256 from its old-rule row (first clean row the cursor yields), in UNWIND batches of 1,000 through CorpusGraph.stamp_parse_identity, and counts URLs whose old-rule row differs from the selected row; verify(graph, client, chunking, n) rebuilds the chunk ids, texts and leaf flags of n stamped documents and compares them with CorpusGraph.document_chunks (a new read in graph_ops, mirrored by the double); main() prints the report and 'verify: k of N equal'. 6 tests in tests/test_backfill_parse_identity.py plus 1 in tests/test_graph_ops.py. Entry point on real data, read-only: --dry-run --limit 200 printed 'graph documents: 79882, without text_sha256: 79882 / rows read: 200 URLs in 3.4 s / would stamp: 200 / old-rule row differs from the selected row: 0'. --help exits 0. No live write (TASK-016). Gates: make test 785 passed, 2 skipped, 7 deselected; make lint All checks passed (after ruff --fix of the new test's import block)."
     },
     {
       "id": "TASK-013",

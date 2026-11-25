@@ -81,6 +81,12 @@ class InMemoryCorpusGraph:
         ids = {t for (label, s, t) in self.edges if label == "HAS_CHUNK" and s == doc_id}
         return [self.nodes[i] for i in ids if i in self.nodes and "Chunk" in self.nodes[i].labels]
 
+    def document_chunks(self, doc_id: str) -> list[dict[str, Any]]:
+        return [
+            {"id": c.id, "text": c.text, "is_leaf": bool(c.properties.get("is_leaf"))}
+            for c in self.chunks_of(doc_id)
+        ]
+
     def document_states(self) -> dict[str, DocState]:
         out = {}
         for d in self._docs():
