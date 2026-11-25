@@ -4,9 +4,11 @@
 Patches an **existing** graph with the authoritative labels
 (``:Document.doc_type`` / ``.audience`` / ``.site_topic``) and the precomputed
 topic-subgraph memberships (``:Document.topic_hubs``) from the canonical
-Mongo ``document_metadata`` collection — no rebuild, no re-embedding. New
-builds don't need this: ``harness.indexing.ingest`` joins the same rows at
-ingest, so the stored graph and a fresh build can never disagree about a label.
+Mongo ``document_metadata`` collection — no rebuild, no re-embedding. The
+build (``harness.indexing.build``) joins the same rows, but only for the
+documents it builds or replaces; it skips unchanged documents, and it cannot
+clear a label. So this script stays the step that carries a label change to
+the documents already in the graph.
 
 Run it after ``scripts/enrich_document_metadata.py`` whenever the labels were
 refreshed (new scrape, new JSON export) — or after

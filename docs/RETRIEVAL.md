@@ -43,7 +43,7 @@ body, and leaked gold answers into eval).
 ```mermaid
 flowchart TD
     EMA[EMA website] -->|ema_scraper| WI["MongoDB ema_scraper.web_items<br/>(raw HTML, 115k)"]
-    EMA -->|ema_scraper| SC["Scrapy disk cache<br/>(parsed_pdf.pkl per PDF)"]
+    EMA -->|ema_scraper| SC["Scrapy disk cache<br/>(response_body per PDF)"]
     EMA -->|website-data JSON export| EX["documents export JSON<br/>(EMA's own doc_type per PDF URL)"]
 
     WI -->|"corpus.parsers.trafilatura"| PD["MongoDB ema_scraper.parsed_documents<br/>(parser output: url, text, content_type)"]
@@ -112,6 +112,12 @@ flowchart LR
   `title`, `committee`, `topic_path`, `reference_number`, `source_type`, and
   `category` (the source category from `harness/retrieval/doc_categories.py`,
   stamped at ingest / backfilled by `scripts/backfill_doc_categories.py` — see §7).
+- **The parse identity on `:Document`** (since 2026-11-25, work unit 27): `parser`,
+  `parser_version` and `text_sha256` (SHA-256 of the row text, UTF-8) name the
+  `parsed_documents` row the chunks were built from. The build compares them with the
+  row it selects (see §6, "How the build refreshes a document"). The 79,882 documents
+  built earlier get them from `scripts/backfill_parse_identity.py`; until it has run, a
+  document without them counts as built from its old-rule row.
 - **`:Chunk`** node per hierarchical chunk — `id`, `text`, `is_leaf`, `doc_id`,
   `source_url`, `embedding`. Multi-level (chunk_sizes `[2048,512,128]`); parent/child
   retained (the old flat chunker discarded non-leaves).
@@ -169,11 +175,13 @@ EMA_INDEX_PROFILE=neo4j_hier           # optional; this is the default
 | `registry.py` | `INDEX_REGISTRY` / `RETRIEVER_REGISTRY` + `build_index` / `build_retriever` dispatch + `@register_*` decorators |
 | `chunking.py` | `chunk_document()` — hierarchical TextNodes, parents kept, deterministic ids |
 | `links.py` | `extract_links()` — typed `links_to` edges from a page's `main-content-wrapper` (ported from `ema_scraper` `EmaPageParser`; BCL-component aware). Each carries `kind` (file/page/external) **and** `link_context` (file_component/card_or_listing/inline/other) + `document_type`. See `docs/RETRIEVAL_TRACKS.md` §0.8. |
-| `ingest.py` | `ingest(profile)` — Mongo `parsed_documents` → `IngestedDoc` IR (entity + chunks + links); joins `document_metadata` labels per URL (live-badge fallback for unenriched pages) |
+| `ingest.py` | `ingest(profile)` — Mongo `parsed_documents` → `IngestedDoc` IR (entity + chunks + links); joins `document_metadata` labels per URL (live-badge fallback for unenriched pages). `iter_source_groups()` selects one row per URL by parser preference, then newest `parsed_at`, and keeps the old-rule row; `text_sha256()` |
+| `parser_preference.py` | reads `harness/configs/parser_preference.yaml`; an entry `name@version` matches one version of a parser |
+| `graph_ops.py` | `CorpusGraph`: the build's writes and deletes as named operations (document states, delete a document's chunks, stamp the parse identity, delete documents, batched corpus reset); every delete starts at `:Document {id}` |
 | `badges.py` | `extract_badges()` — `audience`/`site_topic` from a page's `ema-bg-*` header badges |
 | `doc_types.py` | `parse_document_types_by_url()` — EMA's (malformed) website-data JSON export → `url -> doc_type` |
 | `document_metadata.py` | the canonical per-URL label collection: `upsert_badges` / `upsert_doc_types` / `mongo_metadata_lookup` (+ provenance stamps) |
-| `property_graph.py` | `build_property_graph_index()` + `HierarchicalPGRetriever` (registered `property_graph` / `hierarchical`) |
+| `property_graph.py` | `build_property_graph_index()` (the embed pass skips, stamps or replaces each document; `prune_documents()`) + `HierarchicalPGRetriever` (registered `property_graph` / `hierarchical`) |
 
 ---
 
@@ -189,10 +197,16 @@ One script sequences scraper output → Neo4j (each stage is its own CLI and can
 be re-run by hand; the script prints every command and stops on failure):
 
 ```bash
-# full pipeline after a new scrape (GPU host; build is hours + resumable)
-# WARNING: --reset deletes every node and edge of the live graph before the build,
-# and the build then re-embeds 5.82 million chunks. CLAUDE.md rule 4 asks for the
-# owner's go-ahead before this runs. Without --reset the build resumes.
+# refresh after a new scrape (GPU host): new documents are built, documents whose
+# text changed are replaced, unchanged ones are skipped
+python scripts/update_graph.py \
+    --pdf-cache ~/Nextcloud/Datasets/ema_scraper/cache/ema-sitemap \
+    --full --pause-every-docs 2000
+
+# WARNING: --reset deletes every :Document and :Chunk node of the live graph (in
+# batches; other nodes such as the NeoDash dashboard stay), and the build then
+# re-embeds 5.82 million leaf chunks for hours. CLAUDE.md rule 4 asks for the
+# owner's go-ahead before this runs.
 python scripts/update_graph.py \
     --pdf-cache ~/Nextcloud/Datasets/ema_scraper/cache/ema-sitemap \
     --full --reset --pause-every-docs 2000
@@ -212,17 +226,47 @@ The stages, individually:
 | Stage | Command | Writes |
 |-------|---------|--------|
 | parse-html | `python -m corpus.parsers.trafilatura` | `parsed_documents` |
-| parse-pdfs | `python -m corpus.parsers.pymupdf4llm --cache <scrapy-cache>` | `parsed_documents` |
+| parse-pdfs | `python -m corpus.parsers.pymupdf4llm --cache <scrapy-cache>` | `parsed_documents` (one row per PDF, from its `response_body`) |
 | enrich | `python scripts/enrich_document_metadata.py` | `document_metadata` |
-| build | `python -m harness.indexing.build --full [--reset]` | the Neo4j graph (embeds; resumable — re-run to continue) |
+| build | `python -m harness.indexing.build --full [--prune]` | the Neo4j graph: new, replaced and stamped documents |
 | propagate | `python scripts/propagate_metadata_to_graph.py` | labels on existing `:Document` nodes (no rebuild) |
 
-**When to run what:** a *fresh build* needs `parse-* → enrich → build` (ingest
-joins `document_metadata`, so all labels are stamped at build time — `propagate`
-is unnecessary). A *label-only refresh* (new export, re-scrape without
-re-embedding) is `enrich → propagate`. `--links-only` /
-`--reset-links` rebuilds of the `LINKS_TO` edges remain flags of
-`harness.indexing.build`.
+`--reset` (build) **deletes** every `:Document` and `:Chunk` node first; see the warning
+above. `--prune` (build) **deletes** the documents whose URL has no clean row in
+`parsed_documents`; it compares with all clean URLs, whatever `--limit` says, and prints
+the count first.
+
+**What each step can and cannot refresh:**
+
+| Step | Refreshes | Does not |
+|------|-----------|----------|
+| parse-html / parse-pdfs | writes a new row per `(url, parser, parser_version)`; never overwrites another parser's or version's row | change the graph |
+| build | builds new documents; replaces a document whose selected row has another text hash; stamps `parser` / `parser_version` when only those differ; joins `document_metadata` for the documents it builds | clear a label; refresh the labels of a skipped document; notice a change of `chunk_sizes` or of the embedding model (the comparison sees only the parse) |
+| build `--prune` | deletes documents whose URL has no clean row | repair `tree_*` or `topic_hubs` on other documents; run `tree` and `subgraphs` again |
+| propagate | sets (and clears) `doc_type`, `audience`, `site_topic`, `topic_hubs` on every existing document | change chunks |
+
+**When to run what:** after a re-parse, `build` (it replaces what changed). After new
+labels (a new export, a hub build), `enrich → propagate` or `subgraphs → propagate`:
+the build joins labels only for the documents it builds. `--links-only` /
+`--reset-links` rebuilds of the `LINKS_TO` edges remain flags of `harness.indexing.build`.
+
+### How the build refreshes a document
+
+For each URL, `iter_source_groups` (`harness/indexing/ingest.py`) selects one clean row
+of `parsed_documents`: the row that matches the earliest entry of
+`harness/configs/parser_preference.yaml`, and among rows of that entry the newest
+`parsed_at`. An entry `name@version` matches one version: `pymupdf4llm@legacy` comes
+first, so a new PDF parse does not replace the legacy text the graph was embedded from
+(decisions A and D, `docs/pm/decisions/2026-11-25_*.md`). A URL whose rows match no
+entry falls back to its newest clean row, with a warning and a count.
+
+The build then compares the row with the document's parse identity (§3): equal hash and
+identity → skip; equal hash, other parser or version → set the two properties, touch no
+chunk; other hash → chunk the new text, then delete the old chunks and write the new
+ones in the same flush. A text that gives no chunk leaves the old chunks in place.
+`--no-resume` replaces every document. The deletes go through
+`harness/indexing/graph_ops.py`, which starts every query at `:Document {id}` (the
+`ema_document_id` index) and deletes in batches.
 
 ### Programmatic retrieve
 
@@ -241,8 +285,8 @@ nodes = retriever.retrieve("nitrosamine acceptable intake limit")
 ### Programmatic rebuild from scratch — deletes the live graph
 
 ```python
-# WARNING: the reset runs MATCH (n) DETACH DELETE n. It deletes every node and
-# edge of the live graph, and the build then re-embeds 5.82 million chunks.
+# WARNING: the reset deletes every :Document and :Chunk node of the live graph, in
+# batches (other nodes stay), and the build then re-embeds 5.82 million leaf chunks.
 # The default profile neo4j_hier is the full corpus (limit: null).
 # CLAUDE.md rule 4: ask the owner for the go-ahead before running this.
 from harness.indexing import load_index_profile, build_index
@@ -639,12 +683,18 @@ The registry is the seam (mirrors the `harness/tools/registry.py` decorator patt
 ## 9. Tests
 
 ```bash
-pytest tests/test_indexing_profiles.py tests/test_indexing_chunking.py \
+.venv/bin/python -m pytest tests/test_indexing_profiles.py tests/test_indexing_chunking.py \
        tests/test_indexing_links.py tests/test_indexing_ingest.py \
-       tests/test_indexing_property_graph.py        # 36 tests, no infra (mongomock)
+       tests/test_indexing_property_graph.py tests/test_graph_ops.py \
+       tests/test_parser_preference.py tests/test_backfill_parse_identity.py   # no infra (mongomock)
 ```
 
-The live build + retrieval are integration-verified against Neo4j (not in CI).
+The refresh tests (skip, stamp, replace, prune, reset) run on `tests/graph_double.py`, an
+in-memory graph that models deletion. The same Cypher runs on a real Neo4j in
+`tests/test_graph_ops_neo4j.py`, marked `integration`: it needs a **throwaway** instance
+(`EMA_SCRATCH_NEO4J_URI`, never port 7687) and empties it first; see
+`docs/eval/2026-11-25_graph_delete_measurement.md` for the `docker run` line. The live
+build + retrieval are integration-verified against Neo4j (not in CI).
 
 ---
 
