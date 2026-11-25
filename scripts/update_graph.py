@@ -39,7 +39,13 @@ Prerequisites: ``scripts/start_services.sh`` (Mongo + Neo4j up), credentials in
 ``~/Nextcloud/Datasets/ema_nlp/ema_nlp.env``. See docs/RETRIEVAL.md §2 + §6.
 
 Examples:
-    # full pipeline after a new scrape (GPU host)
+    # refresh after a new scrape (GPU host): new documents are built, changed ones
+    # replaced, unchanged ones skipped
+    python scripts/update_graph.py --pdf-cache ~/Nextcloud/Datasets/ema_scraper/cache/ema-sitemap \\
+        --full --pause-every-docs 2000
+
+    # WARNING: --reset DELETES every :Document and :Chunk node of the live graph before
+    # the build, and the full rebuild embeds for hours on the GPU. Ask before running it.
     python scripts/update_graph.py --pdf-cache ~/Nextcloud/Datasets/ema_scraper/cache/ema-sitemap \\
         --full --reset --pause-every-docs 2000
 
@@ -95,7 +101,10 @@ def main() -> None:
     build = parser.add_argument_group("build stage (forwarded to harness.indexing.build)")
     build.add_argument("--profile", default=None, help="index profile (default: EMA_INDEX_PROFILE)")
     build.add_argument("--full", action="store_true", help="whole corpus (ignore profile limit)")
-    build.add_argument("--reset", action="store_true", help="DETACH DELETE the graph first")
+    build.add_argument("--reset", action="store_true",
+                       help="DELETE every Document and Chunk node first, in batches; then rebuild")
+    build.add_argument("--prune", action="store_true",
+                       help="DELETE the documents whose URL has no clean row in parsed_documents")
     build.add_argument("--embed-device", default="cuda", help="cuda (default) or cpu")
     build.add_argument("--embed-batch", type=int, default=None)
     build.add_argument("--pause-every-docs", type=int, default=None,
@@ -137,6 +146,8 @@ def main() -> None:
                 cmd += [f"--limit={args.limit}"]
             if args.reset:
                 cmd += ["--reset"]
+            if args.prune:
+                cmd += ["--prune"]
             if args.embed_batch is not None:
                 cmd += [f"--embed-batch={args.embed_batch}"]
             if args.pause_every_docs is not None:

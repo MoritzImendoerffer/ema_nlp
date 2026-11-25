@@ -1,16 +1,24 @@
 """CLI: build the hierarchical PropertyGraphIndex from Mongo into Neo4j.
 
 Batched + resumable (see ``property_graph.build_property_graph_index``): a crash
-loses at most one flush; re-run the same command to resume (already-built docs
-are skipped). ``LINKS_TO`` edges are a final idempotent pass.
+loses at most one flush. A re-run compares each document with its selected
+parse: unchanged documents are skipped, changed ones replaced. ``LINKS_TO``
+edges are a final idempotent pass.
 
 Examples::
 
-    # whole corpus, GPU, fresh build
+    # refresh the graph: build new documents, replace changed ones (no deletes
+    # beyond the replaced documents' old chunks)
+    python -m harness.indexing.build --full --embed-device cuda
+
+    # WARNING: --reset DELETES every :Document and :Chunk node of the live graph
+    # (79,882 documents, 7.4 million chunks on 2026-11-25) before rebuilding; a full
+    # rebuild embeds for hours on the GPU. Other nodes, such as the NeoDash
+    # dashboard, stay.
     python -m harness.indexing.build --full --reset --embed-device cuda
 
-    # resume an interrupted full build (no --reset)
-    python -m harness.indexing.build --full --embed-device cuda
+    # also DELETE the documents whose URL has no clean row in parsed_documents
+    python -m harness.indexing.build --full --prune
 
     # a 500-doc slice for quick iteration
     python -m harness.indexing.build --limit 500
@@ -36,8 +44,20 @@ def main() -> None:
     ap.add_argument("--profile", default=None, help="index profile (default: EMA_INDEX_PROFILE)")
     ap.add_argument("--full", action="store_true", help="ignore profile scope.limit (whole corpus)")
     ap.add_argument("--limit", type=int, default=None, help="cap documents (overrides profile)")
-    ap.add_argument("--reset", action="store_true", help="DETACH DELETE the graph first")
-    ap.add_argument("--no-resume", action="store_true", help="do not skip already-built docs")
+    ap.add_argument(
+        "--reset", action="store_true",
+        help="DELETE every Document and Chunk node first, in batches (other nodes stay); "
+             "then rebuild",
+    )
+    ap.add_argument(
+        "--prune", action="store_true",
+        help="DELETE the documents whose URL has no clean row in parsed_documents "
+             "(compared with all clean URLs, whatever --limit says); prints the count first",
+    )
+    ap.add_argument(
+        "--no-resume", action="store_true",
+        help="replace every document: delete its chunks and build it again",
+    )
     ap.add_argument("--flush-chunks", type=int, default=4000, help="chunks per embed/upsert flush")
     ap.add_argument("--embed-device", default="cuda", help="torch device for embeddings (cuda/cpu)")
     ap.add_argument("--embed-batch", type=int, default=128, help="embedding model batch size")
@@ -75,10 +95,10 @@ def main() -> None:
 
     logging.info(
         "build start: profile=%s scope.limit=%s device=%s embed_batch=%d flush=%d "
-        "pause_every_docs=%d pause_seconds=%.0f reset=%s links_only=%s reset_links=%s",
+        "pause_every_docs=%d pause_seconds=%.0f reset=%s prune=%s links_only=%s reset_links=%s",
         profile.name, profile.index.scope.limit, args.embed_device,
         args.embed_batch, args.flush_chunks, args.pause_every_docs, args.pause_seconds,
-        args.reset, args.links_only, args.reset_links,
+        args.reset, args.prune, args.links_only, args.reset_links,
     )
     build_index(
         profile,
@@ -90,6 +110,7 @@ def main() -> None:
         pause_seconds=args.pause_seconds,
         links_only=args.links_only,
         reset_links=args.reset_links,
+        prune=args.prune,
     )
     logging.info("build complete.")
 

@@ -3,7 +3,7 @@
   "proposal": "docs/next/pipeline_refresh.md",
   "planned_at": "2026-11-25",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-011",
+  "current_task": "TASK-012",
   "baseline": {
     "make_test": "736 passed, 2 skipped, 7 deselected, 31 warnings in 19.31 s (2026-11-25, branch pipeline-refresh at 9dfc405 plus the uncommitted bookkeeping)",
     "make_lint": "All checks passed (exploration.md, 2026-11-23); not re-run at planning",
@@ -277,7 +277,7 @@
       "id": "TASK-011",
       "title": "Expose --prune on the build and the pipeline, and say what --reset deletes",
       "type": "wiring",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-007",
         "TASK-008"
@@ -293,7 +293,8 @@
         "`tests/test_update_graph.py::test_build_cli_forwards_prune` passes: build.main with --prune calls build_index with prune=True (build_index replaced by a recorder)",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "The help text of --reset today says 'DETACH DELETE the graph first' (build.py:41, update_graph.py:96). After TASK-008 it deletes :Document and :Chunk nodes in batches and keeps other nodes. Rule 7 of docs/PLANNING_WORKFLOW.md: a command that deletes appears with its warning in the same block.\n\nThe module docstring of build.py shows `--full --reset` as its first example (line 10); put the warning beside it."
+      "notes": "The help text of --reset today says 'DETACH DELETE the graph first' (build.py:41, update_graph.py:96). After TASK-008 it deletes :Document and :Chunk nodes in batches and keeps other nodes. Rule 7 of docs/PLANNING_WORKFLOW.md: a command that deletes appears with its warning in the same block.\n\nThe module docstring of build.py shows `--full --reset` as its first example (line 10); put the warning beside it.",
+      "outcome": "harness/indexing/build.py: --prune (forwarded as prune=True), --reset help 'DELETE every Document and Chunk node first, in batches (other nodes stay)', --no-resume help 'replace every document', and a docstring whose --reset example carries its WARNING (rule 7). scripts/update_graph.py: --prune forwarded to the build step, --reset help, and a refresh example without --reset beside a warned --reset example. 3 tests in tests/test_update_graph.py (dry run forwards --prune; build.main passes prune=True; --help names 'Document and Chunk' and 'batches'). Gates: make test 778 passed, 2 skipped, 7 deselected (33 warnings: the 2 new ones are a library load_module() DeprecationWarning raised when the CLI test imports harness.indexing); make lint All checks passed."
     },
     {
       "id": "TASK-012",
