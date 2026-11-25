@@ -44,6 +44,7 @@ EMA content, and nothing else of the private plan this repository rehearses.
 | [`document_metadata_and_entities.md`](document_metadata_and_entities.md) | 13 | 📋 proposed 2026-11-25; waits for rows 10 and 11 | EMA's own feed fields on `:Document` (title, status, dates, reference and product number) and a medicines table keyed by product number, without re-embedding. A second stage adds substances, classes, procedures, chunk position and the version role of file cards. |
 | [`benchmark_v0.md`](benchmark_v0.md) | 15 | 📋 proposed 2026-11-25; the computed items wait for row 13 | 30 items in nine classes on four related products, one held out. Each item has must-have facts and gold sources with a quote. 11 gold answers are computed from EMA's tables, and 6 items ask for a proposal in steps. Scoring per fact, in three repeats, with the first failing stage. |
 | [`error_census_and_sitting.md`](error_census_and_sitting.md) | 20 | 📋 proposed 2026-11-25; needs row 18 and the owner's time | A person labels real claims by kind of error, and the checks of row 18 are scored on those labels. A sitting follows only if wrong claims are found among the claims that passed. A pilot of 30 claims needs no code. |
+| [`pdf_parsing_docling.md`](pdf_parsing_docling.md) | 17 | 📋 proposed 2026-11-25; the pilot and the rank wait for the owner | A `docling` PDF parser in its own environment (Docling 2.132.0, PP-OCRv6 for pages without text, PaddleOCR-VL or TableFormer for tables), five files per PDF in the format of the owner's repository doctool, and a pilot that parses about 270 PDFs three ways. No change to the graph; the chunker and the conversion are row 21. |
 | [`tree_retrieval_followups.md`](tree_retrieval_followups.md) | 1, 2, 4, 5, 6, 8 | 🚧 step 1 done | Fix **seeding** for tree-aware retrieval. Step 1 measured it ([report](../eval/2026-07-20_tree_seeding.md)): three distinct problems, and `oversample` is gated off in the tree profile. |
 | [`topic_subgraphs_followups.md`](topic_subgraphs_followups.md) | 7 | 📋 planned | Four small follow-ups to the subgraphs work: the `steered_agent` baseline, more hubs, cross-family T2 items, and an LLM request timeout. |
 | [`metadata_steering.md`](metadata_steering.md) | parked | 💡 designed (gated) | Steer retrieval on EMA's own labels (`doc_type` / `audience` / `site_topic`) instead of the coarse URL `category`. |
@@ -65,7 +66,7 @@ review of 2026-11-23
 | 14 The cheap rungs: full-text search and the read tool | 7 |
 | 16 The first ladder runs | 2, 11 |
 | 19 The MCP servers (split from row 14 on 2026-11-25) | 7 |
-| 17 Parser comparison and the targeted second PDF pass | 8 |
+| 21 Chunks from the Docling records, and the conversion of the corpus | 8, and [`pdf_parsing_docling.md`](pdf_parsing_docling.md), "What comes after" |
 | 12 Docs: the setup path | 10 |
 
 Candidates with neither a row's proposal nor a review section: learned re-ranking from citation

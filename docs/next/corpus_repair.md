@@ -2,6 +2,13 @@
 
 **Status:** proposed 2026-11-25 · backlog row 11 · no work unit yet · waits for row 10
 
+> **Note of 2026-11-25.** The owner decided that all PDFs are parsed again with Docling
+> ([`pdf_parsing_docling.md`](pdf_parsing_docling.md), rows 17 and 21). This proposal stays as
+> written: it parses the 7,678 unparsed PDFs with the present parser now, and they are
+> converted later with all others (open question 8 there; the lead's choice, and the owner
+> can overrule it). The sentence below, "No second parse of the 58,121 PDFs that have a
+> legacy row", holds for this row only.
+
 Written by Claude (Fable 5.2) from the review of 2026-11-23
 ([`../eval/2026-11-23_pkr_testbed_review.md`](../eval/2026-11-23_pkr_testbed_review.md),
 sections 3.1, 3.2, 3.4 to 3.7 and 12). It is step 1b of the rehearsal order. **Every number

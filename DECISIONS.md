@@ -52,6 +52,15 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 
 ## Retrieval framework
 
+### PDF parsing: Docling with PaddleOCR models, in the record format of doctool
+**Decided:** 2026-11-25, by the owner: "make sure the pdfs in ema_nlp are parsed using paddleOCR and docling (yes it will probably require some re-development) but it would have the same or a similar format as my doctool repository and docling is a good base."  
+**What, the owner's decision:** The PDFs of the corpus are parsed with Docling as the base and with PaddleOCR models. The parse is stored in the format of the owner's repository doctool, or a similar one.  
+**What, the lead assistant's reading:** It is not the owner's answer; open questions 1 to 3 of the proposal ask the owner. The stack is the one doctool runs: PP-OCRv6 through RapidOCR for regions without PDF text and PaddleOCR-VL-1.6 for tables, both inside Docling 2.132.0, without the PaddleOCR library. The work is two backlog rows. Row 17 is the parser, the record format and a pilot on about 270 PDFs. Row 21 is chunking from the records and the conversion of about 1.08 million pages in tiers. Row 17's old condition, "the second pass only if it wins", no longer applies; the pilot stays as a measurement.  
+**Why:** A chunk knows no page today. Tables are written as pipe tables and cut through by the chunker. The parse records no element. The owner's other repository has a parser and a record format that give each element an id, a page and a position.  
+**What it changes:** The plan of the review of 2026-11-23, section 8, is replaced: it had PaddleOCR's own pipeline in a second environment and a comparison as a condition. When row 21 names the new parser first in `parser_preference.yaml`, decision A of 2026-11-25 ("the legacy rows first", taken by the lead under delegation) is overruled for PDFs. Row 13's open question 6, whether all PDFs are parsed again to get page numbers, is answered with yes, by row 21.  
+**What it does not change:** Row 11 as proposed, HTML parsing, the embedding model, the chunk sizes, and planning rule 4: the pilot and every tier of the conversion wait for the owner's yes with their hours.  
+**Ref:** [`docs/next/pdf_parsing_docling.md`](docs/next/pdf_parsing_docling.md), [`BACKLOG.md`](BACKLOG.md) rows 17 and 21
+
 ### LlamaIndex-first retrieval: hierarchical PropertyGraphIndex on Neo4j
 **Decided:** 2026-05-30 (branch `refactor/llamaindex-retrieval-pipeline`, work unit `2026-05-30_20_llamaindex-retrieval-refactor`)
 **What:** Retrieval is rebuilt LlamaIndex-first. The single store is a hierarchical LlamaIndex `PropertyGraphIndex` backed by `Neo4jPropertyGraphStore`: `:Document` + `:Chunk` nodes; `HAS_CHUNK` / `PARENT_OF` / `LINKS_TO` edges; Neo4j's native vector index over chunk embeddings. A custom `HierarchicalPGRetriever` does vector hit → small-to-big parent merge + `links_to` expansion in one Cypher. Active index/retriever is chosen by `EMA_INDEX_PROFILE` → `harness/configs/index/*.yaml`; new kinds register through `harness.indexing`'s registries. Built by `harness.indexing.build_index` from Mongo `parsed_documents`.

@@ -2,6 +2,12 @@
 
 **Status:** proposed 2026-11-25 · backlog row 13 · no work unit yet · waits for rows 10 and 11
 
+> **Note of 2026-11-25.** The owner decided that all PDFs are parsed again with Docling
+> ([`pdf_parsing_docling.md`](pdf_parsing_docling.md), rows 17 and 21). That answers open
+> question 6 below: page numbers come from that parse. The chunk properties of this proposal
+> (`page`, `position`, `level`, `section`) and those of row 21 must be one schema; row 21's
+> proposal settles which row writes them and which row shows them.
+
 Written from the review of 2026-11-23
 ([`../eval/2026-11-23_pkr_testbed_review.md`](../eval/2026-11-23_pkr_testbed_review.md),
 sections 3.3 and 6) and the direction review of 2026-11-25
