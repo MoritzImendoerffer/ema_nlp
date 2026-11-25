@@ -3,7 +3,7 @@
   "proposal": "docs/next/pipeline_refresh.md",
   "planned_at": "2026-11-25",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-002",
+  "current_task": "TASK-003",
   "baseline": {
     "make_test": "736 passed, 2 skipped, 7 deselected, 31 warnings in 19.31 s (2026-11-25, branch pipeline-refresh at 9dfc405 plus the uncommitted bookkeeping)",
     "make_lint": "All checks passed (exploration.md, 2026-11-23); not re-run at planning",
@@ -80,7 +80,7 @@
       "id": "TASK-002",
       "title": "Select one row per URL: the first matching preference entry, then the newest parsed_at",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-001"
       ],
@@ -96,7 +96,8 @@
         "The 7 tests that tests/test_indexing_ingest.py holds today pass unchanged",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "Today `iter_source_rows` (harness/indexing/ingest.py:159-196) reads `find({'error': ''}).sort('url', 1)` and keeps the first row per URL (line 182). The sort makes the rows of one URL adjacent (index url_idx), so selection groups consecutive rows; no second query.\n\nKeep the signature `iter_source_rows(scope, *, client)` (callers: `_embed_pass` and `_links_pass` in property_graph.py, `ingest()`). Add `iter_source_groups(scope, *, client, preference=None)` yielding a small dataclass with `selected` and `old_rule`. `old_rule` is the first clean row the cursor yields for the URL: the rule before this change. TASK-006 and TASK-012 need it, because the proposal says that a graph document without the three values 'counts as built from the row that the old rule would have picked'.\n\nContent type to preference key: 'pdf' in content_type gives 'application/pdf', 'html' gives 'text/html' (the same test as ingest.py:184-186). Store values today are exactly 'application/pdf' and 'text/html'.\n\nTies on parsed_at: the larger `_id` wins. A row without parsed_at counts as the oldest. `scope.limit` counts URLs, as today. Decision F: a URL whose rows match no entry falls back to its newest clean row; log one warning per URL and a total at the end of the pass."
+      "notes": "Today `iter_source_rows` (harness/indexing/ingest.py:159-196) reads `find({'error': ''}).sort('url', 1)` and keeps the first row per URL (line 182). The sort makes the rows of one URL adjacent (index url_idx), so selection groups consecutive rows; no second query.\n\nKeep the signature `iter_source_rows(scope, *, client)` (callers: `_embed_pass` and `_links_pass` in property_graph.py, `ingest()`). Add `iter_source_groups(scope, *, client, preference=None)` yielding a small dataclass with `selected` and `old_rule`. `old_rule` is the first clean row the cursor yields for the URL: the rule before this change. TASK-006 and TASK-012 need it, because the proposal says that a graph document without the three values 'counts as built from the row that the old rule would have picked'.\n\nContent type to preference key: 'pdf' in content_type gives 'application/pdf', 'html' gives 'text/html' (the same test as ingest.py:184-186). Store values today are exactly 'application/pdf' and 'text/html'.\n\nTies on parsed_at: the larger `_id` wins. A row without parsed_at counts as the oldest. `scope.limit` counts URLs, as today. Decision F: a URL whose rows match no entry falls back to its newest clean row; log one warning per URL and a total at the end of the pass.",
+      "outcome": "iter_source_groups (harness/indexing/ingest.py) groups the URL-sorted clean rows per URL and yields SourceChoice(selected, old_rule, fallback): the earliest matching preference entry wins, then the newest parsed_at (tie: later _id); no match falls back to the newest row with a warning and a SelectionStats count (decision F). iter_source_rows keeps its signature and yields the selected row; its callers are _embed_pass, _links_pass, ingest() and harness/ontology/enrich.py. 7 new tests in tests/test_indexing_ingest.py (14 in the file). Read-only on the live MongoDB, 2026-11-25: the first 2,000 URLs give selected == old_rule for 2,000 and 0 fallbacks; the 5 URLs with two clean rows each select pymupdf4llm legacy. Gates: make test 752 passed, 2 skipped, 7 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-003",

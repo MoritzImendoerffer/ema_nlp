@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from llama_index.core.schema import BaseNode
@@ -35,6 +36,7 @@ from harness.indexing.badges import extract_badges
 from harness.indexing.chunking import chunk_document, doc_id_for
 from harness.indexing.document_metadata import MetadataLookup, mongo_metadata_lookup
 from harness.indexing.links import ExtractedLink, extract_links
+from harness.indexing.parser_preference import PreferenceEntry, load_parser_preference
 from harness.indexing.profiles import ChunkingConfig, IndexProfile, ScopeConfig
 
 _log = logging.getLogger(__name__)
@@ -156,44 +158,148 @@ def build_ingested_doc(
     )
 
 
-def iter_source_rows(
+@dataclass(frozen=True)
+class SourceChoice:
+    """The row the build uses for one URL, and the row the rule before 2026-11-25 used.
+
+    ``old_rule`` is the first clean row the cursor yielded for the URL. Until
+    2026-11-25 the build kept exactly that row, and the 79,882 documents in the graph
+    were built from it. A graph document that records no parse identity yet counts as
+    built from ``old_rule`` (proposal ``docs/next/pipeline_refresh.md``).
+    """
+
+    selected: dict[str, Any]
+    old_rule: dict[str, Any]
+    fallback: bool = False  # True: no preference entry matched (decision F)
+
+
+@dataclass
+class SelectionStats:
+    """Counts of one selection pass, for the log line at its end."""
+
+    urls: int = 0
+    fallbacks: int = 0
+
+
+def preference_key(content_type: str | None) -> str | None:
+    """The preference-file key of a row: the same pdf/html test the build has always used."""
+    ct = (content_type or "").lower()
+    if "pdf" in ct:
+        return "application/pdf"
+    if "html" in ct:
+        return "text/html"
+    return None
+
+
+_OLDEST = datetime.min.replace(tzinfo=UTC)
+
+
+def _parsed_at(row: dict[str, Any]) -> datetime:
+    value = row.get("parsed_at")
+    if not isinstance(value, datetime):
+        return _OLDEST
+    # pymongo returns naive UTC datetimes; a test may insert aware ones.
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _newest(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Newest ``parsed_at``; a tie goes to the later ``_id`` (ObjectIds sort by time)."""
+    return max(rows, key=lambda r: (_parsed_at(r), str(r.get("_id", ""))))
+
+
+def select_row(
+    rows: list[dict[str, Any]], preference: dict[str, list[PreferenceEntry]]
+) -> tuple[dict[str, Any], bool]:
+    """Pick one of the clean rows of one URL. Returns ``(row, fell_back)``.
+
+    The row that matches the earliest preference entry wins; among rows that match
+    the same entry, the newest. Before 2026-11-25 the build kept the first row in
+    cursor order, which nothing defined: a re-parse never replaced an older row.
+    When no entry matches, the newest clean row is used and ``fell_back`` is True
+    (decision F, ``docs/pm/decisions/2026-11-25_unlisted-parser.md``).
+    """
+    key = preference_key(rows[0].get("content_type"))
+    for entry in preference.get(key or "", []):
+        matching = [r for r in rows if entry.matches(r.get("parser"), r.get("parser_version"))]
+        if matching:
+            return _newest(matching), False
+    return _newest(rows), True
+
+
+def _url_groups(cursor: Any) -> Iterator[list[dict[str, Any]]]:
+    """Group the clean pdf/html rows of a cursor sorted by URL: one list per URL."""
+    group: list[dict[str, Any]] = []
+    for row in cursor:
+        url = row.get("url")
+        if not url or preference_key(row.get("content_type")) is None:
+            continue
+        if group and group[0]["url"] != url:
+            yield group
+            group = []
+        group.append(row)
+    if group:
+        yield group
+
+
+def iter_source_groups(
     scope: ScopeConfig,
     *,
     client: MongoClient[Any],
-) -> Iterator[dict[str, Any]]:
-    """Yield one clean ``parsed_documents`` row per URL, honouring the scope.
+    preference: dict[str, list[PreferenceEntry]] | None = None,
+    stats: SelectionStats | None = None,
+) -> Iterator[SourceChoice]:
+    """Yield one :class:`SourceChoice` per URL, honouring the scope.
 
-    URL-level filters (topic_prefix, limit) are applied here; the committee
-    filter needs parsed text, so it is applied in :func:`ingest` after metadata
-    derivation. One row per URL (first by URL sort) — the backfill writes a
-    single parser per URL, so parser-preference selection is a later refinement.
+    URL-level filters (topic_prefix, limit) are applied here; the committee filter
+    needs parsed text, so it is applied after metadata derivation. ``preference``
+    defaults to ``harness/configs/parser_preference.yaml``.
     """
+    pref = preference if preference is not None else load_parser_preference()
+    stats = stats if stats is not None else SelectionStats()
     col = client[MONGO_DB][PARSED_COLLECTION]
-    seen: set[str] = set()
     yielded = 0
     # no_cursor_timeout: this cursor is iterated across a multi-hour embed pass and
     # a slower link-extraction pass; the server's default 10-min idle timeout can
     # expire it mid-iteration (CursorNotFound, code 43). Close it explicitly in the
-    # finally so the server-side cursor is not leaked.
+    # finally so the server-side cursor is not leaked. The sort by URL keeps the rows
+    # of one URL adjacent, so selection needs no second query.
     cursor = col.find({"error": ""}, no_cursor_timeout=True).sort("url", 1)
     try:
-        for row in cursor:
-            url = row.get("url")
-            if not url or url in seen:
-                continue
-            ct = (row.get("content_type") or "").lower()
-            if "pdf" not in ct and "html" not in ct:
-                continue
+        for rows in _url_groups(cursor):
+            url = rows[0]["url"]
             if scope.topic_prefix and not _matches_topic(url_metadata(url).topic_path, scope.topic_prefix):
                 continue
-            seen.add(url)
-            yield row
+            row, fell_back = select_row(rows, pref)
+            stats.urls += 1
+            if fell_back:
+                stats.fallbacks += 1
+                _log.warning(
+                    "no parser preference entry matches the rows of %s (%s); using the newest clean row",
+                    url, ", ".join(f"{r.get('parser')}@{r.get('parser_version')}" for r in rows),
+                )
+            yield SourceChoice(selected=row, old_rule=rows[0], fallback=fell_back)
             yielded += 1
             # Over-fetch slightly when a committee filter will prune later.
             if scope.limit and not scope.committee and yielded >= scope.limit:
                 return
     finally:
         cursor.close()
+        if stats.fallbacks:
+            _log.warning(
+                "%d of %d URLs had no row from a listed parser and used their newest clean row "
+                "(harness/configs/parser_preference.yaml)", stats.fallbacks, stats.urls,
+            )
+
+
+def iter_source_rows(
+    scope: ScopeConfig,
+    *,
+    client: MongoClient[Any],
+    preference: dict[str, list[PreferenceEntry]] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield the selected clean ``parsed_documents`` row of each URL (see :func:`iter_source_groups`)."""
+    for choice in iter_source_groups(scope, client=client, preference=preference):
+        yield choice.selected
 
 
 def ingest(
