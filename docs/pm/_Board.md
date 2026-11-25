@@ -11,16 +11,18 @@ tags: [pm/board]
 
 # Board — the active epic
 
-**[[epic|2026-11-23_27_pipeline-refresh]]** · **15 of 18 done** · 3 todo
+**[[epic|2026-11-23_27_pipeline-refresh]]** · **15 of 18 done** · 1 blocked · 2 todo
 
 [[epic|Why this epic]] · [[_Archive|Finished epics]] · [[BACKLOG|What is open, in order]]
 
 ## Waiting on the project owner
 
 **This is the only section that is yours.** Each is an argument a person has to settle.
-None of them blocks the work below.
+**One of them blocks a task below**, named in its own row: until it is settled that work cannot start.
 
-*None.*
+| Decision | Waiting on | Blocks |
+|---|---|---|
+| [[2026-11-25_live-graph-runs|The two live runs of the pipeline refresh: the backfill, and one URL through the pipeline]] | the owner | [[TASK-016]], [[TASK-017]] |
 
 ## Not finished — the assistant's work, not the owner's
 
@@ -29,7 +31,7 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 
 | Task | Status | Waiting on | Kind | What it is |
 |---|---|---|---|---|
-| [[TASK-015]] | `todo` | the assistant | checkpoint | Checkpoint: report the code and the measurement, and ask for the two live runs |
+| [[TASK-015]] | `blocked` | another task | checkpoint | Checkpoint: report the code and the measurement, and ask for the two live runs |
 | [[TASK-016]] | `todo` | the assistant | data | Backfill the parse identity on the live graph |
 | [[TASK-017]] | `todo` | the assistant | data | Run one URL through parse-pdfs and build on the live stores |
 

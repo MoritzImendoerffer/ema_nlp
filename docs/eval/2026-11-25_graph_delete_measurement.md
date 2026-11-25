@@ -123,3 +123,18 @@ in this work unit.
 - Deletes while the chat app queries the graph.
 - The embedding rate of a replace. The first live replace (TASK-017) records it.
 - Any number about retrieval quality: no chunk text or vector of the live graph was read.
+
+## Checkpoint, 2026-11-25: what the live runs would cost (read-only)
+
+TASK-015 measured the live side of the two remaining runs without writing to either store.
+
+| Check | Command | Result |
+|---|---|---|
+| Backfill, sample | `scripts/backfill_parse_identity.py --dry-run --limit 1000` | 1,000 URLs in 2.8 s; would stamp 1,000; 0 old-rule rows differ from the selected row |
+| Backfill, every URL | `scripts/backfill_parse_identity.py --dry-run` | 80,078 URLs read and hashed in 8.0 s (11.1 s wall, 392 MB peak memory); 79,882 graph documents, all without `text_sha256`; would stamp 79,882; 0 old-rule rows differ |
+| Prune candidates | `prune_documents`' comparison, without the delete | 0 of 79,882 documents lack a clean row (80,078 clean URLs) |
+| Cache walk for `--url` | `_iter_pdf_cache` over `ema-sitemap` | 65,265 PDF entries in 5 s |
+| Byte parser on real entries | `_cli --limit 3`, written to an in-memory mongomock | 3 parsed, 0 errors, 1.9 s per PDF |
+
+The go-ahead for the two runs, with these numbers, is the open decision note
+[`docs/pm/decisions/2026-11-25_live-graph-runs.md`](../pm/decisions/2026-11-25_live-graph-runs.md).

@@ -3,12 +3,12 @@ type: pm-task
 epic: 2026-11-23_27_pipeline-refresh
 sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-015
-status: todo
+status: blocked
 kind: checkpoint
 title: "Checkpoint: report the code and the measurement, and ask for the two live runs"
 generated: true
-waiting_on: the assistant
-tags: [pm/task, pm/todo]
+waiting_on: another task
+tags: [pm/task, pm/blocked]
 ---
 
 > [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
@@ -16,7 +16,7 @@ tags: [pm/task, pm/todo]
 
 # TASK-015 — Checkpoint: report the code and the measurement, and ask for the two live runs
 
-**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `blocked` · **Waiting on:** another task · **Board:** [[_Board]]
 
 ## Why it exists
 
@@ -33,6 +33,10 @@ The read-only dry run is allowed without asking: it writes to neither store.
 - [ ] The owner (or the lead session, if the owner delegates it) has answered in the note; TASK-016 does not start before
 
 **Depends on:** [[TASK-010]], [[TASK-011]], [[TASK-012]], [[TASK-014]], [[TASK-018]]
+
+## What was built
+
+Checkpoint reached 2026-11-25. Findings: docs/eval/2026-11-25_graph_delete_measurement.md, section 'Checkpoint' (full read-only backfill dry run: 80,078 URLs in 8.0 s, 11.1 s wall; would stamp 79,882; 0 old-rule rows differ; 0 prune candidates; cache walk 5 s). Decision note opened: docs/pm/decisions/2026-11-25_live-graph-runs.md (status open, waiting on the owner): the backfill, and one URL through the pipeline in shape (a) gzip PDF / add path or (b) legacy PDF with the preference swapped for one build / replace path; recommendation: backfill, then (b). Acceptance 1 and 2 met; acceptance 3 (the owner's answer) is open, so TASK-016 and TASK-017 do not start.
 
 ## Files it touched
 
