@@ -11,7 +11,7 @@ tags: [pm/board]
 
 # Board — the active epic
 
-**[[epic|2026-11-23_27_pipeline-refresh]]** · **13 of 18 done** · 5 todo
+**[[epic|2026-11-23_27_pipeline-refresh]]** · **14 of 18 done** · 4 todo
 
 [[epic|Why this epic]] · [[_Archive|Finished epics]] · [[BACKLOG|What is open, in order]]
 
@@ -29,7 +29,6 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 
 | Task | Status | Waiting on | Kind | What it is |
 |---|---|---|---|---|
-| [[TASK-014]] | `todo` | the assistant | mechanism | Fix the delete and reset batch sizes from the measurement |
 | [[TASK-015]] | `todo` | the assistant | checkpoint | Checkpoint: report the code and the measurement, and ask for the two live runs |
 | [[TASK-016]] | `todo` | the assistant | data | Backfill the parse identity on the live graph |
 | [[TASK-017]] | `todo` | the assistant | data | Run one URL through parse-pdfs and build on the live stores |
@@ -52,6 +51,7 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 | [[TASK-011]] | `done` | — | wiring | Expose --prune on the build and the pipeline, and say what --reset deletes |
 | [[TASK-012]] | `done` | — | mechanism | Write the backfill that stamps the parse identity on existing documents |
 | [[TASK-013]] | `done` | — | measurement | Measure the deletes and the reset on a throwaway Neo4j |
+| [[TASK-014]] | `done` | — | mechanism | Fix the delete and reset batch sizes from the measurement |
 
 ---
 

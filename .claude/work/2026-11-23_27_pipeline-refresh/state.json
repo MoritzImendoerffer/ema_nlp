@@ -3,7 +3,7 @@
   "proposal": "docs/next/pipeline_refresh.md",
   "planned_at": "2026-11-25",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-014",
+  "current_task": "TASK-018",
   "baseline": {
     "make_test": "736 passed, 2 skipped, 7 deselected, 31 warnings in 19.31 s (2026-11-25, branch pipeline-refresh at 9dfc405 plus the uncommitted bookkeeping)",
     "make_lint": "All checks passed (exploration.md, 2026-11-23); not re-run at planning",
@@ -350,7 +350,7 @@
       "id": "TASK-014",
       "title": "Fix the delete and reset batch sizes from the measurement",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-013"
       ],
@@ -363,7 +363,8 @@
         "If the page says that one document's replace needs batching, delete_document_chunks batches; a test asserts the batch clause",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "A separate task so that the measurement records numbers and this task changes code: the measurement page is the reason for the constants."
+      "notes": "A separate task so that the measurement records numbers and this task changes code: the measurement page is the reason for the constants.",
+      "outcome": "The measurement page recommends 10,000 rows for the per-document chunk delete and for the reset, equal to the provisional values, so CHUNK_DELETE_BATCH_ROWS and RESET_BATCH_ROWS in harness/indexing/graph_ops.py stay 10,000; their comment now cites docs/eval/2026-11-25_graph_delete_measurement.md with the numbers. delete_document_chunks already batched; test_default_batch_sizes_follow_the_measurement asserts the constants and the 'IN TRANSACTIONS OF 10000 ROWS' clause of both defaults. Gates: make test 786 passed, 2 skipped, 13 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-015",

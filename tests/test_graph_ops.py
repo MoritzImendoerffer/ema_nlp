@@ -128,3 +128,14 @@ def test_document_chunks_reads_from_the_indexed_document():
     assert CorpusGraph(rec).document_chunks("d1") == [{"id": "c1", "text": "t", "is_leaf": True}]
     query, params = rec.calls[0]
     assert "MATCH (d:Document {id: $id})-[:HAS_CHUNK]->(c:Chunk)" in query and params == {"id": "d1"}
+
+
+def test_default_batch_sizes_follow_the_measurement():
+    """docs/eval/2026-11-25_graph_delete_measurement.md: 10,000 rows for both."""
+    from harness.indexing.graph_ops import CHUNK_DELETE_BATCH_ROWS, RESET_BATCH_ROWS
+
+    assert CHUNK_DELETE_BATCH_ROWS == 10_000 and RESET_BATCH_ROWS == 10_000
+    rec = _Recorder()
+    CorpusGraph(rec).delete_document_chunks(["d1"])
+    CorpusGraph(rec).reset_corpus()
+    assert all("IN TRANSACTIONS OF 10000 ROWS" in q for q, _ in rec.calls)

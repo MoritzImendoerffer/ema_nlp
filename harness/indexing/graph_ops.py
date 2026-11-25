@@ -28,10 +28,14 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-# Rows per inner transaction. Provisional until the measurement on a throwaway Neo4j
-# (TASK-014 of work unit 27) fixes them. A leaf chunk carries about 2,000 characters
-# and 1,024 floats; the live server allows 1.40 GiB for all transactions together.
+# Rows per inner transaction, from docs/eval/2026-11-25_graph_delete_measurement.md
+# (Neo4j 5.26.26 with the live memory limits, synthetic data). The live server allows
+# 1.40 GiB for all transactions together. One document of 26,000 chunks (the biggest
+# live one has 25,916) deleted in one transaction on an idle server; 80,000 chunks failed
+# with MemoryPoolOutOfMemoryError. Batches of 10,000 were faster (1.40 s against 2.06 s)
+# and leave the pool to the chat app's queries.
 CHUNK_DELETE_BATCH_ROWS = 10_000
+# Same page: 16,704 nodes/s with 10,000 rows per batch, 13,227 with 50,000.
 RESET_BATCH_ROWS = 10_000
 # Documents per UNWIND when stamping properties or deleting documents.
 DOC_BATCH = 1_000
