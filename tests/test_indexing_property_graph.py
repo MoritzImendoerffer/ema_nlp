@@ -674,7 +674,8 @@ def _client_with(*rows):
     from harness.indexing.ingest import PARSED_COLLECTION
 
     client = mongomock.MongoClient()
-    client[MONGO_DB][PARSED_COLLECTION].insert_many([dict(r) for r in rows])
+    if rows:
+        client[MONGO_DB][PARSED_COLLECTION].insert_many([dict(r) for r in rows])
     return client
 
 
@@ -876,3 +877,36 @@ def test_prune_logs_the_count_before_deleting(caplog):
     count_at = next(i for i, m in enumerate(messages) if "have no clean row" in m)
     deleted_at = next(i for i, m in enumerate(messages) if m.startswith("prune: deleted"))
     assert count_at < deleted_at and any(_PDF2 in m for m in messages[count_at:deleted_at])
+
+
+# ── TASK-008 (unit 27): the reset deletes corpus nodes in batches, keeps the rest ──
+#
+# Until 2026-11-25 ``reset=True`` ran one DETACH DELETE over every node: the whole graph
+# in one transaction, the NeoDash dashboard node included.
+
+
+def test_reset_keeps_other_nodes(monkeypatch):
+    graph = InMemoryCorpusGraph()
+    _build(graph, _client_with(_prow(_text(40)), _prow(_text(40), url=_PDF2)))
+    graph.add_node("dashboard-1", {"_Neodash_Dashboard"}, title="EMA graph")
+    _run_build(monkeypatch, graph, _client_with(), reset=True)  # no rows: nothing is rebuilt
+    assert set(graph.nodes) == {"dashboard-1"}
+    assert not graph.edges
+
+
+def test_reset_sends_batched_label_scoped_queries():
+    from harness.indexing.graph_ops import CorpusGraph
+
+    class _Rec:
+        def __init__(self):
+            self.queries = []
+
+        def structured_query(self, q, param_map=None):
+            self.queries.append(q)
+            return []
+
+    rec = _Rec()
+    CorpusGraph(rec).reset_corpus()
+    assert len(rec.queries) == 2
+    assert all("IN TRANSACTIONS OF" in q for q in rec.queries)
+    assert "MATCH (c:Chunk)" in rec.queries[0] and "MATCH (d:Document)" in rec.queries[1]

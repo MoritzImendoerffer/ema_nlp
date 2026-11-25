@@ -624,7 +624,11 @@ def build_property_graph_index(
     store = neo4j_store_from_env()
     graph = _as_graph(store)
     if reset:
-        store.structured_query("MATCH (n) DETACH DELETE n")
+        # Deletes every :Chunk and :Document in batches; other nodes (the NeoDash
+        # dashboard) stay. Until 2026-11-25 this was one DETACH DELETE over every node:
+        # 7.5 million nodes and 14.6 million relationships in one transaction.
+        _log.warning("reset: deleting every :Chunk and :Document node, in batches")
+        graph.reset_corpus()
 
     owned = mongo_client is None
     client = MongoClient(MONGO_URI) if owned else mongo_client

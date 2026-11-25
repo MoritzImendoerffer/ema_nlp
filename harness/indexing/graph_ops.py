@@ -1,7 +1,7 @@
 """The writes and deletes the build makes on the corpus graph, as named operations.
 
 Before 2026-11-25 the build only added: a resumed build skipped every document that had
-a chunk, and ``--reset`` ran ``MATCH (n) DETACH DELETE n`` on 7.5 million nodes in one
+a chunk, and ``--reset`` ran one ``DETACH DELETE`` over all 7.5 million nodes in one
 transaction. A refreshable graph has to delete a changed document's chunks, delete a
 document whose URL left the source, and reset in batches. Those deletes live here, in
 one place, for two reasons:
@@ -169,7 +169,7 @@ class CorpusGraph:
     def reset_corpus(self, *, batch_rows: int = RESET_BATCH_ROWS) -> None:
         """Delete every ``:Chunk`` and ``:Document`` in batches; other nodes stay.
 
-        The reset before 2026-11-25 (``MATCH (n) DETACH DELETE n``) deleted 7.5 million
+        The reset before 2026-11-25 (one ``DETACH DELETE`` over every node) deleted 7.5 million
         nodes and 14.6 million relationships in one transaction against a 2 GB heap,
         and the NeoDash dashboard node with them.
         """

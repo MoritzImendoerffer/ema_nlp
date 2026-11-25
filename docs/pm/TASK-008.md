@@ -3,12 +3,12 @@ type: pm-task
 epic: 2026-11-23_27_pipeline-refresh
 sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-008
-status: todo
+status: done
 kind: mechanism
 title: "Make the reset delete corpus nodes in batches and keep every other node"
 generated: true
-waiting_on: the assistant
-tags: [pm/task, pm/todo]
+waiting_on: —
+tags: [pm/task, pm/done]
 ---
 
 > [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
@@ -16,7 +16,7 @@ tags: [pm/task, pm/todo]
 
 # TASK-008 — Make the reset delete corpus nodes in batches and keep every other node
 
-**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
 
 ## Why it exists
 
@@ -28,11 +28,15 @@ The reset is not run on the live graph in this item (proposal: 'It makes the res
 
 ## Acceptance criteria
 
-- [ ] `tests/test_indexing_property_graph.py::test_reset_keeps_other_nodes` passes on the in-memory double: a node labelled _Neodash_Dashboard survives, no :Document or :Chunk remains
-- [ ] `grep -rn 'MATCH (n) DETACH DELETE n' harness/ scripts/` prints nothing
-- [ ] `make test` passes and `make lint` passes, each run on its own line
+- [x] `tests/test_indexing_property_graph.py::test_reset_keeps_other_nodes` passes on the in-memory double: a node labelled _Neodash_Dashboard survives, no :Document or :Chunk remains
+- [x] `grep -rn 'MATCH (n) DETACH DELETE n' harness/ scripts/` prints nothing
+- [x] `make test` passes and `make lint` passes, each run on its own line
 
 **Depends on:** [[TASK-005]]
+
+## What was built
+
+build_property_graph_index(reset=True) now calls CorpusGraph.reset_corpus: :Chunk then :Document, each CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 10,000 ROWS (graph_ops.RESET_BATCH_ROWS, provisional until TASK-014); every other node stays. test_reset_keeps_other_nodes (a _Neodash_Dashboard node survives a reset build on the double) and test_reset_sends_batched_label_scoped_queries. grep -rn 'MATCH (n) DETACH DELETE n' harness/ scripts/ prints nothing (comments that quoted it were reworded). Not run on the live graph. Gates: make test 777 passed, 2 skipped, 7 deselected; make lint All checks passed.
 
 ## Files it touched
 
