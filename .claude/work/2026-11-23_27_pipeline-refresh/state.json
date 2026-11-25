@@ -1,9 +1,9 @@
 {
-  "status": "planning_complete",
+  "status": "implementing",
   "proposal": "docs/next/pipeline_refresh.md",
   "planned_at": "2026-11-25",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": null,
+  "current_task": "TASK-002",
   "baseline": {
     "make_test": "736 passed, 2 skipped, 7 deselected, 31 warnings in 19.31 s (2026-11-25, branch pipeline-refresh at 9dfc405 plus the uncommitted bookkeeping)",
     "make_lint": "All checks passed (exploration.md, 2026-11-23); not re-run at planning",
@@ -11,22 +11,61 @@
     "neo4j": "7,515,276 nodes (Chunk 7,435,393; Document 79,882; _Neodash_Dashboard 1); HAS_CHUNK 7,435,393; PARENT_OF 7,114,468; LINKS_TO 99,520 (exploration.md section 4.2, 2026-11-23)"
   },
   "decisions": [
-    {"note": "docs/pm/decisions/2026-11-25_pdf-parser-order.md", "blocks": "TASK-001", "question": "A: which PDF parse the preference file names first", "answer": "legacy rows first; decided by the lead assistant session under the owner's delegation of 2026-11-25; the owner can overrule"},
-    {"note": "docs/pm/decisions/2026-11-25_removed-urls.md", "blocks": "TASK-007", "question": "B: is a URL that left the source deleted from the graph", "answer": "kept by default, --prune deletes; lead assistant session, owner can overrule"},
-    {"note": "docs/pm/decisions/2026-11-25_legacy-parser-name.md", "blocks": "TASK-001", "question": "D: how the legacy PDF rows and the byte parser are told apart", "answer": "D1, a preference entry may name a version (pymupdf4llm@legacy); lead assistant session, owner can overrule"},
-    {"note": "docs/pm/decisions/2026-11-25_pdf-ocr.md", "blocks": "TASK-009", "question": "E: does the byte parser run OCR", "answer": "OCR on, options explicit and recorded in meta; lead assistant session, owner can overrule"},
-    {"note": "docs/pm/decisions/2026-11-25_unlisted-parser.md", "blocks": "TASK-002", "question": "F: a URL whose clean rows all come from an unlisted parser", "answer": "fall back to the newest clean row, warn and count; lead assistant session, owner can overrule"},
-    {"note": "docs/pm/decisions/2026-11-25_pickle-reader.md", "blocks": "TASK-010", "question": "G: what happens to the pickle reader once parse-pdfs reads bytes", "answer": null},
-    {"note": "docs/pm/decisions/2026-11-25_live-graph-runs.md", "blocks": "TASK-016, TASK-017", "question": "the go-ahead for the backfill and the one-URL live run, with counts and hours (written by TASK-015)", "answer": null}
+    {
+      "note": "docs/pm/decisions/2026-11-25_pdf-parser-order.md",
+      "blocks": "TASK-001",
+      "question": "A: which PDF parse the preference file names first",
+      "answer": "legacy rows first; decided by the lead assistant session under the owner's delegation of 2026-11-25; the owner can overrule"
+    },
+    {
+      "note": "docs/pm/decisions/2026-11-25_removed-urls.md",
+      "blocks": "TASK-007",
+      "question": "B: is a URL that left the source deleted from the graph",
+      "answer": "kept by default, --prune deletes; lead assistant session, owner can overrule"
+    },
+    {
+      "note": "docs/pm/decisions/2026-11-25_legacy-parser-name.md",
+      "blocks": "TASK-001",
+      "question": "D: how the legacy PDF rows and the byte parser are told apart",
+      "answer": "D1, a preference entry may name a version (pymupdf4llm@legacy); lead assistant session, owner can overrule"
+    },
+    {
+      "note": "docs/pm/decisions/2026-11-25_pdf-ocr.md",
+      "blocks": "TASK-009",
+      "question": "E: does the byte parser run OCR",
+      "answer": "OCR on, options explicit and recorded in meta; lead assistant session, owner can overrule"
+    },
+    {
+      "note": "docs/pm/decisions/2026-11-25_unlisted-parser.md",
+      "blocks": "TASK-002",
+      "question": "F: a URL whose clean rows all come from an unlisted parser",
+      "answer": "fall back to the newest clean row, warn and count; lead assistant session, owner can overrule"
+    },
+    {
+      "note": "docs/pm/decisions/2026-11-25_pickle-reader.md",
+      "blocks": "TASK-010",
+      "question": "G: what happens to the pickle reader once parse-pdfs reads bytes",
+      "answer": null
+    },
+    {
+      "note": "docs/pm/decisions/2026-11-25_live-graph-runs.md",
+      "blocks": "TASK-016, TASK-017",
+      "question": "the go-ahead for the backfill and the one-URL live run, with counts and hours (written by TASK-015)",
+      "answer": null
+    }
   ],
   "tasks": [
     {
       "id": "TASK-001",
       "title": "Give parser_preference.yaml a reader that understands name@version",
       "type": "contract",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [],
-      "files": ["harness/configs/parser_preference.yaml", "harness/indexing/parser_preference.py", "tests/test_parser_preference.py"],
+      "files": [
+        "harness/configs/parser_preference.yaml",
+        "harness/indexing/parser_preference.py",
+        "tests/test_parser_preference.py"
+      ],
       "acceptance": [
         "`tests/test_parser_preference.py::test_loads_shipped_file` passes: the shipped file loads as {'application/pdf': [('pymupdf4llm', 'legacy'), ('pymupdf4llm', None)], 'text/html': [('trafilatura', None)]}",
         "`tests/test_parser_preference.py::test_entry_with_version_matches_that_version_only` and `::test_entry_without_version_matches_every_version` pass",
@@ -34,15 +73,21 @@
         "`grep -c 'does NOT yet' harness/configs/parser_preference.yaml` prints 0",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "Decisions A and D (docs/pm/decisions/2026-11-25_pdf-parser-order.md, 2026-11-25_legacy-parser-name.md). The file becomes: application/pdf: [pymupdf4llm@legacy, pymupdf4llm]; text/html: [trafilatura]. An entry 'name' matches every version of that parser; 'name@version' matches that version only.\n\nThe header of the file says today (lines 3-9) that nothing reads it; replace it with what the reader does and a pointer to decision D. The file is authored data (CLAUDE.md rule 3): edited by hand here, read by code, written by no tool.\n\nA reader existed once: `git show a70c38c:harness/embed_pg.py`, lines 86-122 (`load_parser_preference`). Do not restore its command-line override: the proposal does not ask for one (rule 1).\n\nKeep the reader pure (path in, mapping out) so TASK-002 can test selection without a file."
+      "notes": "Decisions A and D (docs/pm/decisions/2026-11-25_pdf-parser-order.md, 2026-11-25_legacy-parser-name.md). The file becomes: application/pdf: [pymupdf4llm@legacy, pymupdf4llm]; text/html: [trafilatura]. An entry 'name' matches every version of that parser; 'name@version' matches that version only.\n\nThe header of the file says today (lines 3-9) that nothing reads it; replace it with what the reader does and a pointer to decision D. The file is authored data (CLAUDE.md rule 3): edited by hand here, read by code, written by no tool.\n\nA reader existed once: `git show a70c38c:harness/embed_pg.py`, lines 86-122 (`load_parser_preference`). Do not restore its command-line override: the proposal does not ask for one (rule 1).\n\nKeep the reader pure (path in, mapping out) so TASK-002 can test selection without a file.",
+      "outcome": "harness/indexing/parser_preference.py reads the preference file into PreferenceEntry(parser, version) tuples; 'name@version' matches one version, 'name' every version. The shipped file lists pymupdf4llm@legacy, then pymupdf4llm, for application/pdf and trafilatura for text/html. 9 tests in tests/test_parser_preference.py. Caller: iter_source_rows, wired in TASK-002. Gates: make test 745 passed, 2 skipped, 7 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-002",
       "title": "Select one row per URL: the first matching preference entry, then the newest parsed_at",
       "type": "mechanism",
       "status": "pending",
-      "dependencies": ["TASK-001"],
-      "files": ["harness/indexing/ingest.py", "tests/test_indexing_ingest.py"],
+      "dependencies": [
+        "TASK-001"
+      ],
+      "files": [
+        "harness/indexing/ingest.py",
+        "tests/test_indexing_ingest.py"
+      ],
       "acceptance": [
         "`tests/test_indexing_ingest.py::test_preferred_parser_row_wins` passes: rows (u, pymupdf4llm, legacy) and (u, pymupdf4llm, 1.27.2.3) inserted in both orders, the legacy row is yielded both times",
         "`tests/test_indexing_ingest.py::test_newest_row_of_one_parser_wins` passes: (u, trafilatura, legacy, parsed_at 2026-05-27) and (u, trafilatura, 2.0.0, parsed_at 2026-11-25), the 2.0.0 row is yielded",
@@ -59,7 +104,11 @@
       "type": "contract",
       "status": "pending",
       "dependencies": [],
-      "files": ["harness/indexing/ingest.py", "harness/indexing/property_graph.py", "tests/test_indexing_property_graph.py"],
+      "files": [
+        "harness/indexing/ingest.py",
+        "harness/indexing/property_graph.py",
+        "tests/test_indexing_property_graph.py"
+      ],
       "acceptance": [
         "`tests/test_indexing_property_graph.py::test_entity_carries_parse_identity` passes: `_entity_for(doc).properties` holds parser, parser_version, and text_sha256 equal to `hashlib.sha256(row['text'].encode('utf-8')).hexdigest()`",
         "`tests/test_indexing_property_graph.py::test_parse_identity_leaves_chunks_unchanged` passes: the chunk ids, texts and leaf flags of build_ingested_doc equal those of chunk_document for the same text",
@@ -73,7 +122,11 @@
       "type": "mechanism",
       "status": "pending",
       "dependencies": [],
-      "files": ["harness/indexing/ingest.py", "harness/indexing/property_graph.py", "tests/test_indexing_property_graph.py"],
+      "files": [
+        "harness/indexing/ingest.py",
+        "harness/indexing/property_graph.py",
+        "tests/test_indexing_property_graph.py"
+      ],
       "acceptance": [
         "`tests/test_indexing_property_graph.py::test_build_joins_document_metadata` passes: the build over mongomock, with a document_metadata row that holds doc_type, upserts a :Document entity whose properties hold that doc_type",
         "`grep -c 'counted_metadata_lookup' harness/indexing/ingest.py harness/indexing/property_graph.py` shows at least one use in each file: ingest() and the build share one function",
@@ -87,7 +140,11 @@
       "type": "mechanism",
       "status": "pending",
       "dependencies": [],
-      "files": ["harness/indexing/graph_ops.py", "tests/graph_double.py", "tests/test_graph_ops.py"],
+      "files": [
+        "harness/indexing/graph_ops.py",
+        "tests/graph_double.py",
+        "tests/test_graph_ops.py"
+      ],
       "acceptance": [
         "harness/indexing/graph_ops.py defines a class with the methods upsert, document_states, delete_document_chunks, stamp_parse_identity, delete_documents and reset_corpus, each sending Cypher through `store.structured_query` or the store's upsert methods",
         "`tests/test_graph_ops.py::test_cypher_shapes` passes: the chunk delete starts at `MATCH (d:Document {id:` and follows HAS_CHUNK; the reset names :Chunk and :Document and uses `IN TRANSACTIONS OF`; no query contains `MATCH (n) DETACH DELETE n` or `WHERE n.id IN`",
@@ -101,8 +158,16 @@
       "title": "Resume by comparison: skip, stamp or replace each document",
       "type": "mechanism",
       "status": "pending",
-      "dependencies": ["TASK-002", "TASK-003", "TASK-004", "TASK-005"],
-      "files": ["harness/indexing/property_graph.py", "tests/test_indexing_property_graph.py"],
+      "dependencies": [
+        "TASK-002",
+        "TASK-003",
+        "TASK-004",
+        "TASK-005"
+      ],
+      "files": [
+        "harness/indexing/property_graph.py",
+        "tests/test_indexing_property_graph.py"
+      ],
       "acceptance": [
         "`tests/test_indexing_property_graph.py::test_changed_text_replaces_chunks` passes: a document of 6 leaves, then its row changed to a text of 2 leaves, built again: the double holds 2 leaves for it and no chunk id of the first build",
         "`::test_unchanged_document_is_skipped` passes: the second build embeds nothing",
@@ -120,8 +185,13 @@
       "title": "Add prune: delete documents whose URL has no clean row, whatever the scope",
       "type": "mechanism",
       "status": "pending",
-      "dependencies": ["TASK-005"],
-      "files": ["harness/indexing/property_graph.py", "tests/test_indexing_property_graph.py"],
+      "dependencies": [
+        "TASK-005"
+      ],
+      "files": [
+        "harness/indexing/property_graph.py",
+        "tests/test_indexing_property_graph.py"
+      ],
       "acceptance": [
         "`tests/test_indexing_property_graph.py::test_prune_deletes_document_without_clean_row` passes",
         "`::test_prune_ignores_scope_limit` passes: with scope.limit = 1, a document that has a clean row outside the first URL stays",
@@ -136,8 +206,13 @@
       "title": "Make the reset delete corpus nodes in batches and keep every other node",
       "type": "mechanism",
       "status": "pending",
-      "dependencies": ["TASK-005"],
-      "files": ["harness/indexing/property_graph.py", "tests/test_indexing_property_graph.py"],
+      "dependencies": [
+        "TASK-005"
+      ],
+      "files": [
+        "harness/indexing/property_graph.py",
+        "tests/test_indexing_property_graph.py"
+      ],
       "acceptance": [
         "`tests/test_indexing_property_graph.py::test_reset_keeps_other_nodes` passes on the in-memory double: a node labelled _Neodash_Dashboard survives, no :Document or :Chunk remains",
         "`grep -rn 'MATCH (n) DETACH DELETE n' harness/ scripts/` prints nothing",
@@ -151,7 +226,10 @@
       "type": "mechanism",
       "status": "pending",
       "dependencies": [],
-      "files": ["corpus/parsers/pymupdf4llm.py", "tests/test_parsers_pymupdf4llm.py"],
+      "files": [
+        "corpus/parsers/pymupdf4llm.py",
+        "tests/test_parsers_pymupdf4llm.py"
+      ],
       "acceptance": [
         "`tests/test_parsers_pymupdf4llm.py::test_pdf_parser_reads_bytes` passes: the bytes of tests/fixtures/fixture_pdf_0.pdf give more than 1,000 characters of text, error '', and the module `parsers` is not imported",
         "`::test_gzip_body_is_decompressed` passes: `gzip.compress(fixture)` gives the same text as the plain bytes",
@@ -167,8 +245,16 @@
       "title": "Wire parse-pdfs to the byte parser and settle the pickle reader",
       "type": "wiring",
       "status": "pending",
-      "dependencies": ["TASK-009"],
-      "files": ["corpus/parsers/pymupdf4llm.py", "scripts/update_graph.py", "scripts/ingest_parsed_pdfs.py", "tests/test_parsers_pymupdf4llm.py", "tests/test_update_graph.py"],
+      "dependencies": [
+        "TASK-009"
+      ],
+      "files": [
+        "corpus/parsers/pymupdf4llm.py",
+        "scripts/update_graph.py",
+        "scripts/ingest_parsed_pdfs.py",
+        "tests/test_parsers_pymupdf4llm.py",
+        "tests/test_update_graph.py"
+      ],
       "acceptance": [
         "`tests/test_parsers_pymupdf4llm.py::test_cli_parses_response_body` passes: a temporary cache folder with `meta` {'url': 'https://www.ema.europa.eu/en/documents/x.pdf'} and `response_body` = the fixture PDF writes one row to mongomock with parser pymupdf4llm, the installed version and non-empty text",
         "`tests/test_update_graph.py::test_dry_run_lists_parse_pdfs` passes: `update_graph.py --dry-run --pdf-cache X` prints `corpus.parsers.pymupdf4llm --cache X`",
@@ -183,8 +269,15 @@
       "title": "Expose --prune on the build and the pipeline, and say what --reset deletes",
       "type": "wiring",
       "status": "pending",
-      "dependencies": ["TASK-007", "TASK-008"],
-      "files": ["harness/indexing/build.py", "scripts/update_graph.py", "tests/test_update_graph.py"],
+      "dependencies": [
+        "TASK-007",
+        "TASK-008"
+      ],
+      "files": [
+        "harness/indexing/build.py",
+        "scripts/update_graph.py",
+        "tests/test_update_graph.py"
+      ],
       "acceptance": [
         "`.venv/bin/python -m harness.indexing.build --help` lists --prune, and the help of --reset contains 'Document and Chunk' and 'batches'",
         "`tests/test_update_graph.py::test_dry_run_forwards_prune` passes: `update_graph.py --dry-run --steps build --prune` prints a build command that ends with --prune",
@@ -198,8 +291,15 @@
       "title": "Write the backfill that stamps the parse identity on existing documents",
       "type": "mechanism",
       "status": "pending",
-      "dependencies": ["TASK-002", "TASK-003", "TASK-005"],
-      "files": ["scripts/backfill_parse_identity.py", "tests/test_backfill_parse_identity.py"],
+      "dependencies": [
+        "TASK-002",
+        "TASK-003",
+        "TASK-005"
+      ],
+      "files": [
+        "scripts/backfill_parse_identity.py",
+        "tests/test_backfill_parse_identity.py"
+      ],
       "acceptance": [
         "`tests/test_backfill_parse_identity.py::test_backfill_stamps_old_rule_row` passes: a graph document without the values gets the parser, version and text hash of its old-rule row",
         "`::test_backfill_is_resumable` passes: a second run stamps 0 documents",
@@ -216,8 +316,16 @@
       "title": "Measure the deletes and the reset on a throwaway Neo4j",
       "type": "measurement",
       "status": "pending",
-      "dependencies": ["TASK-005", "TASK-006", "TASK-007", "TASK-008"],
-      "files": ["tests/test_graph_ops_neo4j.py", "docs/eval/2026-11-25_graph_delete_measurement.md"],
+      "dependencies": [
+        "TASK-005",
+        "TASK-006",
+        "TASK-007",
+        "TASK-008"
+      ],
+      "files": [
+        "tests/test_graph_ops_neo4j.py",
+        "docs/eval/2026-11-25_graph_delete_measurement.md"
+      ],
       "acceptance": [
         "A container `ema_neo4j_scratch` (image neo4j:5.26, bolt on host port 7688, no named volume, heap 2G, transaction memory limit 1.4G as on the live server) ran the measurement and was removed afterwards; `docker ps` lists ema_neo4j and ema_neodash unchanged before and after",
         "`EMA_SCRATCH_NEO4J_URI=bolt://localhost:7688 .venv/bin/python -m pytest -m integration tests/test_graph_ops_neo4j.py` passes; without the variable every test in that file is skipped, and a URI with port 7687 makes the tests fail before they connect",
@@ -231,8 +339,13 @@
       "title": "Fix the delete and reset batch sizes from the measurement",
       "type": "mechanism",
       "status": "pending",
-      "dependencies": ["TASK-013"],
-      "files": ["harness/indexing/graph_ops.py", "harness/indexing/property_graph.py"],
+      "dependencies": [
+        "TASK-013"
+      ],
+      "files": [
+        "harness/indexing/graph_ops.py",
+        "harness/indexing/property_graph.py"
+      ],
       "acceptance": [
         "The batch-size constants in harness/indexing/graph_ops.py equal the values that docs/eval/2026-11-25_graph_delete_measurement.md recommends, and a comment beside each links that page",
         "If the page says that one document's replace needs batching, delete_document_chunks batches; a test asserts the batch clause",
@@ -245,8 +358,17 @@
       "title": "Checkpoint: report the code and the measurement, and ask for the two live runs",
       "type": "checkpoint",
       "status": "pending",
-      "dependencies": ["TASK-010", "TASK-011", "TASK-012", "TASK-014", "TASK-018"],
-      "files": ["docs/pm/decisions/2026-11-25_live-graph-runs.md", "docs/eval/2026-11-25_graph_delete_measurement.md"],
+      "dependencies": [
+        "TASK-010",
+        "TASK-011",
+        "TASK-012",
+        "TASK-014",
+        "TASK-018"
+      ],
+      "files": [
+        "docs/pm/decisions/2026-11-25_live-graph-runs.md",
+        "docs/eval/2026-11-25_graph_delete_measurement.md"
+      ],
       "acceptance": [
         "docs/pm/decisions/2026-11-25_live-graph-runs.md exists with status open and states, for the backfill and for the one-URL run: the counts before and after, the hours, the way back, and 0 paid model calls",
         "The backfill's hours come from `scripts/backfill_parse_identity.py --dry-run --limit 1000` on the live stores (read-only), scaled to 79,882 documents, with the arithmetic written out",
@@ -259,7 +381,9 @@
       "title": "Backfill the parse identity on the live graph",
       "type": "data",
       "status": "pending",
-      "dependencies": ["TASK-015"],
+      "dependencies": [
+        "TASK-015"
+      ],
       "files": [],
       "acceptance": [
         "Before: `MATCH (d:Document) WHERE d.text_sha256 IS NULL RETURN count(d)` = 79,882; `MATCH (c:Chunk) RETURN count(c)` = 7,435,393; `MATCH ()-[r:LINKS_TO]->() RETURN count(r)` = 99,520 (re-run the queries and write the results into the task before the run)",
@@ -274,7 +398,10 @@
       "title": "Run one URL through parse-pdfs and build on the live stores",
       "type": "data",
       "status": "pending",
-      "dependencies": ["TASK-016", "TASK-010"],
+      "dependencies": [
+        "TASK-016",
+        "TASK-010"
+      ],
       "files": [],
       "acceptance": [
         "The URL, the shape the owner chose in the decision note, and the counts before and after are written into docs/eval/ (the :Document count, the URL's :Chunk and leaf counts, the build's log line of new, replaced, stamped and skipped documents)",
@@ -288,8 +415,19 @@
       "title": "Write down what each pipeline step can and cannot refresh",
       "type": "documentation",
       "status": "pending",
-      "dependencies": ["TASK-006", "TASK-007", "TASK-008", "TASK-010", "TASK-011", "TASK-012"],
-      "files": ["docs/RETRIEVAL.md", "scripts/propagate_metadata_to_graph.py", "harness/indexing/build.py"],
+      "dependencies": [
+        "TASK-006",
+        "TASK-007",
+        "TASK-008",
+        "TASK-010",
+        "TASK-011",
+        "TASK-012"
+      ],
+      "files": [
+        "docs/RETRIEVAL.md",
+        "scripts/propagate_metadata_to_graph.py",
+        "harness/indexing/build.py"
+      ],
       "acceptance": [
         "The node model of docs/RETRIEVAL.md lists parser, parser_version and text_sha256 on :Document",
         "`grep -n 'propagate.*unnecessary\\|not needed after a fresh build' docs/RETRIEVAL.md scripts/update_graph.py scripts/propagate_metadata_to_graph.py` prints nothing",

@@ -1,14 +1,21 @@
-# Default parser preference (per MIME content_type), highest priority first.
+# Parser preference per content type, highest priority first.
 #
-# NOTE: the consumer of this file — the old `harness.embed_pg.sync` pipeline and
-# its `--parser-preference` CLI flag — was deleted in the LlamaIndex/Neo4j
-# refactor (LIR-012). The current ingestion path (`harness.indexing.ingest`)
-# reads a single parser per URL from Mongo `parsed_documents` and does NOT yet
-# consume this file; preference-based selection is a planned refinement
-# (see the comment in `harness/indexing/ingest.py`). This file is retained as
-# the intended default for when that selection is wired back in.
+# Read by harness.indexing.parser_preference.load_parser_preference. For each URL
+# the build (harness.indexing.ingest.iter_source_rows) keeps one clean row of Mongo
+# `parsed_documents`: the row that matches the earliest entry below, and among rows
+# that match the same entry, the one with the newest `parsed_at`.
+#
+# An entry `name` matches every version of that parser. An entry `name@version`
+# matches that version only (decision D, docs/pm/decisions/2026-11-25_legacy-parser-name.md).
+# `pymupdf4llm@legacy` names the 58,121 PDF rows the graph was embedded from; it
+# comes first, so a new PDF parse does not replace their text (decision A,
+# docs/pm/decisions/2026-11-25_pdf-parser-order.md). A URL whose rows match no
+# entry falls back to its newest clean row, with a warning (decision F).
+#
+# Authored data: edited by hand, read by code, written by no tool.
 
 application/pdf:
+  - pymupdf4llm@legacy
   - pymupdf4llm
 text/html:
   - trafilatura

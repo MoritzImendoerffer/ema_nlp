@@ -3,12 +3,12 @@ type: pm-task
 epic: 2026-11-23_27_pipeline-refresh
 sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-001
-status: todo
+status: done
 kind: contract
 title: "Give parser_preference.yaml a reader that understands name@version"
 generated: true
-waiting_on: the assistant
-tags: [pm/task, pm/todo]
+waiting_on: —
+tags: [pm/task, pm/done]
 ---
 
 > [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
@@ -16,7 +16,7 @@ tags: [pm/task, pm/todo]
 
 # TASK-001 — Give parser_preference.yaml a reader that understands name@version
 
-**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
 
 ## Why it exists
 
@@ -30,11 +30,15 @@ Keep the reader pure (path in, mapping out) so TASK-002 can test selection witho
 
 ## Acceptance criteria
 
-- [ ] `tests/test_parser_preference.py::test_loads_shipped_file` passes: the shipped file loads as {'application/pdf': [('pymupdf4llm', 'legacy'), ('pymupdf4llm', None)], 'text/html': [('trafilatura', None)]}
-- [ ] `tests/test_parser_preference.py::test_entry_with_version_matches_that_version_only` and `::test_entry_without_version_matches_every_version` pass
-- [ ] `tests/test_parser_preference.py::test_malformed_file_raises` passes: a top-level list, an empty entry and 'a@' each raise ValueError
-- [ ] `grep -c 'does NOT yet' harness/configs/parser_preference.yaml` prints 0
-- [ ] `make test` passes and `make lint` passes, each run on its own line
+- [x] `tests/test_parser_preference.py::test_loads_shipped_file` passes: the shipped file loads as {'application/pdf': [('pymupdf4llm', 'legacy'), ('pymupdf4llm', None)], 'text/html': [('trafilatura', None)]}
+- [x] `tests/test_parser_preference.py::test_entry_with_version_matches_that_version_only` and `::test_entry_without_version_matches_every_version` pass
+- [x] `tests/test_parser_preference.py::test_malformed_file_raises` passes: a top-level list, an empty entry and 'a@' each raise ValueError
+- [x] `grep -c 'does NOT yet' harness/configs/parser_preference.yaml` prints 0
+- [x] `make test` passes and `make lint` passes, each run on its own line
+
+## What was built
+
+harness/indexing/parser_preference.py reads the preference file into PreferenceEntry(parser, version) tuples; 'name@version' matches one version, 'name' every version. The shipped file lists pymupdf4llm@legacy, then pymupdf4llm, for application/pdf and trafilatura for text/html. 9 tests in tests/test_parser_preference.py. Caller: iter_source_rows, wired in TASK-002. Gates: make test 745 passed, 2 skipped, 7 deselected; make lint All checks passed.
 
 ## Files it touched
 
