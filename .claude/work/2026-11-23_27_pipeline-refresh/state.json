@@ -3,7 +3,7 @@
   "proposal": "docs/next/pipeline_refresh.md",
   "planned_at": "2026-11-25",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-015",
+  "current_task": "TASK-017",
   "baseline": {
     "make_test": "736 passed, 2 skipped, 7 deselected, 31 warnings in 19.31 s (2026-11-25, branch pipeline-refresh at 9dfc405 plus the uncommitted bookkeeping)",
     "make_lint": "All checks passed (exploration.md, 2026-11-23); not re-run at planning",
@@ -370,7 +370,7 @@
       "id": "TASK-015",
       "title": "Checkpoint: report the code and the measurement, and ask for the two live runs",
       "type": "checkpoint",
-      "status": "blocked",
+      "status": "completed",
       "dependencies": [
         "TASK-010",
         "TASK-011",
@@ -388,13 +388,13 @@
         "The owner (or the lead session, if the owner delegates it) has answered in the note; TASK-016 does not start before"
       ],
       "notes": "The proposal's last paragraph: the replace step and the reset are the first code here that deletes from the live graph; the first live run is a data task on one document, with the counts before and after. CLAUDE.md rule 4: ask before a run that deletes.\n\nA finding for the note: under decision A a byte parse of a URL that has a legacy row does not replace it, so a one-URL run cannot exercise the live replace by itself. Two shapes to offer: (a) one of the gzip PDFs, which have no legacy row: the byte parser decompresses it, the build adds one new document, every other document is skipped; (b) one legacy PDF, parsed with the byte parser, with the PDF list of parser_preference.yaml put in the other order for one build: exactly that URL has a row of the new parser, so exactly one document is replaced; restoring the file and building again puts the legacy text back. (b) edits an authored file for one run, so it needs the owner's explicit yes.\n\nThe read-only dry run is allowed without asking: it writes to neither store.",
-      "outcome": "Checkpoint reached 2026-11-25. Findings: docs/eval/2026-11-25_graph_delete_measurement.md, section 'Checkpoint' (full read-only backfill dry run: 80,078 URLs in 8.0 s, 11.1 s wall; would stamp 79,882; 0 old-rule rows differ; 0 prune candidates; cache walk 5 s). Decision note opened: docs/pm/decisions/2026-11-25_live-graph-runs.md (status open, waiting on the owner): the backfill, and one URL through the pipeline in shape (a) gzip PDF / add path or (b) legacy PDF with the preference swapped for one build / replace path; recommendation: backfill, then (b). Acceptance 1 and 2 met; acceptance 3 (the owner's answer) is open, so TASK-016 and TASK-017 do not start."
+      "outcome": "Checkpoint reached 2026-11-25. Findings: docs/eval/2026-11-25_graph_delete_measurement.md, section 'Checkpoint' (full read-only backfill dry run: 80,078 URLs in 8.0 s, 11.1 s wall; would stamp 79,882; 0 old-rule rows differ; 0 prune candidates; cache walk 5 s). Decision note opened: docs/pm/decisions/2026-11-25_live-graph-runs.md (status open, waiting on the owner): the backfill, and one URL through the pipeline in shape (a) gzip PDF / add path or (b) legacy PDF with the preference swapped for one build / replace path; recommendation: backfill, then (b). Acceptance 1 and 2 met; acceptance 3 (the owner's answer) is open, so TASK-016 and TASK-017 do not start. Answered 2026-11-25 by the owner: option 1 (backfill, then shape b), relayed by the lead session and confirmed directly in this session."
     },
     {
       "id": "TASK-016",
       "title": "Backfill the parse identity on the live graph",
       "type": "data",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-015"
       ],
@@ -405,7 +405,8 @@
         "`scripts/backfill_parse_identity.py --verify 100` prints 'verify: 100 of 100 equal'",
         "A second run stamps 0 documents"
       ],
-      "notes": "Writes to the live Neo4j: blocked on docs/pm/decisions/2026-11-25_live-graph-runs.md.\n\nRepeatable: yes, it stamps only documents without text_sha256. Way back: `MATCH (d:Document) CALL { WITH d REMOVE d.parser, d.parser_version, d.text_sha256 } IN TRANSACTIONS OF 10000 ROWS` restores the earlier state exactly, since no document had these properties (count 0, 0, 0 on 2026-11-23). Hours: from TASK-015's dry run. GPU: none. Paid calls: 0.\n\nThe NeoDash dashboard and every chunk, vector and edge stay as they are."
+      "notes": "Writes to the live Neo4j: blocked on docs/pm/decisions/2026-11-25_live-graph-runs.md.\n\nRepeatable: yes, it stamps only documents without text_sha256. Way back: `MATCH (d:Document) CALL { WITH d REMOVE d.parser, d.parser_version, d.text_sha256 } IN TRANSACTIONS OF 10000 ROWS` restores the earlier state exactly, since no document had these properties (count 0, 0, 0 on 2026-11-23). Hours: from TASK-015's dry run. GPU: none. Paid calls: 0.\n\nThe NeoDash dashboard and every chunk, vector and edge stay as they are.",
+      "outcome": "Live backfill 2026-11-25, owner's yes in docs/pm/decisions/2026-11-25_live-graph-runs.md. Before (re-queried): documents 79,882; text_sha256 IS NULL 79,882; :Chunk 7,435,393; LINKS_TO 99,520; dashboard nodes 1. Run: scripts/backfill_parse_identity.py --verify 100 -> 'rows read: 80078 URLs in 12.7 s', 'stamped: 79882', 'old-rule row differs from the selected row: 0', 'verify: 100 of 100 equal'; 27.15 s wall, 459 MB peak. After: text_sha256 IS NULL 0; :Chunk 7,435,393; LINKS_TO 99,520; documents 79,882; dashboard 1. Second run: 'stamped: 0' (6.0 s read). No chunk, vector, edge or Mongo row changed."
     },
     {
       "id": "TASK-017",

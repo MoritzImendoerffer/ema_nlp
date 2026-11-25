@@ -1,9 +1,10 @@
 ---
 type: pm-decision
 epic: 2026-11-23_27_pipeline-refresh
-status: open
+status: settled
+settled: 2026-11-25
 opened: 2026-11-25
-waiting_on: the owner
+waiting_on: —
 blocks: TASK-016, TASK-017
 tags: [pm/decision]
 ---
@@ -110,4 +111,8 @@ Before each run, the counts above are re-queried and written into the task's out
 
 ## The answers
 
-*(open — waiting on the owner)*
+**2026-11-25, the owner: option 1, "Backfill, then replace one PDF (Recommended)".** Given in the
+lead assistant session's question dialog and relayed to the implementing session. The owner
+then confirmed it directly in the implementing session ("Yes, all as relayed"). In the same
+answer the owner chose to ship row 10 locally afterwards (merge `pipeline-refresh` into
+`develop`, no push) and then to start row 18. TASK-016 and TASK-017 run as described above.
