@@ -1,9 +1,10 @@
 ---
 type: pm-decision
 epic: 2026-11-23_27_pipeline-refresh
-status: open
+status: settled
+settled: 2026-11-25
 opened: 2026-11-25
-waiting_on: the lead assistant session, or the owner
+waiting_on: the owner (may overrule)
 blocks: TASK-010
 tags: [pm/decision]
 ---
@@ -46,4 +47,13 @@ TASK-010 waits for this answer. Every other task can go on without it.
 
 ## The answers
 
-*(open)*
+**2026-11-25, decided by the lead assistant session `ema-nlp-3b` under the owner's delegation
+of 2026-11-25** ("You are allowed to plan and implement ways forward"), relayed to the
+implementing session. This is the assistant's answer, not the owner's. The owner can overrule
+it.
+
+**G1.** The pickle path to `parsed_documents` is removed. The default mode of
+`scripts/ingest_parsed_pdfs.py` delegates to the byte parser, and `--legacy` stays. Reasons
+given: one key of `parsed_documents` then has one writer; G3 would overwrite 58,121 legacy rows;
+G1 deletes code, not data, and git keeps the reader. Condition: before the path is removed,
+check that nothing outside the tests calls it, and name the check in the commit message.

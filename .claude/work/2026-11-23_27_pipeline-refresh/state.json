@@ -45,7 +45,7 @@
       "note": "docs/pm/decisions/2026-11-25_pickle-reader.md",
       "blocks": "TASK-010",
       "question": "G: what happens to the pickle reader once parse-pdfs reads bytes",
-      "answer": null
+      "answer": "G1, the pickle path to parsed_documents is removed; lead assistant session, owner can overrule"
     },
     {
       "note": "docs/pm/decisions/2026-11-25_live-graph-runs.md",

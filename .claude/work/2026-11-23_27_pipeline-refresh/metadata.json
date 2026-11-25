@@ -16,6 +16,6 @@
     "D": "settled 2026-11-25, same label: D1, pymupdf4llm@legacy — docs/pm/decisions/2026-11-25_legacy-parser-name.md",
     "E": "settled 2026-11-25, same label: OCR on, options recorded — docs/pm/decisions/2026-11-25_pdf-ocr.md",
     "F": "settled 2026-11-25, same label: fall back to the newest clean row with a warning — docs/pm/decisions/2026-11-25_unlisted-parser.md",
-    "G": "open: what happens to the pickle reader — docs/pm/decisions/2026-11-25_pickle-reader.md (blocks TASK-010)"
+    "G": "settled 2026-11-25 by the lead assistant session under the owner's delegation (owner can overrule): G1, the pickle path to parsed_documents is removed — docs/pm/decisions/2026-11-25_pickle-reader.md"
   }
 }

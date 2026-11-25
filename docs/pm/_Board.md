@@ -18,11 +18,9 @@ tags: [pm/board]
 ## Waiting on the project owner
 
 **This is the only section that is yours.** Each is an argument a person has to settle.
-**One of them blocks a task below**, named in its own row: until it is settled that work cannot start.
+None of them blocks the work below.
 
-| Decision | Waiting on | Blocks |
-|---|---|---|
-| [[2026-11-25_pickle-reader|G. What happens to the pickle reader once `parse-pdfs` reads PDF bytes]] | the lead assistant session, or the owner | [[TASK-010]] |
+*None.*
 
 ## Not finished — the assistant's work, not the owner's
 
