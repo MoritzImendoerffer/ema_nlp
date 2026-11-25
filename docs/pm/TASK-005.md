@@ -3,12 +3,12 @@ type: pm-task
 epic: 2026-11-23_27_pipeline-refresh
 sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-005
-status: todo
+status: done
 kind: mechanism
 title: "Name the graph's writes and deletes in one module, with an in-memory double that models deletion"
 generated: true
-waiting_on: the assistant
-tags: [pm/task, pm/todo]
+waiting_on: —
+tags: [pm/task, pm/done]
 ---
 
 > [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
@@ -16,7 +16,7 @@ tags: [pm/task, pm/todo]
 
 # TASK-005 — Name the graph's writes and deletes in one module, with an in-memory double that models deletion
 
-**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
 
 ## Why it exists
 
@@ -30,10 +30,14 @@ document_states: `MATCH (d:Document) RETURN d.id, d.parser, d.parser_version, d.
 
 ## Acceptance criteria
 
-- [ ] harness/indexing/graph_ops.py defines a class with the methods upsert, document_states, delete_document_chunks, stamp_parse_identity, delete_documents and reset_corpus, each sending Cypher through `store.structured_query` or the store's upsert methods
-- [ ] `tests/test_graph_ops.py::test_cypher_shapes` passes: the chunk delete starts at `MATCH (d:Document {id:` and follows HAS_CHUNK; the reset names :Chunk and :Document and uses `IN TRANSACTIONS OF`; no query contains `MATCH (n) DETACH DELETE n` or `WHERE n.id IN`
-- [ ] `tests/test_graph_ops.py::test_double_delete_removes_chunks_and_their_edges` passes on the in-memory double in tests/graph_double.py, which keeps nodes and edges by id
-- [ ] `make test` passes and `make lint` passes, each run on its own line
+- [x] harness/indexing/graph_ops.py defines a class with the methods upsert, document_states, delete_document_chunks, stamp_parse_identity, delete_documents and reset_corpus, each sending Cypher through `store.structured_query` or the store's upsert methods
+- [x] `tests/test_graph_ops.py::test_cypher_shapes` passes: the chunk delete starts at `MATCH (d:Document {id:` and follows HAS_CHUNK; the reset names :Chunk and :Document and uses `IN TRANSACTIONS OF`; no query contains `MATCH (n) DETACH DELETE n` or `WHERE n.id IN`
+- [x] `tests/test_graph_ops.py::test_double_delete_removes_chunks_and_their_edges` passes on the in-memory double in tests/graph_double.py, which keeps nodes and edges by id
+- [x] `make test` passes and `make lint` passes, each run on its own line
+
+## What was built
+
+harness/indexing/graph_ops.py: CorpusGraph(store) with upsert, structured_query, document_states, delete_document_chunks, stamp_parse_identity, delete_documents, reset_corpus. Every delete starts at :Document {id} (NodeIndexSeek) and runs CALL { WITH c DETACH DELETE c } IN TRANSACTIONS OF n ROWS; batch sizes 10,000 (provisional, TASK-014), 1,000 documents per UNWIND. tests/graph_double.py: InMemoryCorpusGraph with the same operations on dicts, SET += merge, chunks before entities, fail_after_chunks for a crash. 7 tests in tests/test_graph_ops.py. Callers come in TASK-006 (build), TASK-007 (prune), TASK-008 (reset), TASK-012 (backfill). Gates: make test 762 passed, 2 skipped, 7 deselected; make lint All checks passed.
 
 ## Files it touched
 
