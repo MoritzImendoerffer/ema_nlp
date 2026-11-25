@@ -38,6 +38,7 @@ EMA content, and nothing else of the private plan this repository rehearses.
 | Proposal | Backlog row | Status | What it is |
 |---|---|---|---|
 | [`pipeline_refresh.md`](pipeline_refresh.md) | 10 | 🚧 work unit `2026-11-23_27_pipeline-refresh`; planned 2026-11-25, 18 tasks | The build picks the preferred and newest parse per URL, replaces a changed document's chunks, joins the document labels, parses PDF bytes in this repository, and resets in batches. |
+| [`answer_record.md`](answer_record.md) | 18 | 📋 proposed 2026-11-25; no work unit while unit 27 is open | A claim names the passage it rests on and quotes it, four checks by plain code produce numbers per run, and an answer without claims is counted. Written after an adversarial review ([`../eval/2026-11-25_direction_review.md`](../eval/2026-11-25_direction_review.md)). |
 | [`closed_book_lift.md`](closed_book_lift.md) | 3 | 📋 planned | The closed-book baseline and the **lift** metric, the benchmark's headline number. Doubles as the Phase 2.5 contamination screen. |
 | [`tree_retrieval_followups.md`](tree_retrieval_followups.md) | 1, 2, 4, 5, 6, 8 | 🚧 step 1 done | Fix **seeding** for tree-aware retrieval. Step 1 measured it ([report](../eval/2026-07-20_tree_seeding.md)): three distinct problems, and `oversample` is gated off in the tree profile. |
 | [`topic_subgraphs_followups.md`](topic_subgraphs_followups.md) | 7 | 📋 planned | Four small follow-ups to the subgraphs work: the `steered_agent` baseline, more hubs, cross-family T2 items, and an LLM request timeout. |
@@ -59,9 +60,11 @@ review of 2026-11-23
 |---|---|
 | 11 Corpus repair | 3.1, 3.2 |
 | 13 Metadata and the entity tables from EMA's feeds | 3.3, 6 |
-| 14 The cheap rungs and the MCP servers | 7 |
-| 15 Benchmark v0 in nine classes | 2, 5 |
+| 14 The cheap rungs: full-text search and the read tool | 7 |
+| 15 Benchmark v0 in nine classes | 2, 5; extended by the direction review of 2026-11-25, section 6.2 |
 | 16 The first ladder runs | 2, 11 |
+| 19 The MCP servers (split from row 14 on 2026-11-25) | 7 |
+| 20 The error census and the review sitting | direction review of 2026-11-25, sections 5 and 6.3 ([`../eval/2026-11-25_direction_review.md`](../eval/2026-11-25_direction_review.md)) |
 | 17 Parser comparison and the targeted second PDF pass | 8 |
 | 12 Docs: the setup path | 10 |
 

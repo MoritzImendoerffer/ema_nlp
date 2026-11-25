@@ -35,6 +35,19 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 - The repository is public and the plan is not. A file here carries the plan's class and ladder labels and public EMA content, and nothing else of it.
 **Ref:** [`docs/eval/2026-11-23_pkr_testbed_review.md`](docs/eval/2026-11-23_pkr_testbed_review.md) (the review; section 11 is the order of work), [`BACKLOG.md`](BACKLOG.md)
 
+### Main focus: reasoning an agent can use, and an answer a person can confirm
+**Decided:** 2026-11-25. The focus is the owner's, stated that day. The direction that follows from it is the lead assistant session's, taken under the owner's delegation of that day ("You are allowed to plan and implement ways forward") after an adversarial review. It is not the owner's answer, and the owner can overrule any part of it.  
+**What, the owner's focus:** Beyond comparing retrieval strategies, this repository should show how project-specific reasoning can be made available to an agent, and how an assistant agent can guide a scientist. The pattern of interest is: the agent retrieves prior knowledge, proposes, and a person confirms before anything is acted on. The confirmation must be efficient, so the reasoning before it must be transparent, traceable and where possible verifiable by automated tests.  
+**What, the direction:**
+- First a repair: a claim names the passage it rests on and quotes it, and checks by plain code produce numbers per run (backlog row 18).
+- Five rules bind everything built for this focus. Code settles a claim only on an exact quote or an exact value, and a heuristic may fail a claim but never pass one. The agent's own statement about a claim never decides whether a person sees it. A check is scored on errors that occurred, labelled by a person; injected faults are tests of the code. No statement about a reviewer's time is made without a reviewer. An answer without a structure or without claims is a counted outcome.
+- Whether a person may be shown only the flagged claims is a question for a sitting with a person (row 20), not an assumption. Its first number is the errors missed in claims that the checks passed.
+- The MCP servers move behind the benchmark (row 19, split from row 14). The benchmark gains must-have facts as the unit of review cost and about six proposal-style items (row 15). Every ladder run reports answer quality and what the answer leaves for a person (row 16).
+
+**Why:** No review accepted the first draft as written. It typed every claim and measured review cost by injecting faults. That measure was circular: each fault was the negation of one check. In a sample of 60 stored claims, labelled by two model annotators, 0 computed anything (291 claims were not inspected), so typed derivations would label almost nothing in today's answers. In the stored answers, 251 of 351 claims cite a URL that returned several passages, so the citation itself must be repaired first.  
+**What it does not change:** the order of the foundation (rows 10, 11, 13), the scope locks on content, and the rule that a layer needs a benchmark failure or a decision of the owner. Row 18 is a repair of a defect that the review of 2026-11-23 recorded (section 4, item 6), not a new layer. Typed derivations, a verifying model and a review view that hides claims are layers. This entry admits none of them.  
+**Ref:** [`docs/eval/2026-11-25_direction_review.md`](docs/eval/2026-11-25_direction_review.md), [`docs/next/answer_record.md`](docs/next/answer_record.md), [`BACKLOG.md`](BACKLOG.md)
+
 ---
 
 ## Retrieval framework
