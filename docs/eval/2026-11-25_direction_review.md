@@ -359,3 +359,18 @@ received, and only a closed-book run separates the model's memory from an error.
   decisions and 41 are assessment reports. The graph holds 270 documents of type
   `withdrawal-report` and 301 of type `withdrawal-letter` (Cypher on the live graph,
   2026-11-25, grouped by `doc_type`).
+- Lines of `CLAUDE.md` that are out of date, reported by the session that implements
+  row 10 (line numbers at `c2fbfea`). They belong to row 12. No assistant session edits that
+  file on its own:
+  - line 151 says "736 tests, 18 s". On 2026-11-25 `make test` printed 786 passed.
+  - line 153 says `make test-live` runs "the 7 tests that read the live MongoDB". There are
+    13 tests marked `integration` now. The 6 new ones need a throwaway Neo4j, named by
+    `EMA_SCRATCH_NEO4J_URI`, and are skipped without it.
+  - lines 241–242 say that `reset=True` and `--reset` "delete the whole live graph". Since
+    row 10 they delete every `:Document` and `:Chunk` node in batches and keep other nodes.
+    They still delete, and still need the owner's yes.
+  - line 138 says the join at ingest keeps the labels on a rebuild. That holds for a
+    document that a build writes. A label change on an existing document still needs
+    `scripts/propagate_metadata_to_graph.py`.
+  - line 143 names `corpus/sources/synthetic_legacy_reader.py`, deleted in LIR-012. Line 133
+    says MongoDB must run in the pinned container; the native `mongod` is what runs.
