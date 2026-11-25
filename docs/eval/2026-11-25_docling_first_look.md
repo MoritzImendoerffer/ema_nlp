@@ -158,6 +158,12 @@ therefore not a detail.
    page numbers from today's parser. This is the lead's suggestion and changes nothing in
    the owner's decision until the owner says so.
 
+**The owner's decision after reading this, 2026-11-25:** every PDF is parsed in the end, with
+the PaddleOCR models inside Docling, in batches, and the documents with the most complex
+tables come first. Only the most important functionality is built: the parser, the
+PaddleOCR models, and post-processing for tables over pages and footnotes in tables
+([`../next/pdf_parsing_docling.md`](../next/pdf_parsing_docling.md)).
+
 ## Not verified
 
 - 12 documents, one run. No number here is an estimate for the corpus.
