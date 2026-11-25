@@ -1,8 +1,9 @@
 # PDF parsing with Docling and PaddleOCR models: the parser, the record format and a pilot
 
 **Status:** proposed 2026-11-25 · backlog row 17, re-scoped after the owner's instruction of
-2026-11-25 · no work unit yet · the pilot needs the owner's yes · reviewed by two assistant
-reviewers on 2026-11-25 (section "What the review changed")
+2026-11-25 · no work unit yet · starts when row 10 has shipped, before row 18 (the owner,
+2026-11-25) · the pilot has the owner's yes of that day · reviewed by two assistant reviewers
+(section "What the review changed")
 
 Written by Claude (Fable 5.2), the lead assistant session. Four kinds of numbers are below
 and each is marked.
@@ -24,8 +25,18 @@ The scripts are in `$EMA_RESULTS_DIR/2026-11-25_pdf_parsing_proposal/`.
 docling (yes it will probably require some re-development) but it would have the same or a
 similar format as my doctool repository and docling is a good base."
 
-**The lead concludes** (each point is the lead's reading, and open question 1 asks the owner
-to confirm the first):
+**The owner's answers to four questions, later that day:**
+
+- doctool "serves a different purpose" and "was just meant as an example". So the format
+  here is modelled on doctool's, and nothing is shared with doctool: no common code, no
+  requirement that one repository reads the other's files. A connection between the two is
+  out of scope, the owner said.
+- This row comes before row 18.
+- The pilot may run: about 270 PDFs, 7 to 12 GPU hours, files only.
+- Whether the PaddleOCR library is used as well is open. The owner asked for the benefits
+  and drawbacks of both ways; they are in the section "The two stacks compared".
+
+**The lead concludes** (each point is the lead's reading):
 
 1. "PaddleOCR and Docling" means the stack that doctool runs. That stack uses two models of
    the PaddleOCR project inside Docling. It does not use the PaddleOCR library.
@@ -78,8 +89,8 @@ to confirm the first):
 ## The idea
 
 One new PDF parser, named `docling`. It runs as a batch command in its own Python
-environment. For each PDF it writes a folder of five files in doctool's format and one row
-in Mongo `parsed_documents`. A pilot on about 270 PDFs then measures three parses of the
+environment. For each PDF it writes a folder of five files, modelled on doctool's format,
+and one row in Mongo `parsed_documents`. A pilot on about 270 PDFs then measures three parses of the
 same documents: today's, Docling with TableFormer, and Docling with PaddleOCR-VL. Nothing in
 the graph changes in this row.
 
@@ -90,7 +101,7 @@ Read in doctool's source on 2026-11-25 (`src/dw/parsers/docling_parser.py`,
 
 | Part | Choice | Note |
 |---|---|---|
-| Base | Docling's standard PDF pipeline, version 2.132.0, `docling-core` 2.99.0 | doctool's pins. A file written by another `docling-core` version may not load |
+| Base | Docling's standard PDF pipeline. doctool runs version 2.132.0 with `docling-core` 2.99.0 | Which version is used here is open question 10 |
 | Layout | Heron, pinned to one revision | Docling asks for the newest revision unless told otherwise |
 | Text | From the text layer wherever one exists | Not re-read from the picture |
 | OCR | PP-OCRv6 through RapidOCR on onnxruntime, only for regions without PDF text | The models are in the `rapidocr` package. doctool's result page reports that this runs on the CPU |
@@ -98,6 +109,31 @@ Read in doctool's source on 2026-11-25 (`src/dw/parsers/docling_parser.py`,
 | Headings | Docling's heading levels from bookmarks and numbering, switched on | |
 
 The PaddlePaddle framework is not installed.
+
+### The two stacks compared
+
+The owner asked for this comparison on 2026-11-25. Stack A is the table above. Stack B adds
+the PaddleOCR library with one of its own document pipelines (PP-StructureV3, or its
+PaddleOCR-VL pipeline). What is said about stack B comes from PaddleOCR's documentation
+(version 3.x, read 2026-11-25) and from the review of 2026-11-23. **Stack B was never
+installed or run in this repository or in doctool.**
+
+| | A: PaddleOCR models inside Docling | B: the PaddleOCR library as a second parser |
+|---|---|---|
+| Text of a born-digital page | Taken from the text layer: the characters are those of the PDF | Its documentation describes the pipeline as layout analysis, text detection and recognition on each page. No option to take the text layer was found. Every character would then be read from the picture, also on the 96% of pages that have a text layer. The review of 2026-11-23 named this risk, with the example "22-0ct-2024" |
+| Pages without text | OCR by the small PP-OCRv6 models, measured in doctool on one synthetic scan only | The case it is built for: the whole page is read by models that were trained together |
+| Tables | PaddleOCR-VL or TableFormer, one table at a time | Table recognition in the pipeline, and merging of tables across pages |
+| Charts, formulas, seals | Not read | The pipelines have steps for them. Charts are the figure half of class C9 |
+| What is known about speed and faults | Measured in doctool on this GPU; its faults are listed in "Three properties" | Nothing measured here |
+| Software | One library. No PaddlePaddle | A second library and, by default, the PaddlePaddle framework with its own GPU build, in a third environment. The review advised against sharing an environment with torch. The documentation also shows an engine setting `transformers` for the PaddleOCR-VL pipeline; whether that removes the need for PaddlePaddle was not checked |
+| Output | Docling's document, the record format of this proposal | Its own JSON and Markdown. Docling 2.132.0 holds a converter from PaddleOCR-VL page results to its document format that nothing in Docling calls (doctool's notes); untested |
+| A second, independent parse | No | Yes. Where two independent parses of a table disagree, a person should look. That is a check by plain code, of the kind the main focus asks for. It doubles the parse time wherever both run |
+
+The lead's recommendation: stack A for the corpus. Stack B at most as a fourth parse in the
+pilot, on the 40 documents with pages without text. On those pages there is no text layer
+to lose, which is B's main drawback, and they are where B could be better. That adds an
+environment and an estimated 1 to 2 GPU hours to the pilot. It is the owner's choice (open
+question 1).
 
 ### Three properties of this stack that the pilot must measure
 
@@ -132,7 +168,7 @@ comes after").
 
 Per parse one folder: `<parsed root>/<doc-id>/docling@<options hash, 8 characters>/`. The
 folder is written in a staging place outside any synced folder and moved in as a whole.
-`schema_version` 1, as in doctool's `docs/data-contracts.md`.
+The layout follows doctool's `docs/data-contracts.md`, which the owner named as the example.
 
 | File | Holds | Bytes per page |
 |---|---|---|
@@ -147,7 +183,7 @@ Bytes per page: counted in review on doctool's own parses (42 documents, 1,521 p
 files gzip-compressed. The disk has 764 GB free. doctool writes a sixth file, `view.html`,
 a page for reading with highlights. It is left out here and can be derived later.
 
-Three deliberate differences from doctool, each small:
+Three differences from the example:
 
 - **Document id:** `<slug>_<hash12>`. The slug is the last part of the URL, cut to 40
   characters. `hash12` is the first 12 hex characters of the SHA-256 of the PDF bytes.
@@ -159,7 +195,7 @@ Three deliberate differences from doctool, each small:
 - **Two PDFs with the same bytes share one folder** and are parsed once. The review of
   2026-11-23 counted 577 such groups with 2,603 documents.
 
-Element id, unchanged from doctool: the first 6 hex characters of the SHA-1 of
+Element id, as in the example: the first 6 hex characters of the SHA-1 of
 `label|page|first 64 characters of the normalised text`; a repeated id gets `-2`, `-3` in
 reading order. An id is valid for one `doc.raw.json`.
 
@@ -199,7 +235,6 @@ reader that none of the three uses: `pdftotext` from poppler.
 | Is the table grid right? | Share of rows with the same column count as the table's other rows. For the two Docling parses: share of tables on which both find the same grid, and cell-by-cell agreement there |
 | Does the document keep its identity? | Title and reference number as the build derives them from the text, against today's values |
 | What does OCR return? | Characters per page without text, for each parse |
-| Is the format doctool's? | The same 5 PDFs parsed by doctool and by this parser give the same element ids |
 
 **How the numbers are stated.** The strata are sampled at different rates, so a number for
 the corpus is the sum of the stratum means weighted by the strata's sizes, with an interval
@@ -230,14 +265,15 @@ reviewer, n = 30. Until then, table quality rests on the measures above.
 
 Size: M. In this order.
 
-1. **The parse environment.** A second virtual environment with Docling 2.132.0,
-   `docling-core` 2.99.0, `rapidocr` 3.9.x and `transformers` 5.6.2 or newer. The retrieval
+1. **The parse environment.** A second virtual environment with Docling, `rapidocr` and
+   `transformers` 5.6.2 or newer, at the versions that open question 10 settles. The retrieval
    environment (`.venv`) has torch 2.10.0 and no `torchvision`; an install there could move
    the torch build under the embedding model. `/explore` tries the install on a copy before
    this is fixed. The parser's own imports from this repository need three packages:
    `python-dotenv`, `pymongo`, `tqdm` (counted in review).
-2. **The table stage:** a port of doctool's PaddleOCR-VL stage, the pinned model revision,
-   the generation cache switched on, the conversion of the model's LaTeX into text. Docling
+2. **The table stage:** a Docling table stage for PaddleOCR-VL-1.6, written for this
+   repository with doctool's as the example: a pinned model revision, the generation cache
+   switched on, the conversion of the model's LaTeX into text. Docling
    finds such a stage through an installed entry point; a dependency group alone installs
    none. The stage is therefore registered in code, or the project is installed without its
    dependencies.
@@ -317,16 +353,16 @@ Not designed here. The review of this proposal found what its design must settle
 
 | | Question | Options | Recommendation | Who decides |
 |---|---|---|---|---|
-| 1 | Is doctool's stack what "paddleOCR and docling" means? | (a) yes: PP-OCRv6 for pages without text, PaddleOCR-VL for tables, both inside Docling; (b) the PaddleOCR library as well | (a) | The owner |
-| 2 | Where does the parser code come from, and may doctool's measurements be cited here? | (a) a port in this repository, doctool named and cited; (b) a port, without the citations; (c) no port: doctool's package installed in the parse environment and called | (a). This repository must run without a package that others cannot install. It already names doctool in three files, and doctool's licence is MIT | The owner |
-| 3 | When does this row start? `Now` holds rows 10, 18 and 3, and one work unit may be open | (a) after row 10 ships and before row 18; (b) after row 18, as the owner answered on 2026-11-25; (c) beside row 18, in a second checkout, which sets the one-unit rule aside once | (a). The parse is the longest step of all rows, and it can only start after this row and the owner's answers to questions 5 to 7. Row 18 needs no GPU | The owner |
-| 4 | May the pilot run? | yes; no | Yes: about 270 PDFs, 7 to 12 GPU hours, files only, no deletion, no paid call | The owner |
+| 1 | Is the PaddleOCR library used as well? See "The two stacks compared" | (a) no: PP-OCRv6 for pages without text and PaddleOCR-VL for tables, both inside Docling; (b) yes, as a fourth parse in the pilot on the 40 documents with pages without text; (c) yes, on every document of the pilot | (a), or (b) if the owner wants the evidence. (c) adds an estimated 4 to 8 GPU hours and is not recommended | The owner. **Open** |
+| 2 | Where does the parser code come from? | | **Answered by the owner, 2026-11-25:** doctool is an example only. The parser is written in this repository | |
+| 3 | When does this row start? | | **Answered by the owner, 2026-11-25:** after row 10 ships and before row 18 | |
+| 4 | May the pilot run? | | **Answered by the owner, 2026-11-25:** yes, for about 270 PDFs, 7 to 12 GPU hours, files only, no deletion, no paid call. A pilot that would exceed this is asked again | |
 | 5 | Which table model reads the bulk? | (a) PaddleOCR-VL everywhere; (b) TableFormer everywhere; (c) TableFormer where the table has a text layer, PaddleOCR-VL where it has none; (d) PaddleOCR-VL except on list annexes of hundreds of pages | Decide on the pilot's numbers. The options differ by about 1 to 4 weeks of GPU time | The owner, after the pilot |
 | 6 | Where do the folders live, and are the JSON files compressed? | (a) under `~/Nextcloud/Datasets/ema_nlp/parsed/`, plain, about 82 GB; (b) the same with the two JSON files gzip-compressed, about 8 GB, and a doctool reader must unpack them; (c) a local disk outside the sync | (b), to be confirmed on the pilot's sizes. About 330,000 files; the cache in the same sync already holds 608,344 | The owner, after the pilot |
 | 7 | How many GPU days may the conversion take? | a number | None from the lead | The owner, after the pilot |
 | 8 | Does row 11 still parse the 7,678 unparsed PDFs with the present parser? | (a) yes, as proposed: 4 to 15 CPU hours and about 5 GPU hours, and they are parsed again later; (b) no, they wait for the conversion | (a). They are about a tenth of EMA's document list, and (b) holds them back for weeks | The lead, under delegation. The owner can overrule |
 | 9 | Are the 3,829 veterinary documents converted? | yes; no | Decide in row 21. The scope of the corpus is human medicines | The owner, in row 21 |
-| 10 | Which Docling version? | (a) 2.132.0 with doctool's pins; (b) a newer one | (a), unless `/explore` finds that a newer version no longer shows properties 1 and 2. Then the owner is asked, because doctool and this repository would differ | `/explore`, then the owner |
+| 10 | Which Docling version? | (a) 2.132.0 with doctool's pins, the set that was measured on this GPU; (b) the newest release | `/explore` tests both on 5 PDFs for properties 1 and 2 and for the table stage. (b) if it removes a property and the table stage runs; otherwise (a). The files need not load in doctool | `/explore` |
 | 11 | Which OCR language setting? | (a) Docling's default; (b) English | `/explore` tests both on 5 scanned pages | `/explore` |
 
 ## What the review changed
@@ -355,7 +391,7 @@ validity, rules and readability. The lead checked their main findings against th
 
 ## For the implementing session
 
-- Read doctool before `/explore` writes anything: `src/dw/parsers/`, `docs/parsers.md`,
+- Read doctool as the example before `/explore` writes anything: `src/dw/parsers/`, `docs/parsers.md`,
   `docs/data-contracts.md`, and the two result pages named above
   (`.claude/commands/explore.md`, step 4).
 - Verify every Docling call against the installed version (planning rule 2).
