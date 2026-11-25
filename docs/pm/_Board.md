@@ -11,7 +11,7 @@ tags: [pm/board]
 
 # Board — the active epic
 
-**[[epic|2026-11-23_27_pipeline-refresh]]** · **3 of 18 done** · 15 todo
+**[[epic|2026-11-23_27_pipeline-refresh]]** · **4 of 18 done** · 14 todo
 
 [[epic|Why this epic]] · [[_Archive|Finished epics]] · [[BACKLOG|What is open, in order]]
 
@@ -29,7 +29,6 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 
 | Task | Status | Waiting on | Kind | What it is |
 |---|---|---|---|---|
-| [[TASK-004]] | `todo` | the assistant | mechanism | Make the real build join document_metadata |
 | [[TASK-005]] | `todo` | the assistant | mechanism | Name the graph's writes and deletes in one module, with an in-memory double that models deletion |
 | [[TASK-006]] | `todo` | the assistant | mechanism | Resume by comparison: skip, stamp or replace each document |
 | [[TASK-007]] | `todo` | the assistant | mechanism | Add prune: delete documents whose URL has no clean row, whatever the scope |
@@ -52,6 +51,7 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 | [[TASK-001]] | `done` | — | contract | Give parser_preference.yaml a reader that understands name@version |
 | [[TASK-002]] | `done` | — | mechanism | Select one row per URL: the first matching preference entry, then the newest parsed_at |
 | [[TASK-003]] | `done` | — | contract | Put parser, parser_version and text_sha256 on the :Document node |
+| [[TASK-004]] | `done` | — | mechanism | Make the real build join document_metadata |
 
 ---
 

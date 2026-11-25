@@ -301,6 +301,33 @@ def iter_source_groups(
             )
 
 
+@dataclass
+class CountedMetadataLookup:
+    """A ``document_metadata`` lookup that counts the URLs it found no row for."""
+
+    lookup: MetadataLookup
+    misses: int = 0
+
+    def __call__(self, url: str) -> dict[str, Any] | None:
+        row = self.lookup(url)
+        if row is None:
+            self.misses += 1
+        return row
+
+    def warn_if_missing(self) -> None:
+        if self.misses:
+            _log.warning(
+                "document_metadata rows missing for %d URLs — doc_type absent there, "
+                "badges derived live; run scripts/enrich_document_metadata.py",
+                self.misses,
+            )
+
+
+def counted_metadata_lookup(lookup: MetadataLookup) -> CountedMetadataLookup:
+    """Wrap ``lookup`` so that the build and :func:`ingest` count misses the same way."""
+    return CountedMetadataLookup(lookup)
+
+
 def iter_source_rows(
     scope: ScopeConfig,
     *,
@@ -326,16 +353,7 @@ def ingest(
     client: MongoClient[Any] = MongoClient(MONGO_URI) if owned else mongo_client  # type: ignore[assignment]
     try:
         lookup = html_lookup or mongo_html_lookup(client)
-        meta_lookup = metadata_lookup or mongo_metadata_lookup(client)
-        meta_misses = 0
-
-        def counted_meta_lookup(url: str) -> dict[str, Any] | None:
-            nonlocal meta_misses
-            row = meta_lookup(url)
-            if row is None:
-                meta_misses += 1
-            return row
-
+        counted_meta_lookup = counted_metadata_lookup(metadata_lookup or mongo_metadata_lookup(client))
         out: list[IngestedDoc] = []
         for row in iter_source_rows(scope, client=client):
             doc = build_ingested_doc(
@@ -349,12 +367,7 @@ def ingest(
             out.append(doc)
             if scope.limit and len(out) >= scope.limit:
                 break
-        if meta_misses:
-            _log.warning(
-                "document_metadata rows missing for %d URLs — doc_type absent there, "
-                "badges derived live; run scripts/enrich_document_metadata.py",
-                meta_misses,
-            )
+        counted_meta_lookup.warn_if_missing()
         return out
     finally:
         if owned:

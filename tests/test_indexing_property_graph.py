@@ -599,3 +599,39 @@ def test_parse_identity_leaves_chunks_unchanged():
     assert got == [(c.node_id, c.text, c.metadata.get("is_leaf")) for c in expected]
     for c in doc.chunk_nodes:
         assert "text_sha256" not in c.metadata and "parser_version" not in c.metadata
+
+
+# ── TASK-004 (unit 27): the real build joins document_metadata ───────────────────
+#
+# Until 2026-11-25 ``_embed_pass`` called ``build_ingested_doc`` without the metadata
+# lookup (property_graph.py:307). Only ``ingest()`` joined, and only tests call it,
+# so a fresh build lost doc_type and topic_hubs until ``propagate`` ran.
+
+
+def test_build_joins_document_metadata():
+    import mongomock
+
+    from config import MONGO_DB
+    from harness.indexing.document_metadata import upsert_doc_types
+    from harness.indexing.ingest import PARSED_COLLECTION
+    from harness.indexing.profiles import IndexConfig, IndexProfile, RetrievalConfig, ScopeConfig
+    from harness.indexing.property_graph import _embed_pass
+
+    url = "https://www.ema.europa.eu/en/documents/scientific-guideline/g_en.pdf"
+    client = mongomock.MongoClient()
+    client[MONGO_DB][PARSED_COLLECTION].insert_one(
+        {"url": url, "parser": "pymupdf4llm", "parser_version": "legacy",
+         "content_type": "application/pdf", "text_format": "markdown", "error": "",
+         "text": "# Title\n\n" + ("A sentence about acceptable intake. " * 200)}
+    )
+    upsert_doc_types({url: "scientific-guideline"}, client=client)
+    profile = IndexProfile(
+        name="t",
+        index=IndexConfig(chunking=ChunkingConfig(chunk_sizes=[512, 128]), scope=ScopeConfig()),
+        retrieval=RetrievalConfig(),
+    )
+    store = _FakeStore()
+    _embed_pass(profile, store, client, lambda _u: None, _FakeEmbed(), done=set(), flush_chunks=1_000_000)
+
+    (doc_entity,) = [n for n in store.nodes if getattr(n, "label", None) == "Document"]
+    assert doc_entity.properties["doc_type"] == "scientific-guideline"

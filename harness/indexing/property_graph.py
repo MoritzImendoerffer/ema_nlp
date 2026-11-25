@@ -42,9 +42,11 @@ from pymongo import MongoClient
 
 from config import MONGO_URI
 from harness.indexing.chunking import doc_id_for
+from harness.indexing.document_metadata import mongo_metadata_lookup
 from harness.indexing.ingest import (
     IngestedDoc,
     build_ingested_doc,
+    counted_metadata_lookup,
     iter_source_rows,
     mongo_html_lookup,
 )
@@ -255,8 +257,15 @@ def _embed_pass(
     flush_chunks: int,
     pause_every_docs: int = 0,
     pause_seconds: float = 60.0,
+    metadata_lookup: Any = None,
 ) -> None:
     """Stream docs; embed + upsert nodes/edges in flushes of ~``flush_chunks`` chunks.
+
+    Each document joins its ``document_metadata`` row (``doc_type``, ``audience``,
+    ``site_topic``, ``topic_hubs``). Until 2026-11-25 only ``ingest()`` joined, and
+    only tests call ``ingest()``: a fresh build lost the labels until ``propagate``
+    ran. The join reaches only documents this pass builds and cannot clear a label,
+    so ``scripts/propagate_metadata_to_graph.py`` stays the step for label changes.
 
     When ``pause_every_docs`` > 0, the pass flushes and then sleeps
     ``pause_seconds`` after every that-many *new* documents. This throttles
@@ -275,6 +284,7 @@ def _embed_pass(
     n_docs = n_chunks = n_embedded = skipped = 0
     last_pause_at = 0
     vindex = {"done": False}
+    meta_lookup = counted_metadata_lookup(metadata_lookup or mongo_metadata_lookup(client))
 
     def flush() -> None:
         nonlocal ents, chs, rels, n_embedded
@@ -310,7 +320,9 @@ def _embed_pass(
         if doc_id_for(url) in done:
             skipped += 1
             continue
-        doc = build_ingested_doc(row, chunking=chunking, html_lookup=lookup)
+        doc = build_ingested_doc(
+            row, chunking=chunking, html_lookup=lookup, metadata_lookup=meta_lookup
+        )
         if not doc.chunk_nodes:
             continue
         if scope.committee and doc.metadata.get("committee") not in scope.committee:
@@ -333,6 +345,7 @@ def _embed_pass(
             )
             time.sleep(pause_seconds)
     flush()
+    meta_lookup.warn_if_missing()
     _log.info(
         "embed pass: %d docs, %d chunks (%d leaf-embedded), %d skipped, %.0fs",
         n_docs, n_chunks, n_embedded, skipped, time.time() - t0,
@@ -441,6 +454,7 @@ def build_property_graph_index(
     pause_seconds: float = 60.0,
     links_only: bool = False,
     reset_links: bool = False,
+    metadata_lookup: Any = None,
 ) -> PropertyGraphIndex:
     """Build the hierarchical PropertyGraphIndex in Neo4j from Mongo (batched, resumable).
 
@@ -470,6 +484,7 @@ def build_property_graph_index(
                 profile, store, client, lookup, embed,
                 done=done, flush_chunks=flush_chunks,
                 pause_every_docs=pause_every_docs, pause_seconds=pause_seconds,
+                metadata_lookup=metadata_lookup,
             )
         if reset_links:
             _log.info("reset_links: deleting existing LINKS_TO edges (chunks/vectors untouched)")

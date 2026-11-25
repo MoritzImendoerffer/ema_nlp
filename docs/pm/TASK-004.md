@@ -3,12 +3,12 @@ type: pm-task
 epic: 2026-11-23_27_pipeline-refresh
 sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-004
-status: todo
+status: done
 kind: mechanism
 title: "Make the real build join document_metadata"
 generated: true
-waiting_on: the assistant
-tags: [pm/task, pm/todo]
+waiting_on: —
+tags: [pm/task, pm/done]
 ---
 
 > [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
@@ -16,7 +16,7 @@ tags: [pm/task, pm/todo]
 
 # TASK-004 — Make the real build join document_metadata
 
-**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
 
 ## Why it exists
 
@@ -28,9 +28,13 @@ What the join cannot do (exploration 3.4): it reaches only documents the build b
 
 ## Acceptance criteria
 
-- [ ] `tests/test_indexing_property_graph.py::test_build_joins_document_metadata` passes: the build over mongomock, with a document_metadata row that holds doc_type, upserts a :Document entity whose properties hold that doc_type
-- [ ] `grep -c 'counted_metadata_lookup' harness/indexing/ingest.py harness/indexing/property_graph.py` shows at least one use in each file: ingest() and the build share one function
-- [ ] `make test` passes and `make lint` passes, each run on its own line
+- [x] `tests/test_indexing_property_graph.py::test_build_joins_document_metadata` passes: the build over mongomock, with a document_metadata row that holds doc_type, upserts a :Document entity whose properties hold that doc_type
+- [x] `grep -c 'counted_metadata_lookup' harness/indexing/ingest.py harness/indexing/property_graph.py` shows at least one use in each file: ingest() and the build share one function
+- [x] `make test` passes and `make lint` passes, each run on its own line
+
+## What was built
+
+_embed_pass passes a counted mongo_metadata_lookup to build_ingested_doc, so a build stamps doc_type, audience, site_topic and topic_hubs; build_property_graph_index accepts metadata_lookup for tests. ingest() and the build share CountedMetadataLookup via counted_metadata_lookup (harness/indexing/ingest.py), which warns once with the miss count. Reached by python -m harness.indexing.build (not run: it writes to the live graph). Test: test_build_joins_document_metadata, which fails on the old call at property_graph.py:307. Gates: make test 755 passed, 2 skipped, 7 deselected; make lint All checks passed.
 
 ## Files it touched
 

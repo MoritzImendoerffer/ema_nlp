@@ -3,7 +3,7 @@
   "proposal": "docs/next/pipeline_refresh.md",
   "planned_at": "2026-11-25",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-004",
+  "current_task": "TASK-005",
   "baseline": {
     "make_test": "736 passed, 2 skipped, 7 deselected, 31 warnings in 19.31 s (2026-11-25, branch pipeline-refresh at 9dfc405 plus the uncommitted bookkeeping)",
     "make_lint": "All checks passed (exploration.md, 2026-11-23); not re-run at planning",
@@ -122,7 +122,7 @@
       "id": "TASK-004",
       "title": "Make the real build join document_metadata",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [],
       "files": [
         "harness/indexing/ingest.py",
@@ -134,7 +134,8 @@
         "`grep -c 'counted_metadata_lookup' harness/indexing/ingest.py harness/indexing/property_graph.py` shows at least one use in each file: ingest() and the build share one function",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "Defect 4 of the proposal: `_embed_pass` calls `build_ingested_doc(row, chunking=chunking, html_lookup=lookup)` at property_graph.py:307 without the metadata lookup. Only `ingest()` joins (ingest.py:213-228), and only tests call `ingest()`.\n\nMove the miss-counting wrapper (ingest.py:216-221) into a named function both call. Use `mongo_metadata_lookup(client)` from harness/indexing/document_metadata.py. Let `build_property_graph_index` accept an injected `metadata_lookup` for tests, as it accepts `html_lookup`.\n\nWhat the join cannot do (exploration 3.4): it reaches only documents the build builds, and it cannot clear a label (`_clean` drops None, property_graph.py:88). `propagate` stays a required step for label changes; TASK-018 says so in the docs. On a fresh build the join must reproduce doc_type on 55,930 documents, audience 20,386, site_topic 5,947, topic_hubs 49 (exploration 3.4). No fresh build is part of this item."
+      "notes": "Defect 4 of the proposal: `_embed_pass` calls `build_ingested_doc(row, chunking=chunking, html_lookup=lookup)` at property_graph.py:307 without the metadata lookup. Only `ingest()` joins (ingest.py:213-228), and only tests call `ingest()`.\n\nMove the miss-counting wrapper (ingest.py:216-221) into a named function both call. Use `mongo_metadata_lookup(client)` from harness/indexing/document_metadata.py. Let `build_property_graph_index` accept an injected `metadata_lookup` for tests, as it accepts `html_lookup`.\n\nWhat the join cannot do (exploration 3.4): it reaches only documents the build builds, and it cannot clear a label (`_clean` drops None, property_graph.py:88). `propagate` stays a required step for label changes; TASK-018 says so in the docs. On a fresh build the join must reproduce doc_type on 55,930 documents, audience 20,386, site_topic 5,947, topic_hubs 49 (exploration 3.4). No fresh build is part of this item.",
+      "outcome": "_embed_pass passes a counted mongo_metadata_lookup to build_ingested_doc, so a build stamps doc_type, audience, site_topic and topic_hubs; build_property_graph_index accepts metadata_lookup for tests. ingest() and the build share CountedMetadataLookup via counted_metadata_lookup (harness/indexing/ingest.py), which warns once with the miss count. Reached by python -m harness.indexing.build (not run: it writes to the live graph). Test: test_build_joins_document_metadata, which fails on the old call at property_graph.py:307. Gates: make test 755 passed, 2 skipped, 7 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-005",
