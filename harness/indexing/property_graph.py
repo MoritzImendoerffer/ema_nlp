@@ -30,6 +30,7 @@ import logging
 import os
 import re
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from llama_index.core import PropertyGraphIndex
@@ -43,12 +44,17 @@ from pymongo import MongoClient
 from config import MONGO_URI
 from harness.indexing.chunking import doc_id_for
 from harness.indexing.document_metadata import mongo_metadata_lookup
+from harness.indexing.graph_ops import DOC_BATCH, CorpusGraph, DocState
 from harness.indexing.ingest import (
     IngestedDoc,
+    SelectionStats,
+    SourceChoice,
     build_ingested_doc,
     counted_metadata_lookup,
+    iter_source_groups,
     iter_source_rows,
     mongo_html_lookup,
+    text_sha256,
 )
 from harness.indexing.links import ExtractedLink, extract_links
 from harness.indexing.profiles import IndexProfile
@@ -238,56 +244,125 @@ def _chunk_nodes_and_rels(d: IngestedDoc) -> tuple[list[ChunkNode], list[Relatio
     return chunks, rels
 
 
-def _existing_doc_ids(store: Neo4jPropertyGraphStore) -> set[str]:
-    """Doc ids already materialized with >=1 chunk — skipped on a resumed build."""
-    rows = store.structured_query(
-        "MATCH (d:Document)-[:HAS_CHUNK]->(:Chunk) RETURN DISTINCT d.id AS id"
-    )
-    return {r["id"] for r in rows if r.get("id")}
+@dataclass
+class EmbedPassStats:
+    """Counts of one embed pass; the last log line of the pass prints them."""
+
+    new: int = 0
+    replaced: int = 0
+    stamped: int = 0
+    skipped: int = 0
+    replace_without_chunks: int = 0  # the new text chunks to nothing: old chunks kept
+    fallbacks: int = 0  # URLs whose rows matched no preference entry (decision F)
+    chunks: int = 0
+    embedded: int = 0
+
+    @property
+    def built(self) -> int:
+        return self.new + self.replaced
+
+
+def _as_graph(graph_or_store: Any) -> Any:
+    """A :class:`CorpusGraph`, or the object itself when it already offers its operations."""
+    return graph_or_store if hasattr(graph_or_store, "document_states") else CorpusGraph(graph_or_store)
+
+
+def _decide(choice: SourceChoice, state: DocState | None, sha: str, *, force_replace: bool) -> str:
+    """``new``, ``skip``, ``stamp`` or ``replace`` for one selected row.
+
+    - no document with chunks: ``new``;
+    - ``force_replace`` (``--no-resume``): ``replace``;
+    - the document records a parse: equal hash and equal parser and version → ``skip``;
+      equal hash, other parser or version → ``stamp`` (set two properties, touch no
+      chunk); other hash → ``replace``;
+    - the document records no parse yet (not backfilled): it counts as built from the
+      old-rule row. Same row → ``skip``; same text hash → ``stamp``; else ``replace``.
+
+    The hash, not the parser's name, decides whether chunks change: ``parse-html``
+    reproduces the legacy text on 200 of 200 sampled pages under a new
+    ``parser_version``, and comparing names would re-embed 143,804 HTML leaves for
+    nothing (exploration of work unit 27, section 3.3).
+    """
+    row = choice.selected
+    if state is None or not state.has_chunks:
+        return "new"
+    if force_replace:
+        return "replace"
+    identity = (row.get("parser"), row.get("parser_version"))
+    if state.stamped:
+        if state.text_sha256 != sha:
+            return "replace"
+        return "skip" if (state.parser, state.parser_version) == identity else "stamp"
+    old = choice.old_rule
+    if (old.get("parser"), old.get("parser_version")) == identity:
+        return "skip"
+    return "stamp" if text_sha256(old.get("text", "") or "") == sha else "replace"
 
 
 def _embed_pass(
     profile: IndexProfile,
-    store: Neo4jPropertyGraphStore,
+    graph: Any,
     client: Any,
     lookup: Any,
     embed: Any,
     *,
-    done: set[str],
     flush_chunks: int,
+    resume: bool = True,
     pause_every_docs: int = 0,
     pause_seconds: float = 60.0,
     metadata_lookup: Any = None,
-) -> None:
-    """Stream docs; embed + upsert nodes/edges in flushes of ~``flush_chunks`` chunks.
+    preference: Any = None,
+) -> EmbedPassStats:
+    """Compare every selected row with the graph; build, replace, stamp or skip.
 
-    Each document joins its ``document_metadata`` row (``doc_type``, ``audience``,
-    ``site_topic``, ``topic_hubs``). Until 2026-11-25 only ``ingest()`` joined, and
-    only tests call ``ingest()``: a fresh build lost the labels until ``propagate``
-    ran. The join reaches only documents this pass builds and cannot clear a label,
-    so ``scripts/propagate_metadata_to_graph.py`` stays the step for label changes.
+    Until 2026-11-25 a resumed build skipped every document that had a chunk, so a
+    changed text never reached the graph, and a shorter text chunked again left the
+    old chunks with higher positions behind (chunk ids are ``sha256(doc_id|position)``).
+    Each document now records the parse it was built from (``parser``,
+    ``parser_version``, ``text_sha256``), and :func:`_decide` compares it with the row
+    that ``iter_source_groups`` selects.
 
-    When ``pause_every_docs`` > 0, the pass flushes and then sleeps
-    ``pause_seconds`` after every that-many *new* documents. This throttles
-    sustained GPU load: on this host the 3090's GSP firmware wedges under
-    uninterrupted CUDA load (root cause unconfirmed — observed across kernels,
-    so not kernel-specific; capping power + pausing avoids it empirically). The
-    flush leaves the graph fully persisted at each pause, so a kill during the
-    sleep loses nothing.
+    A replaced document is chunked first. Only when the new text gives chunks are the
+    old ones deleted, inside the flush, just before the new ones are written: a
+    failed chunking never empties a document, and the window without chunks lasts one
+    flush. ``resume=False`` replaces every document.
+
+    **Crash safety.** The three values ride on the ``:Document`` entity, and the store
+    writes entities after chunks. A crash at any point leaves either a document
+    without chunks (built again as new) or values that do not match the row (replaced
+    again). No crash leaves a document that the next build wrongly skips.
+
+    Embeds leaf chunks only, in flushes of about ``flush_chunks`` chunks. Each built
+    document joins its ``document_metadata`` row (``doc_type``, ``audience``,
+    ``site_topic``, ``topic_hubs``). Until 2026-11-25 only ``ingest()`` joined, and only
+    tests call ``ingest()``. The join reaches only documents this pass builds and
+    cannot clear a label, so ``scripts/propagate_metadata_to_graph.py`` stays the step
+    for label changes.
+
+    When ``pause_every_docs`` > 0, the pass flushes and then sleeps ``pause_seconds``
+    after every that-many built documents. This throttles sustained GPU load: on this
+    host the 3090's GSP firmware wedges under uninterrupted CUDA load (root cause
+    unconfirmed). The flush leaves the graph persisted at each pause, so a kill during
+    the sleep loses nothing.
     """
+    graph = _as_graph(graph)
     scope = profile.index.scope
     chunking = profile.index.chunking
     t0 = time.time()
+    stats = EmbedPassStats()
+    selection = SelectionStats()
+    states = graph.document_states()
     ents: list[EntityNode] = []
     chs: list[ChunkNode] = []
     rels: list[Relation] = []
-    n_docs = n_chunks = n_embedded = skipped = 0
+    to_delete: list[str] = []  # documents of this flush whose old chunks go first
+    stamps: list[dict[str, Any]] = []
     last_pause_at = 0
     vindex = {"done": False}
     meta_lookup = counted_metadata_lookup(metadata_lookup or mongo_metadata_lookup(client))
 
     def flush() -> None:
-        nonlocal ents, chs, rels, n_embedded
+        nonlocal ents, chs, rels, to_delete
         if not chs:
             return
         # Embed LEAF chunks only. Parent (mid/root) chunks are reached via PARENT_OF
@@ -299,57 +374,90 @@ def _embed_pass(
             embs = embed.get_text_embedding_batch([c.text for c in leaves], show_progress=False)
             for c, e in zip(leaves, embs):
                 c.embedding = e
-            n_embedded += len(leaves)
+            stats.embedded += len(leaves)
             if not vindex["done"]:
-                ensure_chunk_vector_index(store, len(embs[0]))
+                ensure_chunk_vector_index(graph, len(embs[0]))
                 vindex["done"] = True
-        store.upsert_nodes(ents + chs)  # parents upserted with text but no embedding
-        if rels:
-            store.upsert_relations(rels)
-        rate = n_embedded / max(time.time() - t0, 1e-6)
+        # Delete after embedding, right before the write: the replaced documents are
+        # without chunks only for the duration of this upsert.
+        if to_delete:
+            graph.delete_document_chunks(to_delete)
+        graph.upsert(ents + chs, rels)  # parents upserted with text but no embedding
+        rate = stats.embedded / max(time.time() - t0, 1e-6)
         _log.info(
-            "flush: %d docs, %d chunks, %d leaf-embedded (%.0f emb/s)",
-            n_docs, n_chunks, n_embedded, rate,
+            "flush: %d built (%d new, %d replaced), %d chunks, %d leaf-embedded (%.0f emb/s)",
+            stats.built, stats.new, stats.replaced, stats.chunks, stats.embedded, rate,
         )
-        ents, chs, rels = [], [], []
+        ents, chs, rels, to_delete = [], [], [], []
 
-    for row in iter_source_rows(scope, client=client):
+    def flush_stamps() -> None:
+        nonlocal stamps
+        if stamps:
+            graph.stamp_parse_identity(stamps)
+            stamps = []
+
+    for choice in iter_source_groups(scope, client=client, preference=preference, stats=selection):
+        row = choice.selected
         url = row.get("url")
         if not url:
             continue
-        if doc_id_for(url) in done:
-            skipped += 1
+        doc_id = doc_id_for(url)
+        sha = text_sha256(row.get("text", "") or "")
+        action = _decide(choice, states.get(doc_id), sha, force_replace=not resume)
+        if action == "skip":
+            stats.skipped += 1
+            continue
+        if action == "stamp":
+            stamps.append({
+                "id": doc_id, "parser": row.get("parser"),
+                "parser_version": row.get("parser_version"), "text_sha256": sha,
+            })
+            stats.stamped += 1
+            if len(stamps) >= DOC_BATCH:
+                flush_stamps()
             continue
         doc = build_ingested_doc(
             row, chunking=chunking, html_lookup=lookup, metadata_lookup=meta_lookup
         )
         if not doc.chunk_nodes:
+            if action == "replace":
+                stats.replace_without_chunks += 1
+                _log.warning("replace skipped: the new text of %s gives no chunk; old chunks kept", url)
             continue
         if scope.committee and doc.metadata.get("committee") not in scope.committee:
             continue
+        if action == "replace":
+            to_delete.append(doc.doc_id)
+            stats.replaced += 1
+        else:
+            stats.new += 1
         ents.append(_entity_for(doc))
         c, r = _chunk_nodes_and_rels(doc)
         chs.extend(c)
         rels.extend(r)
-        n_docs += 1
-        n_chunks += len(c)
+        stats.chunks += len(c)
         if len(chs) >= flush_chunks:
             flush()
-        if scope.limit and n_docs >= scope.limit:
+        if scope.limit and stats.built >= scope.limit:
             break
-        if pause_every_docs and n_docs - last_pause_at >= pause_every_docs:
+        if pause_every_docs and stats.built - last_pause_at >= pause_every_docs:
             flush()  # persist the batch before sleeping so the pause is crash-safe
-            last_pause_at = n_docs
+            last_pause_at = stats.built
             _log.info(
-                "pause: %d docs done — sleeping %.0fs to cool the GPU", n_docs, pause_seconds
+                "pause: %d docs built — sleeping %.0fs to cool the GPU", stats.built, pause_seconds
             )
             time.sleep(pause_seconds)
     flush()
+    flush_stamps()
     meta_lookup.warn_if_missing()
+    stats.fallbacks = selection.fallbacks
     _log.info(
-        "embed pass: %d docs, %d chunks (%d leaf-embedded), %d skipped, %.0fs",
-        n_docs, n_chunks, n_embedded, skipped, time.time() - t0,
+        "embed pass: %d new, %d replaced, %d stamped, %d skipped, %d replace-without-chunks, "
+        "%d preference fallbacks; %d chunks (%d leaf-embedded), %.0fs",
+        stats.new, stats.replaced, stats.stamped, stats.skipped, stats.replace_without_chunks,
+        stats.fallbacks, stats.chunks, stats.embedded, time.time() - t0,
     )
+    return stats
 
 
 def _merge_links_batch(store: Neo4jPropertyGraphStore, pairs: list[dict[str, Any]]) -> None:
@@ -459,8 +567,10 @@ def build_property_graph_index(
     """Build the hierarchical PropertyGraphIndex in Neo4j from Mongo (batched, resumable).
 
     The chunk/embedding work is streamed and committed in flushes of
-    ~``flush_chunks`` chunks, so a crash loses at most one flush and a re-run
-    (``resume=True``) skips documents already materialized. ``LINKS_TO`` edges are
+    ~``flush_chunks`` chunks, so a crash loses at most one flush. A re-run
+    (``resume=True``) compares each selected row with the graph: an unchanged
+    document is skipped, a changed one is replaced (see :func:`_embed_pass`);
+    ``resume=False`` replaces every document. ``LINKS_TO`` edges are
     a final idempotent pass that MERGEs doc->doc edges whose target is in-corpus.
     Pass ``links_only=True`` to (re)build just the link edges over an existing graph.
     Pass ``reset_links=True`` to delete the existing ``LINKS_TO`` edges first (chunks
@@ -477,12 +587,9 @@ def build_property_graph_index(
     try:
         lookup = html_lookup or mongo_html_lookup(client)
         if not links_only:
-            done = _existing_doc_ids(store) if (resume and not reset) else set()
-            if done:
-                _log.info("resume: %d docs already built — skipping them", len(done))
             _embed_pass(
-                profile, store, client, lookup, embed,
-                done=done, flush_chunks=flush_chunks,
+                profile, CorpusGraph(store), client, lookup, embed,
+                flush_chunks=flush_chunks, resume=resume,
                 pause_every_docs=pause_every_docs, pause_seconds=pause_seconds,
                 metadata_lookup=metadata_lookup,
             )

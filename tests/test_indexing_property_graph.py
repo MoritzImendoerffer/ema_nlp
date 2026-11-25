@@ -193,7 +193,7 @@ def test_embed_pass_embeds_leaves_only():
     )
     store, embed = _FakeStore(), _FakeEmbed()
     _embed_pass(
-        profile, store, client, lambda _u: None, embed, done=set(), flush_chunks=1_000_000
+        profile, store, client, lambda _u: None, embed, flush_chunks=1_000_000
     )
 
     chunk_nodes = [n for n in store.nodes if "is_leaf" in getattr(n, "properties", {})]
@@ -631,7 +631,178 @@ def test_build_joins_document_metadata():
         retrieval=RetrievalConfig(),
     )
     store = _FakeStore()
-    _embed_pass(profile, store, client, lambda _u: None, _FakeEmbed(), done=set(), flush_chunks=1_000_000)
+    _embed_pass(profile, store, client, lambda _u: None, _FakeEmbed(), flush_chunks=1_000_000)
 
     (doc_entity,) = [n for n in store.nodes if getattr(n, "label", None) == "Document"]
     assert doc_entity.properties["doc_type"] == "scientific-guideline"
+
+
+# ── TASK-006 (unit 27): resume by comparison — skip, stamp or replace ────────────
+#
+# Until 2026-11-25 a resumed build skipped every document that had a chunk
+# (``_existing_doc_ids``). A changed text never reached the graph, and a shorter text
+# chunked again would have left the old chunks with higher positions behind.
+
+import datetime as _dt  # noqa: E402
+
+import pytest  # noqa: E402
+
+from tests.graph_double import InMemoryCorpusGraph  # noqa: E402
+
+_PDF = "https://www.ema.europa.eu/en/documents/scientific-guideline/refresh_en.pdf"
+_SENT = "A sentence about acceptable intake and CHMP assessment of nitrosamines. "
+
+
+def _text(n_sentences: int) -> str:
+    return "# Title\n\n" + (_SENT * n_sentences)
+
+
+def _refresh_profile():
+    from harness.indexing.profiles import IndexConfig, IndexProfile, RetrievalConfig, ScopeConfig
+
+    return IndexProfile(
+        name="t",
+        index=IndexConfig(chunking=ChunkingConfig(chunk_sizes=[512, 128]), scope=ScopeConfig()),
+        retrieval=RetrievalConfig(),
+    )
+
+
+def _client_with(*rows):
+    import mongomock
+
+    from config import MONGO_DB
+    from harness.indexing.ingest import PARSED_COLLECTION
+
+    client = mongomock.MongoClient()
+    client[MONGO_DB][PARSED_COLLECTION].insert_many([dict(r) for r in rows])
+    return client
+
+
+def _prow(text, parser="pymupdf4llm", version="legacy", url=_PDF, ct="application/pdf",
+          at=_dt.datetime(2026, 5, 27, 22, 0)):
+    return {"url": url, "parser": parser, "parser_version": version, "parsed_at": at,
+            "content_type": ct, "text_format": "markdown", "error": "", "text": text}
+
+
+def _build(graph, client, *, resume=True, embed=None):
+    from harness.indexing.property_graph import _embed_pass
+
+    embed = embed or _FakeEmbed()
+    stats = _embed_pass(
+        _refresh_profile(), graph, client, lambda _u: None, embed,
+        flush_chunks=1_000_000, resume=resume, metadata_lookup=lambda _u: None,
+    )
+    return stats, embed
+
+
+def _leaves(graph, url=_PDF):
+    return [c for c in graph.chunks_of(doc_id_for(url)) if c.properties.get("is_leaf")]
+
+
+def test_changed_text_replaces_chunks():
+    graph = InMemoryCorpusGraph()
+    _build(graph, _client_with(_prow(_text(40))))
+    first = {c.id for c in graph.chunks_of(doc_id_for(_PDF))}
+    assert len(_leaves(graph)) == 6, "fixture: the first text must give 6 leaves"
+
+    stats, _ = _build(graph, _client_with(_prow(_text(9))))
+    assert stats.replaced == 1 and stats.new == 0
+    assert len(_leaves(graph)) == 2
+    second = {c.id for c in graph.chunks_of(doc_id_for(_PDF))}
+    # Chunk ids are sha256(doc_id|position): the leftovers would be the high positions.
+    assert not (first - second) & set(graph.nodes), "a chunk of the first build remains"
+
+
+def test_unchanged_document_is_skipped():
+    graph = InMemoryCorpusGraph()
+    client = _client_with(_prow(_text(40)))
+    _build(graph, client)
+    stats, embed = _build(graph, client)
+    assert embed.embedded == []
+    assert stats.skipped == 1 and stats.built == 0
+
+
+def test_equal_text_new_version_stamps_only():
+    """parse-html reproduces the legacy text under a new version: no re-embedding."""
+    html = "https://www.ema.europa.eu/en/human-regulatory-overview/page"
+    text = _text(40)
+    graph = InMemoryCorpusGraph()
+    _build(graph, _client_with(_prow(text, "trafilatura", "legacy", url=html, ct="text/html")))
+    newer = _client_with(
+        _prow(text, "trafilatura", "legacy", url=html, ct="text/html"),
+        _prow(text, "trafilatura", "2.0.0", url=html, ct="text/html", at=_dt.datetime(2026, 11, 25)),
+    )
+    stats, embed = _build(graph, newer)
+    assert embed.embedded == []
+    assert stats.stamped == 1
+    assert graph.nodes[doc_id_for(html)].properties["parser_version"] == "2.0.0"
+
+
+def test_text_without_chunks_keeps_old_chunks():
+    """Chunk first, delete afterwards: a text that gives no chunk never empties a document."""
+    graph = InMemoryCorpusGraph()
+    _build(graph, _client_with(_prow(_text(40))))
+    before = {c.id for c in graph.chunks_of(doc_id_for(_PDF))}
+    stats, _ = _build(graph, _client_with(_prow("")))
+    assert stats.replace_without_chunks == 1 and stats.replaced == 0
+    assert {c.id for c in graph.chunks_of(doc_id_for(_PDF))} == before
+
+
+def test_unstamped_document_counts_as_old_rule_row():
+    """A graph document from before the backfill records no parse: it counts as built from
+    the old-rule row, and an unchanged row embeds nothing."""
+    graph = InMemoryCorpusGraph()
+    client = _client_with(_prow(_text(40)))
+    _build(graph, client)
+    for key in ("parser", "parser_version", "text_sha256"):
+        graph.nodes[doc_id_for(_PDF)].properties.pop(key)
+    stats, embed = _build(graph, client)
+    assert embed.embedded == [] and stats.skipped == 1
+
+
+def test_unstamped_document_with_new_selected_text_is_replaced():
+    graph = InMemoryCorpusGraph()
+    _build(graph, _client_with(_prow(_text(40), "trafilatura", "legacy", ct="text/html")))
+    for key in ("parser", "parser_version", "text_sha256"):
+        graph.nodes[doc_id_for(_PDF)].properties.pop(key)
+    client = _client_with(
+        _prow(_text(40), "trafilatura", "legacy", ct="text/html"),
+        _prow(_text(9), "trafilatura", "2.0.0", ct="text/html", at=_dt.datetime(2026, 11, 25)),
+    )
+    stats, _ = _build(graph, client)
+    assert stats.replaced == 1 and len(_leaves(graph)) == 2
+
+
+def test_failed_upsert_is_replaced_again():
+    """A crash after the delete leaves values that do not match; the next build replaces."""
+    graph = InMemoryCorpusGraph()
+    _build(graph, _client_with(_prow(_text(40))))
+    changed = _client_with(_prow(_text(9)))
+    graph.fail_after_chunks = True
+    with pytest.raises(RuntimeError):
+        _build(graph, changed)
+    graph.fail_after_chunks = False
+    stats, _ = _build(graph, changed)
+    assert stats.built == 1
+    from harness.indexing.ingest import text_sha256
+
+    assert graph.nodes[doc_id_for(_PDF)].properties["text_sha256"] == text_sha256(_text(9))
+    assert len(_leaves(graph)) == 2
+
+
+def test_no_resume_replaces_every_document():
+    graph = InMemoryCorpusGraph()
+    client = _client_with(_prow(_text(40)))
+    _build(graph, client)
+    stats, embed = _build(graph, client, resume=False)
+    assert stats.replaced == 1 and len(embed.embedded) == 6
+    assert len(_leaves(graph)) == 6
+
+
+def test_embed_pass_logs_the_counts(caplog):
+    graph = InMemoryCorpusGraph()
+    with caplog.at_level("INFO", logger="harness.indexing.property_graph"):
+        _build(graph, _client_with(_prow(_text(40))))
+    line = [r.message for r in caplog.records if r.message.startswith("embed pass:")][-1]
+    for word in ("new", "replaced", "stamped", "skipped", "preference fallbacks"):
+        assert word in line

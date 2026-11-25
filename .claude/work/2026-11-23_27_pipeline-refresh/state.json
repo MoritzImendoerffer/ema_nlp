@@ -3,7 +3,7 @@
   "proposal": "docs/next/pipeline_refresh.md",
   "planned_at": "2026-11-25",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-006",
+  "current_task": "TASK-007",
   "baseline": {
     "make_test": "736 passed, 2 skipped, 7 deselected, 31 warnings in 19.31 s (2026-11-25, branch pipeline-refresh at 9dfc405 plus the uncommitted bookkeeping)",
     "make_lint": "All checks passed (exploration.md, 2026-11-23); not re-run at planning",
@@ -161,7 +161,7 @@
       "id": "TASK-006",
       "title": "Resume by comparison: skip, stamp or replace each document",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-002",
         "TASK-003",
@@ -182,7 +182,8 @@
         "The pass ends with one log line that counts new, replaced, stamped, skipped and fallback documents",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "Replaces `_existing_doc_ids` (property_graph.py:233-238, used at :304), which skips every document that has a chunk.\n\nPer selected row, with the graph's state from document_states:\n- no :Document with chunks: build it (new);\n- values present, text_sha256 equal, parser and version equal: skip;\n- text_sha256 equal, parser or version different: stamp the two properties, touch no chunk (exploration 3.3: parse-html reproduces the legacy text on 200 of 200 sampled pages under a new version; without this rule the first run re-embeds 143,804 HTML leaves for nothing);\n- text_sha256 different: replace;\n- values absent (not backfilled): compare with the old-rule row from TASK-002. Same row: skip. Same hash: stamp. Other hash: replace.\n\nHash the row text before chunking, and chunk only to build or replace. Chunk first, delete afterwards (exploration 3.8: `chunk_document` returns [] when the splitter fails, chunking.py:66-78).\n\nDelete the old chunks of the replaced documents inside `flush()`, just before the upsert, to keep the window without chunks short (one flush holds about 4,000 chunks). The three values ride on the entity, which `upsert_nodes` writes after the chunks (neo4j_property_graph.py:361-403). So a crash at any point leaves values that do not match, and the next build replaces again (exploration 5.2). State this invariant in the docstring.\n\n`resume=False` (`--no-resume`) today re-MERGEs every document without deleting, which leaves stale chunks when a text got shorter. After this task it replaces every document: the plan's choice.\n\nThe comparison does not cover `chunk_sizes` or the embedding model (exploration 3.8). TASK-018 writes that down."
+      "notes": "Replaces `_existing_doc_ids` (property_graph.py:233-238, used at :304), which skips every document that has a chunk.\n\nPer selected row, with the graph's state from document_states:\n- no :Document with chunks: build it (new);\n- values present, text_sha256 equal, parser and version equal: skip;\n- text_sha256 equal, parser or version different: stamp the two properties, touch no chunk (exploration 3.3: parse-html reproduces the legacy text on 200 of 200 sampled pages under a new version; without this rule the first run re-embeds 143,804 HTML leaves for nothing);\n- text_sha256 different: replace;\n- values absent (not backfilled): compare with the old-rule row from TASK-002. Same row: skip. Same hash: stamp. Other hash: replace.\n\nHash the row text before chunking, and chunk only to build or replace. Chunk first, delete afterwards (exploration 3.8: `chunk_document` returns [] when the splitter fails, chunking.py:66-78).\n\nDelete the old chunks of the replaced documents inside `flush()`, just before the upsert, to keep the window without chunks short (one flush holds about 4,000 chunks). The three values ride on the entity, which `upsert_nodes` writes after the chunks (neo4j_property_graph.py:361-403). So a crash at any point leaves values that do not match, and the next build replaces again (exploration 5.2). State this invariant in the docstring.\n\n`resume=False` (`--no-resume`) today re-MERGEs every document without deleting, which leaves stale chunks when a text got shorter. After this task it replaces every document: the plan's choice.\n\nThe comparison does not cover `chunk_sizes` or the embedding model (exploration 3.8). TASK-018 writes that down.",
+      "outcome": "_embed_pass (harness/indexing/property_graph.py) now takes a CorpusGraph, loads document_states once, and decides per selected row with _decide: new, skip, stamp (equal text hash, other parser or version: two properties set, no chunk touched) or replace (chunk first; the old chunks are deleted inside flush, after embedding and just before the upsert). A document without the three values is compared with its old-rule row. resume=False replaces every document. Returns EmbedPassStats and logs new, replaced, stamped, skipped, replace-without-chunks and preference fallbacks. _existing_doc_ids is removed. Reached by python -m harness.indexing.build through build_property_graph_index (not run live: it writes; TASK-013 runs it on a throwaway Neo4j). 10 new tests on tests/graph_double.py. Gates: make test 771 passed, 2 skipped, 7 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-007",
