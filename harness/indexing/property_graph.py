@@ -198,6 +198,12 @@ def _entity_for(d: IngestedDoc) -> EntityNode:
                 "category": classify_source(
                     d.source_url or "", d.metadata.get("topic_path") or ""
                 ),
+                # The parse identity of the row the chunks were built from. The
+                # entity is upserted after the chunks, so a crash leaves values that
+                # do not match the row, and the next build replaces the document.
+                "parser": d.metadata.get("parser"),
+                "parser_version": d.metadata.get("parser_version"),
+                "text_sha256": d.metadata.get("text_sha256"),
             }
         ),
     )

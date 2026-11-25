@@ -20,6 +20,7 @@ Neo4j ``PropertyGraphIndex``.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -93,6 +94,11 @@ def mongo_html_lookup(client: MongoClient[Any]) -> HtmlLookup:
     return _lookup
 
 
+def text_sha256(text: str) -> str:
+    """SHA-256 of a row's text as stored (UTF-8, 64 hex characters)."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def build_ingested_doc(
     pd: dict[str, Any],
     *,
@@ -114,7 +120,11 @@ def build_ingested_doc(
         "reference_number": tm.reference_number,
         "revision": tm.revision,
         "last_updated": tm.last_updated.isoformat() if tm.last_updated else None,
+        # The parse identity: which row the document is built from. The build compares
+        # it with the selected row to skip, stamp or replace a document (TASK-006).
         "parser": pd.get("parser"),
+        "parser_version": pd.get("parser_version"),
+        "text_sha256": text_sha256(text),
     }
     # Authoritative labels come from the enrichment collection when present;
     # its values (including nulls) win over live derivation so the stored row

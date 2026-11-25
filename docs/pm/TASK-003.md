@@ -3,12 +3,12 @@ type: pm-task
 epic: 2026-11-23_27_pipeline-refresh
 sprint: 2026-11-23_27_pipeline-refresh
 task: TASK-003
-status: todo
+status: done
 kind: contract
 title: "Put parser, parser_version and text_sha256 on the :Document node"
 generated: true
-waiting_on: the assistant
-tags: [pm/task, pm/todo]
+waiting_on: —
+tags: [pm/task, pm/done]
 ---
 
 > [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
@@ -16,7 +16,7 @@ tags: [pm/task, pm/todo]
 
 # TASK-003 — Put parser, parser_version and text_sha256 on the :Document node
 
-**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
 
 ## Why it exists
 
@@ -28,9 +28,13 @@ Stored shape: the 79,882 existing :Document nodes do not have the three properti
 
 ## Acceptance criteria
 
-- [ ] `tests/test_indexing_property_graph.py::test_entity_carries_parse_identity` passes: `_entity_for(doc).properties` holds parser, parser_version, and text_sha256 equal to `hashlib.sha256(row['text'].encode('utf-8')).hexdigest()`
-- [ ] `tests/test_indexing_property_graph.py::test_parse_identity_leaves_chunks_unchanged` passes: the chunk ids, texts and leaf flags of build_ingested_doc equal those of chunk_document for the same text
-- [ ] `make test` passes and `make lint` passes, each run on its own line
+- [x] `tests/test_indexing_property_graph.py::test_entity_carries_parse_identity` passes: `_entity_for(doc).properties` holds parser, parser_version, and text_sha256 equal to `hashlib.sha256(row['text'].encode('utf-8')).hexdigest()`
+- [x] `tests/test_indexing_property_graph.py::test_parse_identity_leaves_chunks_unchanged` passes: the chunk ids, texts and leaf flags of build_ingested_doc equal those of chunk_document for the same text
+- [x] `make test` passes and `make lint` passes, each run on its own line
+
+## What was built
+
+build_ingested_doc puts parser, parser_version and text_sha256 (sha256 of the row text, UTF-8, hex; helper ingest.text_sha256) in IngestedDoc.metadata, and _entity_for writes all three on :Document. Chunk metadata is unchanged. Stored shape: the 79,882 live :Document nodes do not have the properties; scripts/backfill_parse_identity.py (TASK-012) stamps them in TASK-016, and until then TASK-006 compares such documents with their old-rule row. 2 new tests in tests/test_indexing_property_graph.py. Gates: make test 754 passed, 2 skipped, 7 deselected; make lint All checks passed.
 
 ## Files it touched
 

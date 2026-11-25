@@ -552,3 +552,50 @@ def test_matched_text_stays_out_of_the_reranker_input():
     (node,) = HierarchicalPGRetriever(store, _SteerEmbed(), k=1, merge=True).retrieve("q")
     for mode in (MetadataMode.EMBED, MetadataMode.LLM):
         assert node.node.get_content(metadata_mode=mode).count(_LEAF) <= 1
+
+
+# ── TASK-003 (unit 27): the :Document records which parse it was built from ──────
+#
+# Before 2026-11-25 ``:Document`` held neither the parser nor a hash of its text
+# (count 0, 0, 0 on the live graph), so a build could not see that a document changed.
+
+
+def _pdf_row(text: str) -> dict:
+    return {
+        "url": _URL_B, "parser": "pymupdf4llm", "parser_version": "legacy",
+        "content_type": "application/pdf", "text_format": "markdown", "error": "", "text": text,
+    }
+
+
+def test_entity_carries_parse_identity():
+    import hashlib
+
+    from harness.indexing.ingest import build_ingested_doc
+    from harness.indexing.property_graph import _entity_for
+
+    row = _pdf_row(_LONG)
+    doc = build_ingested_doc(row, chunking=ChunkingConfig(chunk_sizes=[512, 128]), html_lookup=lambda u: None)
+    props = _entity_for(doc).properties
+    assert props["parser"] == "pymupdf4llm"
+    assert props["parser_version"] == "legacy"
+    assert props["text_sha256"] == hashlib.sha256(row["text"].encode("utf-8")).hexdigest()
+    assert len(props["text_sha256"]) == 64
+
+
+def test_parse_identity_leaves_chunks_unchanged():
+    """The identity rides on the entity only: chunk ids and texts stay as embedded."""
+    from harness.indexing.ingest import build_ingested_doc
+
+    cfg = ChunkingConfig(chunk_sizes=[512, 128])
+    doc = build_ingested_doc(_pdf_row(_LONG), chunking=cfg, html_lookup=lambda u: None)
+    expected = chunk_document(
+        _LONG, source_url=_URL_B, title=doc.title,
+        base_metadata={"source_type": "pdf", "committee": doc.metadata["committee"],
+                       "topic_path": doc.metadata["topic_path"],
+                       "reference_number": doc.metadata["reference_number"]},
+        config=cfg,
+    )
+    got = [(c.node_id, c.text, c.metadata.get("is_leaf")) for c in doc.chunk_nodes]
+    assert got == [(c.node_id, c.text, c.metadata.get("is_leaf")) for c in expected]
+    for c in doc.chunk_nodes:
+        assert "text_sha256" not in c.metadata and "parser_version" not in c.metadata
