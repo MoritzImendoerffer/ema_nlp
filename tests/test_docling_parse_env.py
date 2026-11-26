@@ -162,3 +162,39 @@ def test_lifted_header_reference_heads_the_markdown():
     assert counts["header_reference_lifted"] == 1
     assert md.lstrip().startswith("EMA/CHMP/123456/2020")
     assert text_metadata(md).reference_number == "EMA/CHMP/123456/2020"
+
+
+def test_batch_command_end_to_end_on_two_pdfs(tmp_path):
+    """The command, as a process: a gzip body, an 8-page PDF in page ranges of 5, a new worker
+    per document, the three files each, no failures, files only."""
+    import gzip
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    fixtures = Path(__file__).parent / "fixtures"
+    items = []
+    for name, body in (("table_3x3", gzip.compress((fixtures / "docling" / "table_3x3.pdf").read_bytes())),
+                       ("fixture_pdf_0", (fixtures / "fixture_pdf_0.pdf").read_bytes())):
+        entry = tmp_path / "cache" / name
+        entry.mkdir(parents=True)
+        (entry / "response_body").write_bytes(body)
+        items.append({"url": f"https://www.ema.europa.eu/en/documents/test/{name}_en.pdf", "cache_path": str(entry)})
+    lst = tmp_path / "list.jsonl"
+    lst.write_text("".join(json.dumps(x) + "\n" for x in items))
+    root = tmp_path / "parsed"
+    script = Path(__file__).resolve().parents[1] / "scripts" / "parse_pdfs_docling.py"
+    proc = subprocess.run([sys.executable, str(script), str(lst), "--budget-pages", "20", "--root", str(root),
+                           "--range-pages", "5", "--docs-per-worker", "1", "--pause-every-docs", "0"],
+                          capture_output=True, text=True, timeout=900)
+    assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-2000:]
+    summary = json.loads([x for x in proc.stdout.splitlines() if x.startswith("{") and '"pages_parsed"' in x][-1])
+    assert (summary["parsed"], summary["failed"], summary["pages_parsed"]) == (2, 0, 9)
+    runs = sorted(root.rglob("run.json"))
+    assert len(runs) == 2
+    for run in runs:
+        assert sorted(p.name for p in run.parent.iterdir()) == ["doc.json", "doc.raw.json", "run.json"]
+    ranged = [json.loads(r.read_text()) for r in runs if "fixture-pdf-0" in str(r)][0]
+    assert ranged["counts"]["page_ranges"] == 2 and ranged["counts"]["pages"] == 8
+    assert not (root / "failures.jsonl").exists()

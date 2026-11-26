@@ -146,30 +146,86 @@ class Conversion:
     counts: dict[str, int] = field(default_factory=dict)
 
 
-def convert_pdf(raw: bytes, name: str = "document.pdf") -> Conversion:
+def pdf_page_count(raw: bytes) -> int:
+    """Pages of a PDF, read with pypdfium2 (Docling's own PDF library)."""
+    import pypdfium2
+
+    pdf = pypdfium2.PdfDocument(raw)
+    try:
+        return len(pdf)
+    finally:
+        pdf.close()
+
+
+def page_ranges(pages: int, range_pages: int) -> list[tuple[int, int] | None]:
+    """``[None]`` for one pass; else 1-based inclusive ranges of at most ``range_pages`` pages."""
+    if not range_pages or pages <= range_pages:
+        return [None]
+    return [(start, min(start + range_pages - 1, pages)) for start in range(1, pages + 1, range_pages)]
+
+
+def convert_pdf(raw: bytes, name: str = "document.pdf", range_pages: int = 0) -> Conversion:
     """Parse the bytes of one PDF. Never raises; any status but SUCCESS is an error.
 
     A partial result (Docling's time limit stops a document between steps) counts as failed.
+    With ``range_pages``, a longer PDF is parsed in ranges of that many pages and the parts
+    are joined with ``DoclingDocument.concatenate``; the parts keep their page numbers
+    (checked on an 8-page fixture with Docling 2.153.0). A failed range fails the document.
     """
     t0 = time.time()
     try:
         if raw[:2] == GZIP_MAGIC:
             raw = gzip.decompress(raw)
         from docling.datamodel.base_models import ConversionStatus, DocumentStream
+        from docling_core.types.doc import DoclingDocument
 
-        res = build_converter().convert(DocumentStream(name=name, stream=BytesIO(raw)), raises_on_error=False)
+        ranges = page_ranges(pdf_page_count(raw) if range_pages else 0, range_pages)
+        parts = []
+        for rng in ranges:
+            extra = {"page_range": rng} if rng else {}
+            res = build_converter().convert(DocumentStream(name=name, stream=BytesIO(raw)),
+                                            raises_on_error=False, **extra)
+            if res.status != ConversionStatus.SUCCESS:
+                errors = "; ".join(str(e) for e in (res.errors or []))[:500]
+                where = f" in pages {rng[0]}-{rng[1]}" if rng else ""
+                return Conversion(status=res.status.name, error=f"status {res.status.name}{where}: {errors}",
+                                  seconds=time.time() - t0)
+            parts.append(res.document)
+        doc = parts[0] if len(parts) == 1 else DoclingDocument.concatenate(parts)
     except Exception as exc:  # noqa: BLE001 — a parser never raises
         return Conversion(status="exception", error=f"{type(exc).__name__}: {exc}"[:500], seconds=time.time() - t0)
     seconds = time.time() - t0
-    if res.status != ConversionStatus.SUCCESS:
-        errors = "; ".join(str(e) for e in (res.errors or []))[:500]
-        return Conversion(status=res.status.name, error=f"status {res.status.name}: {errors}", seconds=seconds)
-    doc = res.document
     counts = {"pages": len(doc.pages), "tables": len(doc.tables),
               "cells": sum(len(t.data.table_cells) for t in doc.tables),
-              "tables_without_cells": sum(1 for t in doc.tables if not t.data.table_cells)}
+              "tables_without_cells": sum(1 for t in doc.tables if not t.data.table_cells),
+              "page_ranges": len(ranges)}
     return Conversion(status="SUCCESS", document=doc.export_to_dict(), markdown=doc.export_to_markdown(),
                       pages=len(doc.pages), seconds=seconds, counts=counts)
+
+
+VERSIONED_PACKAGES = ("docling", "docling-core", "docling-ibm-models", "docling-parse", "torch",
+                      "transformers", "rapidocr", "onnxruntime", "pypdfium2")
+
+
+def package_versions() -> dict[str, str]:
+    from importlib.metadata import PackageNotFoundError, version
+
+    out = {}
+    for name in VERSIONED_PACKAGES:
+        try:
+            out[name] = version(name)
+        except PackageNotFoundError:
+            out[name] = "missing"
+    return out
+
+
+def device() -> str:
+    try:
+        import torch
+
+        return f"cuda:{torch.cuda.get_device_name(0)}" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        return "cpu"
 
 
 class DoclingPdfParser:

@@ -11,7 +11,7 @@ tags: [pm/board]
 
 # Board — the active epic
 
-**[[epic|2026-11-26_28_pdf-parsing-docling]]** · **10 of 18 done** · 8 todo
+**[[epic|2026-11-26_28_pdf-parsing-docling]]** · **11 of 18 done** · 7 todo
 
 [[epic|Why this epic]] · [[_Archive|Finished epics]] · [[BACKLOG|What is open, in order]]
 
@@ -30,7 +30,6 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 | Task | Status | Waiting on | Kind | What it is |
 |---|---|---|---|---|
 | [[TASK-010]] | `todo` | the assistant | mechanism | Write the ranking script: complex-table score and page count per PDF |
-| [[TASK-011]] | `todo` | the assistant | wiring | Write the batch command and wire the parser, the post-processing and the writer into it |
 | [[TASK-012]] | `todo` | the assistant | mechanism | Write the batch report: rates, failures, sizes, post-processing counts, table numbers, words held |
 | [[TASK-013]] | `todo` | the assistant | documentation | Document the parser, the environment and the batch command |
 | [[TASK-014]] | `todo` | the assistant | checkpoint | Checkpoint: write batch 0's decision note and measure the rate on 3 documents |
@@ -52,6 +51,7 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 | [[TASK-007]] | `done` | — | mechanism | Post-processing rule 3: turn the table model's markup into text |
 | [[TASK-008]] | `done` | — | mechanism | Post-processing rule 4: take title and reference number from the page header |
 | [[TASK-009]] | `done` | — | mechanism | Write the writer: three files, a staged move, the failures list, the Markdown text and the Mongo row |
+| [[TASK-011]] | `done` | — | wiring | Write the batch command and wire the parser, the post-processing and the writer into it |
 
 ---
 
