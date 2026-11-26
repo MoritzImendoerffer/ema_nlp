@@ -20,7 +20,7 @@ tags: [pm/task, pm/done]
 
 ## Why it exists
 
-Required by the lead session's review of 2026-11-26 before TASK-004 fixes the model. The exploration's switch rested on one wrong character in one document, and 'no CJK character' is a weak test: a model that cannot write CJK passes it by construction. The larger risk is µg read as ug or mg, which changes a dose. OCR touches 30,614 pages in 5,503 documents (exploration section 6). CPU work of minutes; no approval needed.
+Required by the lead session's review of 2026-11-26 before TASK-004 fixes the model. The exploration's switch rested on one wrong character in one document, and 'no CJK character' is a weak test: a model that cannot write CJK passes it by construction. The larger risk is µg read as ug or mg, which changes a dose. OCR touches 30,614 pages in 5,503 documents (exploration section 6). CPU work of minutes; no approval needed. Addendum 12.1 (2026-11-26): the PP-OCRv5 and PP-OCRv4 server recognizers, EasyOCR (no Greek model) and Nemotron OCR v2 all read worse; Tesseract, measured by the lead session, cannot correct the Greek symbols. The choice stands.
 
 ## Acceptance criteria
 

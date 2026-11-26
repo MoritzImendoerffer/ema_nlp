@@ -117,7 +117,7 @@
         "Against the text layer: the share of words, of numbers and of each symbol held, and the CJK characters returned, per model, each with n",
         "The choice and the numbers go into an addendum of exploration.md and into the plan's choices; if the English model loses symbols, keep the multilingual model and let the batch report count CJK characters"
       ],
-      "notes": "Required by the lead session's review of 2026-11-26 before TASK-004 fixes the model. The exploration's switch rested on one wrong character in one document, and 'no CJK character' is a weak test: a model that cannot write CJK passes it by construction. The larger risk is µg read as ug or mg, which changes a dose. OCR touches 30,614 pages in 5,503 documents (exploration section 6). CPU work of minutes; no approval needed.",
+      "notes": "Required by the lead session's review of 2026-11-26 before TASK-004 fixes the model. The exploration's switch rested on one wrong character in one document, and 'no CJK character' is a weak test: a model that cannot write CJK passes it by construction. The larger risk is µg read as ug or mg, which changes a dose. OCR touches 30,614 pages in 5,503 documents (exploration section 6). CPU work of minutes; no approval needed. Addendum 12.1 (2026-11-26): the PP-OCRv5 and PP-OCRv4 server recognizers, EasyOCR (no Greek model) and Nemotron OCR v2 all read worse; Tesseract, measured by the lead session, cannot correct the Greek symbols. The choice stands.",
       "outcome": "30 pages with a text layer from 29 PDFs (at least 3 different target symbols and 400 characters; seed 20261126; 459 PDFs visited), OCRed whole at 200 DPI with 5 recognition models plus one detector variant, against the text layer, NFKC. PP-OCRv6 medium recognizer with the small detector: words 92.6% of 7,235, numbers 98.2% of 1,190, µ 95.5% of 110, Greek 68.8% of 1,668, ± ≥ ≤ × all held, 0 CJK, 180 s; the wheel's small recognizer 92.4/98.0/70.9/42.1%, 70 s; en PP-OCRv5 mobile 87.9/98.0/91.8/41.5% and 0 of 2 ×; latin v5 and en v4 worse; the medium detector loses numbers (96.0%). Character lists from model metadata: v6 small and medium identical (18,708, 15,910 CJK); en v5 436, no en dash. Choice: PP-OCRv6 multilingual, small detector + medium recognizer via rec_model_path, batch report counts CJK; recorded in exploration.md section 12 and state.json decisions; TASK-004 and TASK-012 acceptance updated. Gates: make test 792 passed, 3 skipped, 13 deselected; make lint All checks passed."
     },
     {
@@ -312,7 +312,8 @@
         "Words and numbers held against the legacy text of the same document",
         "`tests/test_report_docling_batch.py` passes on two stored fixture documents",
         "`make test` passes and `make lint` passes, each run on its own line",
-        "It counts CJK characters returned by OCR per document (exploration section 12)"
+        "It counts CJK characters returned by OCR per document (exploration section 12)",
+        "Beside numbers: Greek letters and the micro sign held against the text layer, for the page text and for the tables, each with n, and the Greek letters returned that the layer lacks; a Greek letter on a line without a run of 3 or more Greek letters counts as a symbol in Latin text (the lead session's line rule of 2026-11-26), and the page states the rule"
       ],
       "notes": "Proposal section 'What batch 0 reports'. The check cannot see a number in the wrong cell; the page says so."
     },
@@ -354,7 +355,8 @@
       "acceptance": [
         "The note lists the 270 URLs, the seed, the strata sizes counted in the stores, the pages, and the estimated GPU hours with the arithmetic, from a 3-document run in the parse environment",
         "It names beforehand the share of tables with numbers missing or added that would stop the batches",
-        "It cites the owner's yes of 2026-11-25 (about 270 PDFs, 7 to 12 GPU hours, files only); the batch starts only if the estimate stays inside it, and is cut to fit otherwise"
+        "It cites the owner's yes of 2026-11-25 (about 270 PDFs, 7 to 12 GPU hours, files only); the batch starts only if the estimate stays inside it, and is cut to fit otherwise",
+        "It names beforehand the share of Greek symbols held that would stop the batches, quoting the owner's requirement \"Greek symbols should be conserved\" (relayed by the lead session, 2026-11-26)"
       ],
       "notes": "Plan choices, overrulable: the 200 are the top of the ranking with at most 60 pages (7,749 pages in the exploration); the 70 are drawn with a fixed seed from the rest with at most 200 pages, so that a few test the page-range path. Exploration section 8: 8.4 to 9.0 hours for the at-most-60-page draw. The 70 random documents are drawn from PDFs that have a legacy row, so that the comparison with today's text exists for each (lead session's review of 2026-11-26)."
     },

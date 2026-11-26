@@ -244,3 +244,13 @@ def test_no_lift_when_the_body_holds_the_reference():
     doc = _doc(["#/texts/0", "#/texts/1"], [], texts=texts)
     out, counts = post_process(doc)
     assert counts["header_reference_lifted"] == 0 and len(out["texts"]) == 2
+
+
+def test_greek_command_inside_a_word_and_capitals():
+    """The table model writes \\Theta, \\Delta, \\Sigma inside Greek-language words (lead session's
+    measurement on 30 pages, 2026-11-26)."""
+    from corpus.parsers.docling_post import convert_markup
+
+    assert convert_markup(r"ΣΥΝ\ThetaΕΣΗ")[0] == "ΣΥΝΘΕΣΗ"
+    assert convert_markup(r"\beta-lactam")[0] == "β-lactam"
+    assert convert_markup(r"\(\Sigma\) of doses")[0] == "Σ of doses"

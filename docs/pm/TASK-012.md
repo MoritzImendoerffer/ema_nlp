@@ -31,6 +31,7 @@ Proposal section 'What batch 0 reports'. The check cannot see a number in the wr
 - [ ] `tests/test_report_docling_batch.py` passes on two stored fixture documents
 - [ ] `make test` passes and `make lint` passes, each run on its own line
 - [ ] It counts CJK characters returned by OCR per document (exploration section 12)
+- [ ] Beside numbers: Greek letters and the micro sign held against the text layer, for the page text and for the tables, each with n, and the Greek letters returned that the layer lacks; a Greek letter on a line without a run of 3 or more Greek letters counts as a symbol in Latin text (the lead session's line rule of 2026-11-26), and the page states the rule
 
 **Depends on:** [[TASK-009]]
 

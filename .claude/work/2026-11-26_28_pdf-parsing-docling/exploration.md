@@ -262,3 +262,43 @@ pages hold under 50 characters (section 6). The difference is therefore at most 
 
 This supersedes section 5's recommendation of the English PP-OCRv5 model. Section 5's
 finding stands: `lang=["en"]` alone changes nothing.
+
+### 12.1 More recognizers and engines, same 30 pages (2026-11-26)
+
+Asked by the owner through the lead session: "what about the large sized recognizer?" and
+"what about other OCR engines?". Same pages, same measures, same detector for the RapidOCR
+models. EasyOCR and Nemotron ran in a third trial environment (`docling-c`: the pinned set
+plus `easyocr` 1.7.2 and `nemotron-ocr` 2.0.3, which moved that environment's torch to 2.13.0).
+Neither touched the real parse environment.
+
+| Engine / model | Ran on | Words | Numbers | µ (of 110) | ± ≥ ≤ × (of 11) | Greek other than µ (of 1,668) | CJK | Seconds, 30 pages | File |
+|---|---|---|---|---|---|---|---|---|---|
+| **PP-OCRv6 medium recognizer (the choice)** | CPU | **92.6%** | **98.2%** | **95.5%** | **11** | **68.8%** | 0 | 180 | 76.6 MB |
+| ch PP-OCRv5 server recognizer | CPU | 87.7% | 96.1% | 48.2% | 11 | 32.3% | 1 | 252 | 84.6 MB |
+| ch PP-OCRv4 server recognizer | CPU | 83.5% | 95.1% | 74.5% | 10 | 8.7% | 18 | 486 | 90.5 MB |
+| EasyOCR 1.7.2, `en` | GPU | 81.4% | 83.5% | 0% | 0 | 0% | 0 | 65 | — |
+| EasyOCR, Greek | — | not offered: `ValueError: ({'el'}, 'is not supported')` | | | | | | | |
+| Nemotron OCR v2, English recognizer | GPU | 83.6% | 56.7% | 40.0% | 0 | 17.3% | 0 | 6.2 (model already loaded) | — |
+
+PP-OCRv6 has no recognizer larger than medium in rapidocr 3.10.0. The server models of the
+generations before it are larger and read worse here.
+
+**Tesseract, measured by the lead session** on the same pages with the same definitions
+(`$EMA_RESULTS_DIR/2026-11-26_ocr_greek_combination/`). It split Greek letters by line: a
+line without a run of 3 or more Greek letters counts as Latin text, and its Greek letters count
+as symbols. Only 52 Greek letters on these pages are symbols in Latin text; the rest belong to
+Greek-language translation tables.
+
+| Reading (lead session's run) | Words | Numbers | Greek symbols (of 52) | Greek-language letters (of 1,726) | ± ≥ ≤ ° × (of 11) | Greek letters the layer lacks |
+|---|---|---|---|---|---|---|
+| PP-OCRv6 small detector, medium recognizer | 92.6% | 98.2% | 48 | 69.2% | 11 | 15 |
+| Tesseract 5.5.0 `eng` | 83.6% | 92.8% | 0 | 0% | 0 | 0 |
+| Tesseract `eng+ell` | 86.1% | 92.1% | 5 | 95.4% | 0 | 552 |
+| PP-OCR, Greek letters taken from Tesseract by line alignment | 92.9% | 98.2% | 49 | 80.6% | 11 | 32 |
+
+Tesseract writes µg as "ug", "pg" or "wg", and ±10 as "+10". It cannot correct PaddleOCR's
+Greek symbols, so nothing is built for it. The lead session also ran Docling with this unit's
+table stage on the 30 pages. All 30 parsed with SUCCESS. The page Markdown held 50 of the 52
+Greek symbols, and the table cells held 797 of 799 numbers in the text layer.
+
+**Unchanged choice:** the multilingual PP-OCRv6 small detector with the medium recognizer.

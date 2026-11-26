@@ -27,6 +27,7 @@ Plan choices, overrulable: the 200 are the top of the ranking with at most 60 pa
 - [ ] The note lists the 270 URLs, the seed, the strata sizes counted in the stores, the pages, and the estimated GPU hours with the arithmetic, from a 3-document run in the parse environment
 - [ ] It names beforehand the share of tables with numbers missing or added that would stop the batches
 - [ ] It cites the owner's yes of 2026-11-25 (about 270 PDFs, 7 to 12 GPU hours, files only); the batch starts only if the estimate stays inside it, and is cut to fit otherwise
+- [ ] It names beforehand the share of Greek symbols held that would stop the batches, quoting the owner's requirement "Greek symbols should be conserved" (relayed by the lead session, 2026-11-26)
 
 **Depends on:** [[TASK-011]], [[TASK-012]], [[TASK-013]]
 
