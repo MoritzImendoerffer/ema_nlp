@@ -15,6 +15,7 @@ from pathlib import Path
 from corpus.parsers.docling_post import _rows, post_process
 
 _FIX = Path(__file__).parent / "fixtures" / "docling"
+_BOX = {"l": 0.0, "t": 10.0, "r": 10.0, "b": 0.0, "coord_origin": "BOTTOMLEFT"}
 
 
 def _cell(r, c, text, header=False):
@@ -26,16 +27,16 @@ def _cell(r, c, text, header=False):
 def _table(i, page, rows, captions=(), footnotes=()):
     cells = [_cell(r, c, t) for r, row in enumerate(rows) for c, t in enumerate(row)]
     return {"self_ref": f"#/tables/{i}", "parent": {"$ref": "#/body"}, "children": [], "content_layer": "body",
-            "label": "table", "prov": [{"page_no": page, "bbox": {}, "charspan": [0, 0]}],
+            "label": "table", "prov": [{"page_no": page, "bbox": dict(_BOX), "charspan": [0, 0]}],
             "captions": [{"$ref": r} for r in captions], "references": [],
             "footnotes": [{"$ref": r} for r in footnotes],
-            "data": {"table_cells": cells, "num_rows": len(rows), "num_cols": len(rows[0]), "orientation": None, "grid": []},
+            "data": {"table_cells": cells, "num_rows": len(rows), "num_cols": len(rows[0]), "orientation": "rot_0", "grid": []},
             "annotations": []}
 
 
 def _text(i, page, text, label="text", layer="body"):
     return {"self_ref": f"#/texts/{i}", "parent": {"$ref": "#/body"}, "children": [], "content_layer": layer,
-            "label": label, "prov": [{"page_no": page, "bbox": {}, "charspan": [0, len(text)]}], "orig": text, "text": text}
+            "label": label, "prov": [{"page_no": page, "bbox": dict(_BOX), "charspan": [0, len(text)]}], "orig": text, "text": text}
 
 
 def _doc(order, tables, texts=(), pictures=()):
@@ -81,7 +82,7 @@ def test_text_between_parts_ends_the_table_but_a_logo_does_not():
                    [_table(0, 1, [HEAD]), _table(1, 2, [["B", "y", "2021"]])], texts=[_text(0, 1, "A new paragraph.")])
     assert post_process(blocked)[1]["tables_joined"] == 0
     logo = {"self_ref": "#/pictures/0", "parent": {"$ref": "#/body"}, "children": [], "content_layer": "body",
-            "label": "picture", "prov": [{"page_no": 1, "bbox": {}, "charspan": [0, 0]}], "captions": [], "references": [], "footnotes": []}
+            "label": "picture", "prov": [{"page_no": 1, "bbox": dict(_BOX), "charspan": [0, 0]}], "captions": [], "references": [], "footnotes": []}
     passes = _doc(["#/tables/0", "#/pictures/0", "#/tables/1"],
                   [_table(0, 1, [HEAD]), _table(1, 2, [["B", "y", "2021"]])], pictures=[logo])
     assert post_process(passes)[1]["tables_joined"] == 1
@@ -115,3 +116,46 @@ def test_real_procedural_steps_table_over_four_pages():
     assert t["data"]["num_rows"] == 16 and t["data"]["num_cols"] == 6
     assert len(t["footnotes"]) == 3
     assert "#/tables/1" not in json.dumps(out)
+
+
+# ── rule 2: footnotes in tables (TASK-006) ─────────────────────────────────────
+
+
+def test_footnote_mark_is_not_merged_into_number():
+    """The model writes 12.5\\(^{1}\\); as plain text that would read 12.51."""
+    import re
+
+    doc = _doc(["#/tables/0"], [_table(0, 1, [["Dose", "Value"], ["Child", r"12.5\(^{1}\)"]])])
+    out, counts = post_process(doc)
+    cell = next(c for c in out["tables"][0]["data"]["table_cells"] if c["start_row_offset_idx"] == 1 and c["start_col_offset_idx"] == 1)
+    assert cell["text"] == "12.5¹"
+    assert re.findall(r"\d+(?:\.\d+)?", cell["text"]) == ["12.5"]
+    assert counts["footnote_marks"] == 1
+
+
+def test_footnote_texts_attach_to_table():
+    texts = [_text(0, 1, "a Full analysis set: all randomised patients."),
+             _text(1, 1, "b Safety set."),
+             _text(2, 1, "The study then continued.")]
+    doc = _doc(["#/tables/0", "#/texts/0", "#/texts/1", "#/texts/2"],
+               [_table(0, 1, [["Set", "n"], [r"FAS\(^{a}\)", "120"], [r"Safety Set\(^{b}\)", "118"]])], texts=texts)
+    out, counts = post_process(doc)
+    t = out["tables"][0]
+    assert counts["footnotes_attached"] == 2
+    assert [r["$ref"] for r in t["footnotes"]] == ["#/texts/0", "#/texts/1"]
+    assert out["texts"][0]["parent"] == {"$ref": "#/tables/0"}
+    assert out["body"]["children"] == [{"$ref": "#/tables/0"}, {"$ref": "#/texts/2"}]
+
+
+def test_text_with_an_unused_mark_is_not_attached():
+    doc = _doc(["#/tables/0", "#/texts/0"], [_table(0, 1, [["Set", "n"], [r"FAS\(^{a}\)", "120"]])],
+               texts=[_text(0, 1, "c Something else.")])
+    out, counts = post_process(doc)
+    assert counts["footnotes_attached"] == 0 and out["body"]["children"][-1] == {"$ref": "#/texts/0"}
+
+
+def test_exponent_is_left_for_rule_3_and_unknown_mark_stays_apart():
+    from corpus.parsers.docling_post import superscript_marks
+
+    assert superscript_marks(r"2.06e^{-14}") == (r"2.06e^{-14}", 0)
+    assert superscript_marks(r"x\(^{q}\)") == ("x^q", 1)

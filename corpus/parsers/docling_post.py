@@ -9,6 +9,11 @@ Rule 1, tables over pages: a table that continues on the next page comes out of 
 as one table per page. PaddleOCR-VL kept 6 columns on each of the four pages of one EMA
 procedural-steps table, as four separate tables. The parts are joined into one table that
 keeps one provenance entry per page.
+
+Rule 2, footnotes in tables: PaddleOCR-VL writes a footnote mark as superscript markup,
+``12.5\\(^{1}\\)``. Read as plain text that becomes "12.51", another number. The mark is
+written as a Unicode superscript, "12.5¹", so it stays a mark. Footnote texts below a table
+that begin with a mark used in its cells are attached to that table.
 """
 
 from __future__ import annotations
@@ -167,8 +172,90 @@ def _remove_tables(doc: dict[str, Any], joined_into: dict[int, int]) -> None:
         _rebuild_grid(t["data"])
 
 
+_SUPERSCRIPT = dict(zip("0123456789+-=()abcdefghijklmnoprstuvwxyz",
+                        "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ"))
+_BASE = {v: k for k, v in _SUPERSCRIPT.items()}
+# A superscript after a mantissa (2.06e^{-14}, 10^{3}) is an exponent, not a footnote mark;
+# rule 3 writes it as text.
+_EXPONENT_BEFORE = re.compile(r"(?:\d[eE]|10)$")
+_SUP_MARKUP = re.compile(r"\\\(\s*\^\{([^{}]{1,4})\}\s*\\\)|\^\{([^{}]{1,4})\}")
+_TRAILING_MARKS = re.compile(r"([⁰¹²³⁴⁵⁶⁷⁸⁹ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ*†‡§]+)$")
+_FOOTNOTE_START = re.compile(r"^\s*(?:\(?([0-9]{1,2}|[a-z]|\*{1,3}|[†‡§])\)?(?=[\s.:)])|([⁰¹²³⁴⁵⁶⁷⁸⁹ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ]+))")
+
+
+def superscript_marks(text: str) -> tuple[str, int]:
+    """Write ``\\(^{1}\\)`` and ``^{a}`` as Unicode superscripts; leave exponents for rule 3.
+
+    Returns the new text and the number of marks written. A mark without a Unicode
+    superscript form stays as ``^x``, still apart from the number before it.
+    """
+    count = 0
+
+    def repl(m: re.Match[str]) -> str:
+        nonlocal count
+        mark = (m.group(1) or m.group(2) or "").strip()
+        if _EXPONENT_BEFORE.search(text[: m.start()]):
+            return m.group(0)
+        count += 1
+        if mark and all(ch.lower() in _SUPERSCRIPT for ch in mark):
+            return "".join(_SUPERSCRIPT[ch.lower()] for ch in mark)
+        return "^" + mark
+
+    return _SUP_MARKUP.sub(repl, text), count
+
+
+def _base_mark(mark: str) -> str:
+    return "".join(_BASE.get(ch, ch) for ch in mark)
+
+
+def attach_table_footnotes(doc: dict[str, Any]) -> tuple[int, int]:
+    """Rule 2, in place. Returns (marks written as superscripts, footnote texts attached)."""
+    marks_written = attached = 0
+    marks_by_table: dict[int, set[str]] = {}
+    for i, table in enumerate(doc.get("tables", [])):
+        marks: set[str] = set()
+        for cell in table["data"]["table_cells"]:
+            text, n = superscript_marks(cell.get("text", ""))
+            cell["text"] = text
+            marks_written += n
+            m = _TRAILING_MARKS.search(text.strip())
+            if m:
+                marks |= {_base_mark(ch) for ch in m.group(1)}
+        marks_by_table[i] = marks
+        _rebuild_grid(table["data"])
+    body = doc["body"]["children"]
+    out_children: list[dict[str, str]] = []
+    current: int | None = None
+    for child in body:
+        ref = child["$ref"]
+        tm = _TABLE_REF.match(ref)
+        if tm:
+            current = int(tm.group(1))
+            out_children.append(child)
+            continue
+        if current is not None and ref.startswith("#/texts/"):
+            item = _resolve(doc, ref)
+            if item.get("content_layer") == "furniture":
+                out_children.append(child)
+                continue
+            fm = _FOOTNOTE_START.match(item.get("text", ""))
+            mark = _base_mark(fm.group(1) or fm.group(2) or "") if fm else ""
+            if mark and mark in marks_by_table.get(current, set()):
+                table = doc["tables"][current]
+                item["parent"] = {"$ref": f"#/tables/{current}"}
+                table.setdefault("footnotes", []).append({"$ref": ref})
+                table.setdefault("children", []).append({"$ref": ref})
+                attached += 1
+                continue
+        current = None if not tm else current
+        out_children.append(child)
+    doc["body"]["children"] = out_children
+    return marks_written, attached
+
+
 def post_process(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, int]]:
     """All rules, in order, on a copy of ``raw``. Returns the new document and the counts."""
     doc = copy.deepcopy(raw)
     counts = {"tables_joined": join_tables_over_pages(doc)}
+    counts["footnote_marks"], counts["footnotes_attached"] = attach_table_footnotes(doc)
     return doc, counts

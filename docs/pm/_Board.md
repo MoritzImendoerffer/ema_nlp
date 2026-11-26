@@ -11,7 +11,7 @@ tags: [pm/board]
 
 # Board — the active epic
 
-**[[epic|2026-11-26_28_pdf-parsing-docling]]** · **6 of 18 done** · 12 todo
+**[[epic|2026-11-26_28_pdf-parsing-docling]]** · **7 of 18 done** · 11 todo
 
 [[epic|Why this epic]] · [[_Archive|Finished epics]] · [[BACKLOG|What is open, in order]]
 
@@ -29,7 +29,6 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 
 | Task | Status | Waiting on | Kind | What it is |
 |---|---|---|---|---|
-| [[TASK-006]] | `todo` | the assistant | mechanism | Post-processing rule 2: footnote marks stay marks, footnote texts attach to their table |
 | [[TASK-007]] | `todo` | the assistant | mechanism | Post-processing rule 3: turn the table model's markup into text |
 | [[TASK-008]] | `todo` | the assistant | mechanism | Post-processing rule 4: take title and reference number from the page header |
 | [[TASK-009]] | `todo` | the assistant | mechanism | Write the writer: three files, a staged move, the failures list, the Markdown text and the Mongo row |
@@ -52,6 +51,7 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 | [[TASK-018]] | `done` | — | measurement | Measure the OCR recognition models on pages with a known answer, and choose one |
 | [[TASK-004]] | `done` | — | mechanism | Write the docling parser on the Parser protocol |
 | [[TASK-005]] | `done` | — | mechanism | Post-processing rule 1: join a table that runs over pages |
+| [[TASK-006]] | `done` | — | mechanism | Post-processing rule 2: footnote marks stay marks, footnote texts attach to their table |
 
 ---
 

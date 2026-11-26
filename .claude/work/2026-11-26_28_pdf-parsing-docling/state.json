@@ -3,7 +3,7 @@
   "proposal": "docs/next/pdf_parsing_docling.md",
   "planned_at": "2026-11-26",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-006",
+  "current_task": "TASK-007",
   "baseline": {
     "make_test": "786 passed, 2 skipped, 13 deselected (develop at 0a37623, 2026-11-26)",
     "make_lint": "All checks passed",
@@ -171,7 +171,7 @@
       "id": "TASK-006",
       "title": "Post-processing rule 2: footnote marks stay marks, footnote texts attach to their table",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-005"
       ],
@@ -184,7 +184,8 @@
         "`::test_footnote_texts_attach_to_table` passes: texts below a table that begin with a mark used in its cells are attached to that table",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "Exploration section 4: PaddleOCR-VL writes marks as superscript markup (`FAS\\(^{a}\\)`), and Docling 2.153.0 exports the footnotes under the repatha table, which 2.132.0 drops."
+      "notes": "Exploration section 4: PaddleOCR-VL writes marks as superscript markup (`FAS\\(^{a}\\)`), and Docling 2.153.0 exports the footnotes under the repatha table, which 2.132.0 drops.",
+      "outcome": "Rule 2 in corpus/parsers/docling_post.py: superscript_marks() writes \\(^{1}\\) and ^{a} as Unicode superscripts (12.5\\(^{1}\\) -> 12.5¹, FAS\\(^{a}\\) -> FASᵃ), leaves exponents after a mantissa (2.06e^{-14}, 10^{3}) for rule 3, and writes a mark without a superscript form as ^x; attach_table_footnotes() collects the trailing marks of each table's cells and attaches the body texts directly below the table that begin with one of those marks (parent set to the table, ref moved from body children to the table's footnotes and children); a text with another mark or no mark ends the scan. Counts footnote_marks and footnotes_attached. 4 new tests (11 in tests/test_docling_post.py); synthetic fixtures given valid boxes and orientation so they load in docling-core. make test-parse: 8 passed incl. the attached footnote loading as a DoclingDocument with 'FASᵃ' in its Markdown. Gates: make test 806 passed, 3 skipped, 13 deselected; make lint All checks passed (after ruff --fix of one parenthesis)."
     },
     {
       "id": "TASK-007",

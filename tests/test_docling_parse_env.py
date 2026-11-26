@@ -108,3 +108,18 @@ def test_post_processed_document_loads_in_docling_core():
     assert counts["tables_joined"] == 3 and len(loaded.tables) == 1
     assert loaded.tables[0].data.num_rows == 16
     assert "Application number" in loaded.export_to_markdown()
+
+
+def test_attached_footnotes_load_in_docling_core():
+    from docling_core.types.doc import DoclingDocument
+
+    from corpus.parsers.docling_post import post_process
+    from tests.test_docling_post import _doc, _table, _text
+
+    doc = _doc(["#/tables/0", "#/texts/0"], [_table(0, 1, [["Set", "n"], [r"FAS\(^{a}\)", "120"]])],
+               texts=[_text(0, 1, "a Full analysis set.")])
+    out, counts = post_process(doc)
+    loaded = DoclingDocument.model_validate(out)
+    assert counts["footnotes_attached"] == 1
+    assert loaded.tables[0].footnotes[0].cref == "#/texts/0"
+    assert "FASᵃ" in loaded.export_to_markdown()
