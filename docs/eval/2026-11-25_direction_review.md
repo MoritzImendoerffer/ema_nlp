@@ -290,6 +290,11 @@ a first question and a follow-up. In the paper's abstract the one model result i
 completes only 8.67% of tasks in c-Interact and 17.00% in a-Interact", the two test
 settings.
 
+A literature session read the paper in full and reports two findings from it; the lead did
+not read the paper. Over 80% of 50 sampled failures came from an ambiguity that the agent
+did not resolve. And the systems asked about one question per task, where 3.89 ambiguities
+were planted per task on average. The agents ask too little.
+
 **What the vendor measured.** Seven models, each with and without the layer, on the
 benchmark's public test harness, in runs of 2026-10-03 to 2026-10-07. The vendor counts
 410 of the 600 tasks as business questions. The other 190 are data-management tasks, which
@@ -328,6 +333,9 @@ full set, in the agentic setting:
 
 The entries used different simulated users, so the rows are not a clean comparison. Four of
 the vendor's seven first-run figures above lie over the verified leader's 42.0%.
+The leader's evaluation code runs no arm with the same model and without the ontology on this
+benchmark, as the literature session reports from its README. The table therefore shows no
+measured gain for the ontology.
 
 Auto-Ontology is an open library (Apache-2.0). It builds an ontology automatically from a
 database's catalogue, keys, views and query history: terms with descriptions, the columns
@@ -383,7 +391,9 @@ benchmark of the same kind (arXiv:2604.25149); nobody in this project has read i
    queries or a few fixed tools may be enough. The number of computed questions in
    benchmark v0 (row 15) decides whether the comparison of point 4 is worth a run. What
    carries over without any SQL is the method: a term a person certifies once, a generated
-   step that code checks before it runs, and an answer that returns the steps it took.
+   step that code checks before it runs, an answer that returns the steps it took, and an
+   agent that asks when a question is ambiguous. The last one bears on goals 2 to 4: a
+   question to the person before the answer is a confirmation that costs one line.
 6. **Three lessons from how the result was produced.** A best-of-three number is not
    compared with a single run. Definitions are not tuned on the questions they are scored
    on: the held-out product of row 16 covers this. And a computed gold answer is audited
