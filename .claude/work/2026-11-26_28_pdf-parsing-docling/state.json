@@ -384,7 +384,7 @@
         "One test with one, two and three worker processes on the same 20 documents (batch0/workers20.jsonl, the random documents with the fewest pages), timed, each in its own folder under $EMA_RESULTS_DIR/docling/batch0/ and with a stop-file timer at 15 min",
         "The GPU stays at the 250 W cap; the pauses run; no build runs at the same time"
       ],
-      "notes": "Stop and report if a count differs from the note or the GPU misbehaves (planning workflow; the GSP crash memory). The batch can stop and resume: existing folders are skipped."
+      "notes": "Stop and report if a count differs from the note or the GPU misbehaves (planning workflow; the GSP crash memory). The batch can stop and resume: existing folders are skipped. While the batch runs, no module a worker imports is edited (corpus/parsers/docling_pdf.py, docling_batch.py, docling_post.py, docling_store.py, paddleocr_vl_table.py): a new worker (every 50 documents) imports them from disk."
     },
     {
       "id": "TASK-016",
@@ -400,7 +400,8 @@
       "acceptance": [
         "The page has every measure of the proposal's table 'What batch 0 reports', each with n, and every failed document",
         "It states the versions, the options hash and the model revisions",
-        "It carries the counted corpus numbers of the exploration (66,183 PDFs, 1,133,660 pages, 16,633 ranked documents, 328,278 tables, 30,614 pages without text), each with its rule; row 21's proposal cites this page"
+        "It carries the counted corpus numbers of the exploration (66,183 PDFs, 1,133,660 pages, 16,633 ranked documents, 328,278 tables, 30,614 pages without text), each with its rule; row 21's proposal cites this page",
+        "Picture OCR (lead session's request, 2026-11-26): OCR seconds on pages with a text layer against pages without one, each as a share of the batch's wall time; the characters and numbers OCR contributes on pages with a text layer and how many such pages; ten random examples of what it read there, each with its region kind (photograph, logo, chart, table set as an image, scanned insert). Measured by re-running a random sample of batch-0 documents with Docling's per-page stage timings, OCR on and OCR off, table stage off (the batch stores neither per-page timings nor which text came from OCR); the sample, its n and its run time are stated"
       ],
       "notes": "The report script of TASK-012 produces the numbers."
     },
@@ -417,7 +418,9 @@
       ],
       "acceptance": [
         "A decision note asks open question 1 of the proposal (where the folders live, compressed or not) with batch 0's sizes",
-        "It says whether batch 0's numbers stay inside the thresholds of TASK-014, and what that means for row 21"
+        "It says whether batch 0's numbers stay inside the thresholds of TASK-014, and what that means for row 21",
+        "Which options change the options hash: OcrOptions.mode (PDF_AWARE_LAYOUT_REGIONS by default, docling/datamodel/pipeline_options.py:108-122 in 2.153.0, no area threshold for pictures), a rule of ours that skips pictures on pages with a text layer (it must enter OPTIONS), and the OCR execution provider (onnxruntime-gpu)",
+        "The full-corpus estimate per tier (ranked, pages without text, the rest), each with the rate it rests on and that rate's n"
       ],
       "notes": "No later batch runs in this row (proposal)."
     }
