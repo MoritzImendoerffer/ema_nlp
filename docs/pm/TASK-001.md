@@ -1,47 +1,37 @@
 ---
 type: pm-task
-epic: 2026-11-23_27_pipeline-refresh
-sprint: 2026-11-23_27_pipeline-refresh
+epic: 2026-11-26_28_pdf-parsing-docling
+sprint: 2026-11-26_28_pdf-parsing-docling
 task: TASK-001
-status: done
+status: todo
 kind: contract
-title: "Give parser_preference.yaml a reader that understands name@version"
+title: "Fix the stored shape: folder layout, file names, document id, options hash, config roots"
 generated: true
-waiting_on: —
-tags: [pm/task, pm/done]
+waiting_on: the assistant
+tags: [pm/task, pm/todo]
 ---
 
-> [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
+> [!warning] Generated from `.claude/work/2026-11-26_28_pdf-parsing-docling/state.json` by `scripts/pm_notes.py`.
 > Anything written here by hand is lost on the next run.
 
-# TASK-001 — Give parser_preference.yaml a reader that understands name@version
+# TASK-001 — Fix the stored shape: folder layout, file names, document id, options hash, config roots
 
-**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
 
 ## Why it exists
 
-Decisions A and D (docs/pm/decisions/2026-11-25_pdf-parser-order.md, 2026-11-25_legacy-parser-name.md). The file becomes: application/pdf: [pymupdf4llm@legacy, pymupdf4llm]; text/html: [trafilatura]. An entry 'name' matches every version of that parser; 'name@version' matches that version only.
-
-The header of the file says today (lines 3-9) that nothing reads it; replace it with what the reader does and a pointer to decision D. The file is authored data (CLAUDE.md rule 3): edited by hand here, read by code, written by no tool.
-
-A reader existed once: `git show a70c38c:harness/embed_pg.py`, lines 86-122 (`load_parser_preference`). Do not restore its command-line override: the proposal does not ask for one (rule 1).
-
-Keep the reader pure (path in, mapping out) so TASK-002 can test selection without a file.
+The module is pure Python and runs in .venv: no Docling import. Proposal section 'What is stored'. A 6-character hash, as doctool uses (ids.py:124-131), gave an expected 4% chance of a silent overwrite; 12 characters are used. Two PDFs with the same bytes share one folder. The parsed root is open question 1 of the proposal (the owner decides after batch 0); batch 0 writes plain JSON under the default root and reports the gzip size beside it.
 
 ## Acceptance criteria
 
-- [x] `tests/test_parser_preference.py::test_loads_shipped_file` passes: the shipped file loads as {'application/pdf': [('pymupdf4llm', 'legacy'), ('pymupdf4llm', None)], 'text/html': [('trafilatura', None)]}
-- [x] `tests/test_parser_preference.py::test_entry_with_version_matches_that_version_only` and `::test_entry_without_version_matches_every_version` pass
-- [x] `tests/test_parser_preference.py::test_malformed_file_raises` passes: a top-level list, an empty entry and 'a@' each raise ValueError
-- [x] `grep -c 'does NOT yet' harness/configs/parser_preference.yaml` prints 0
-- [x] `make test` passes and `make lint` passes, each run on its own line
-
-## What was built
-
-harness/indexing/parser_preference.py reads the preference file into PreferenceEntry(parser, version) tuples; 'name@version' matches one version, 'name' every version. The shipped file lists pymupdf4llm@legacy, then pymupdf4llm, for application/pdf and trafilatura for text/html. 9 tests in tests/test_parser_preference.py. Caller: iter_source_rows, wired in TASK-002. Gates: make test 745 passed, 2 skipped, 7 deselected; make lint All checks passed.
+- [ ] `tests/test_docling_store.py::test_doc_id_is_slug_and_12_hex` passes: `doc_id_for(url, pdf_bytes)` gives `<last URL part, at most 40 characters>_<first 12 hex of sha256(bytes)>`, with `doc` as the fallback slug
+- [ ] `::test_options_hash_is_stable` passes: the same options dict in another key order gives the same 8-character hash; a changed option gives another
+- [ ] `::test_folder_path` passes: `<root>/<doc-id>/docling@<hash8>/` with `doc.raw.json`, `doc.json`, `run.json`
+- [ ] `config.PARSED_ROOT` defaults to `~/Nextcloud/Datasets/ema_nlp/parsed` (override `EMA_PARSED_ROOT`); `config.DOCLING_ENV` defaults to `~/.local/share/ema_nlp/envs/docling` (override `EMA_DOCLING_ENV`)
+- [ ] `make test` passes and `make lint` passes, each run on its own line
 
 ## Files it touched
 
-- `harness/configs/parser_preference.yaml`
-- `harness/indexing/parser_preference.py`
-- `tests/test_parser_preference.py`
+- `corpus/parsers/docling_store.py`
+- `config.py`
+- `tests/test_docling_store.py`

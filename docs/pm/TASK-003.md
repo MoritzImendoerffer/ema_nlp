@@ -1,43 +1,38 @@
 ---
 type: pm-task
-epic: 2026-11-23_27_pipeline-refresh
-sprint: 2026-11-23_27_pipeline-refresh
+epic: 2026-11-26_28_pdf-parsing-docling
+sprint: 2026-11-26_28_pdf-parsing-docling
 task: TASK-003
-status: done
-kind: contract
-title: "Put parser, parser_version and text_sha256 on the :Document node"
+status: todo
+kind: mechanism
+title: "Write the PaddleOCR-VL table stage and register it in code"
 generated: true
-waiting_on: —
-tags: [pm/task, pm/done]
+waiting_on: the assistant
+tags: [pm/task, pm/todo]
 ---
 
-> [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
+> [!warning] Generated from `.claude/work/2026-11-26_28_pdf-parsing-docling/state.json` by `scripts/pm_notes.py`.
 > Anything written here by hand is lost on the next run.
 
-# TASK-003 — Put parser, parser_version and text_sha256 on the :Document node
+# TASK-003 — Write the PaddleOCR-VL table stage and register it in code
 
-**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
 
 ## Why it exists
 
-`build_ingested_doc` (ingest.py:108-116) already puts `parser` in `metadata`; add `parser_version` and `text_sha256` there, and write all three in `_entity_for` (property_graph.py:172-203). Hash the row's `text` exactly as stored (`pd.get('text', '') or ''`), UTF-8, 64 hex characters.
-
-Do not add them to `base_meta` (ingest.py:128-133), which goes into the chunk nodes: the chunk ids and texts must stay. The exploration (section 4.3) checked 80 of 80 documents: today's rows rebuild exactly the chunk ids in the graph.
-
-Stored shape: the 79,882 existing :Document nodes do not have the three properties until TASK-016. `MATCH (d:Document) RETURN count(d.parser), count(d.parser_version), count(d.text_sha256)` gave 0, 0, 0 on 2026-11-23.
+Written here; doctool's `src/dw/parsers/paddleocr_vl_stage.py:54-183` is the example (exploration section 3). The model repository's configuration turns the generation cache off, which made one table 7 to 20 times slower in doctool: set `use_cache=True` on every generate call. Registration in code works in Docling 2.153.0 (exploration section 4); no entry point.
 
 ## Acceptance criteria
 
-- [x] `tests/test_indexing_property_graph.py::test_entity_carries_parse_identity` passes: `_entity_for(doc).properties` holds parser, parser_version, and text_sha256 equal to `hashlib.sha256(row['text'].encode('utf-8')).hexdigest()`
-- [x] `tests/test_indexing_property_graph.py::test_parse_identity_leaves_chunks_unchanged` passes: the chunk ids, texts and leaf flags of build_ingested_doc equal those of chunk_document for the same text
-- [x] `make test` passes and `make lint` passes, each run on its own line
+- [ ] `corpus/parsers/paddleocr_vl_table.py` defines the options class (kind `ema_paddleocr_vl`), the model class on `BaseTableStructureModel`, and `register()`, which calls `get_table_structure_factory(allow_external_plugins=True).register(...)`
+- [ ] The model is `PaddlePaddle/PaddleOCR-VL-1.6` at revision `c5630abae1d940eafe0697512a0325494b02ab42`, bf16 on CUDA, greedy, `max_new_tokens=8192`, `use_cache=True`
+- [ ] `make test-parse` passes `tests/test_docling_parse_env.py::test_table_stage_reads_a_table` (marked `parse` and `gpu`): a synthetic one-page PDF with a 3x3 table gives one table with 9 cells
+- [ ] In .venv the module is not imported by any test of the gate
+- [ ] `make test` passes and `make lint` passes, each run on its own line
 
-## What was built
-
-build_ingested_doc puts parser, parser_version and text_sha256 (sha256 of the row text, UTF-8, hex; helper ingest.text_sha256) in IngestedDoc.metadata, and _entity_for writes all three on :Document. Chunk metadata is unchanged. Stored shape: the 79,882 live :Document nodes do not have the properties; scripts/backfill_parse_identity.py (TASK-012) stamps them in TASK-016, and until then TASK-006 compares such documents with their old-rule row. 2 new tests in tests/test_indexing_property_graph.py. Gates: make test 754 passed, 2 skipped, 7 deselected; make lint All checks passed.
+**Depends on:** [[TASK-002]]
 
 ## Files it touched
 
-- `harness/indexing/ingest.py`
-- `harness/indexing/property_graph.py`
-- `tests/test_indexing_property_graph.py`
+- `corpus/parsers/paddleocr_vl_table.py`
+- `tests/test_docling_parse_env.py`

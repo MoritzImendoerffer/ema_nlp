@@ -1,7 +1,7 @@
 # PDF parsing with Docling and PaddleOCR models: the parser, its post-processing and the first batch
 
-**Status:** proposed 2026-11-25 · backlog row 17 · no work unit yet · starts when row 10 has
-shipped, before row 18 · scope cut to the essentials on the owner's instruction of
+**Status:** proposed 2026-11-25 · backlog row 17 · work unit `2026-11-26_28_pdf-parsing-docling`
+opened 2026-11-26 on branch `pdf-parsing-docling`; explored and planned (17 tasks) · row 10 shipped 2026-11-26, before row 18 · scope cut to the essentials on the owner's instruction of
 2026-11-25 · the first batch has the owner's yes of that day
 
 Written by Claude (Fable 5.2), the lead assistant session. Numbers are marked by where they

@@ -1,40 +1,35 @@
 ---
 type: pm-task
-epic: 2026-11-23_27_pipeline-refresh
-sprint: 2026-11-23_27_pipeline-refresh
+epic: 2026-11-26_28_pdf-parsing-docling
+sprint: 2026-11-26_28_pdf-parsing-docling
 task: TASK-014
-status: done
-kind: mechanism
-title: "Fix the delete and reset batch sizes from the measurement"
+status: todo
+kind: checkpoint
+title: "Checkpoint: write batch 0's decision note and measure the rate on 3 documents"
 generated: true
-waiting_on: —
-tags: [pm/task, pm/done]
+waiting_on: the assistant
+tags: [pm/task, pm/todo]
 ---
 
-> [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
+> [!warning] Generated from `.claude/work/2026-11-26_28_pdf-parsing-docling/state.json` by `scripts/pm_notes.py`.
 > Anything written here by hand is lost on the next run.
 
-# TASK-014 — Fix the delete and reset batch sizes from the measurement
+# TASK-014 — Checkpoint: write batch 0's decision note and measure the rate on 3 documents
 
-**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
 
 ## Why it exists
 
-A separate task so that the measurement records numbers and this task changes code: the measurement page is the reason for the constants.
+Plan choices, overrulable: the 200 are the top of the ranking with at most 60 pages (7,749 pages in the exploration); the 70 are drawn with a fixed seed from the rest with at most 200 pages, so that a few test the page-range path. Exploration section 8: 8.4 to 9.0 hours for the at-most-60-page draw.
 
 ## Acceptance criteria
 
-- [x] The batch-size constants in harness/indexing/graph_ops.py equal the values that docs/eval/2026-11-25_graph_delete_measurement.md recommends, and a comment beside each links that page
-- [x] If the page says that one document's replace needs batching, delete_document_chunks batches; a test asserts the batch clause
-- [x] `make test` passes and `make lint` passes, each run on its own line
+- [ ] The note lists the 270 URLs, the seed, the strata sizes counted in the stores, the pages, and the estimated GPU hours with the arithmetic, from a 3-document run in the parse environment
+- [ ] It names beforehand the share of tables with numbers missing or added that would stop the batches
+- [ ] It cites the owner's yes of 2026-11-25 (about 270 PDFs, 7 to 12 GPU hours, files only); the batch starts only if the estimate stays inside it, and is cut to fit otherwise
 
-**Depends on:** [[TASK-013]]
-
-## What was built
-
-The measurement page recommends 10,000 rows for the per-document chunk delete and for the reset, equal to the provisional values, so CHUNK_DELETE_BATCH_ROWS and RESET_BATCH_ROWS in harness/indexing/graph_ops.py stay 10,000; their comment now cites docs/eval/2026-11-25_graph_delete_measurement.md with the numbers. delete_document_chunks already batched; test_default_batch_sizes_follow_the_measurement asserts the constants and the 'IN TRANSACTIONS OF 10000 ROWS' clause of both defaults. Gates: make test 786 passed, 2 skipped, 13 deselected; make lint All checks passed.
+**Depends on:** [[TASK-011]], [[TASK-012]], [[TASK-013]]
 
 ## Files it touched
 
-- `harness/indexing/graph_ops.py`
-- `harness/indexing/property_graph.py`
+- [[2026-11-26_batch-0]] — `docs/pm/decisions/2026-11-26_batch-0.md`

@@ -1,0 +1,275 @@
+{
+  "status": "planning_complete",
+  "proposal": "docs/next/pdf_parsing_docling.md",
+  "planned_at": "2026-11-26",
+  "planned_by": "Claude (Opus 5.5)",
+  "current_task": null,
+  "baseline": {
+    "make_test": "786 passed, 2 skipped, 13 deselected (develop at 0a37623, 2026-11-26)",
+    "make_lint": "All checks passed",
+    "cache": "66,183 cached PDF entries, 1,133,660 pages (exploration section 6)",
+    "legacy_pdf_rows": "58,121; 16,633 with a complex table under the proposal's rule",
+    "retrieval_env": ".venv: torch 2.10.0 (CUDA 12.8), transformers 5.10.1; no docling"
+  },
+  "decisions": [
+    {"question": "Docling version (proposal open question 2)", "answer": "2.153.0 with rapidocr 3.10.0, decided by /explore as the proposal assigns", "evidence": "exploration.md section 4"},
+    {"question": "OCR language", "answer": "English PP-OCRv5 mobile recognition through RapidOCR enums; lang=['en'] alone has no effect", "evidence": "exploration.md section 5"},
+    {"question": "Does batch 0 write Mongo rows?", "answer": null, "plan_default": "files only, as the owner's yes of 2026-11-25 says; rows can be written later from the stored doc.json"},
+    {"question": "Batch 0's go-ahead", "answer": "the owner's yes of 2026-11-25 (about 270 PDFs, 7 to 12 GPU hours, files only); TASK-014 checks that the estimate stays inside it"}
+  ],
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "title": "Fix the stored shape: folder layout, file names, document id, options hash, config roots",
+      "type": "contract",
+      "status": "pending",
+      "dependencies": [],
+      "files": ["corpus/parsers/docling_store.py", "config.py", "tests/test_docling_store.py"],
+      "acceptance": [
+        "`tests/test_docling_store.py::test_doc_id_is_slug_and_12_hex` passes: `doc_id_for(url, pdf_bytes)` gives `<last URL part, at most 40 characters>_<first 12 hex of sha256(bytes)>`, with `doc` as the fallback slug",
+        "`::test_options_hash_is_stable` passes: the same options dict in another key order gives the same 8-character hash; a changed option gives another",
+        "`::test_folder_path` passes: `<root>/<doc-id>/docling@<hash8>/` with `doc.raw.json`, `doc.json`, `run.json`",
+        "`config.PARSED_ROOT` defaults to `~/Nextcloud/Datasets/ema_nlp/parsed` (override `EMA_PARSED_ROOT`); `config.DOCLING_ENV` defaults to `~/.local/share/ema_nlp/envs/docling` (override `EMA_DOCLING_ENV`)",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The module is pure Python and runs in .venv: no Docling import. Proposal section 'What is stored'. A 6-character hash, as doctool uses (ids.py:124-131), gave an expected 4% chance of a silent overwrite; 12 characters are used. Two PDFs with the same bytes share one folder. The parsed root is open question 1 of the proposal (the owner decides after batch 0); batch 0 writes plain JSON under the default root and reports the gzip size beside it."
+    },
+    {
+      "id": "TASK-002",
+      "title": "Build the parse environment with pinned versions, outside .venv, and prefetch its models",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-001"],
+      "files": ["scripts/setup_parse_env.sh", "requirements/parse-docling.txt", "Makefile", "pyproject.toml"],
+      "acceptance": [
+        "`make parse-env` builds a Python 3.12 environment at `config.DOCLING_ENV` from `requirements/parse-docling.txt` (docling 2.153.0, docling-core 2.108.0, docling-ibm-models 4.0.5, docling-parse 7.28.0, rapidocr 3.10.0, transformers 5.24.1, torch 2.15.0, onnxruntime 1.32.0, pypdfium2 5.15.2, pymongo, python-dotenv) and installs this repository into it with `--no-deps`",
+        "The script downloads `en_PP-OCRv5_rec_mobile`, PaddleOCR-VL-1.6 at revision `c5630abae1d940eafe0697512a0325494b02ab42` and Heron at `8f39ad3c0b4c58e9c2d2c84a38465abf757272d8`, and prints each file's SHA-256",
+        "After `make parse-env`, `.venv/bin/python -c 'import torch; print(torch.__version__)'` still prints 2.10.0 and `import docling` fails in .venv",
+        "pyproject registers the marker `gpu`; `make test-parse` runs the tests marked `parse` in the parse environment; `make test` deselects them",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Exploration section 7: installing Docling into .venv would move torch 2.10.0 under the embedding model to 2.15.0. The trial environments of the exploration (~/.local/share/ema_nlp/envs/docling-a, docling-b) proved the install; `make parse-env` makes it reproducible. The English recognition model is not in the rapidocr wheel; RapidOCR fetches it from modelscope.cn on first use, so the script fetches it once and a batch never depends on a download."
+    },
+    {
+      "id": "TASK-003",
+      "title": "Write the PaddleOCR-VL table stage and register it in code",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-002"],
+      "files": ["corpus/parsers/paddleocr_vl_table.py", "tests/test_docling_parse_env.py"],
+      "acceptance": [
+        "`corpus/parsers/paddleocr_vl_table.py` defines the options class (kind `ema_paddleocr_vl`), the model class on `BaseTableStructureModel`, and `register()`, which calls `get_table_structure_factory(allow_external_plugins=True).register(...)`",
+        "The model is `PaddlePaddle/PaddleOCR-VL-1.6` at revision `c5630abae1d940eafe0697512a0325494b02ab42`, bf16 on CUDA, greedy, `max_new_tokens=8192`, `use_cache=True`",
+        "`make test-parse` passes `tests/test_docling_parse_env.py::test_table_stage_reads_a_table` (marked `parse` and `gpu`): a synthetic one-page PDF with a 3x3 table gives one table with 9 cells",
+        "In .venv the module is not imported by any test of the gate",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Written here; doctool's `src/dw/parsers/paddleocr_vl_stage.py:54-183` is the example (exploration section 3). The model repository's configuration turns the generation cache off, which made one table 7 to 20 times slower in doctool: set `use_cache=True` on every generate call. Registration in code works in Docling 2.153.0 (exploration section 4); no entry point."
+    },
+    {
+      "id": "TASK-004",
+      "title": "Write the docling parser on the Parser protocol",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-001", "TASK-003"],
+      "files": ["corpus/parsers/docling_pdf.py", "tests/test_parsers_docling_pdf.py", "tests/test_docling_parse_env.py"],
+      "acceptance": [
+        "`tests/test_parsers_docling_pdf.py::test_missing_extra_in_retrieval_env` passes in the gate: without Docling, `parse()` returns a document whose error starts with `missing_extra`",
+        "The converter uses Heron pinned through `LayoutObjectDetectionOptions.from_preset('layout_heron_default')`, RapidOCR with `Rec.lang_type=LangRec.EN`, `Rec.ocr_version=OCRVersion.PPOCRV5`, `Rec.model_type=ModelType.MOBILE`, the table stage of TASK-003, and `allow_external_plugins=True`",
+        "A status other than SUCCESS (PARTIAL_SUCCESS included) is returned as an error; `parse()` never raises",
+        "`make test-parse` passes `::test_parser_on_fixture_pdf`: `tests/fixtures/fixture_pdf_0.pdf` gives SUCCESS, a page count, and no CJK character",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "`corpus/parsers/base.py:40-58` is the protocol; `llamahub_pdf.py:123` is the example of `missing_extra`. The options and their hash go into run.json. Exploration section 5: `lang=['en']` alone loads the multilingual PP-OCRv6 model, and the first look's 'authorisation 木' comes back."
+    },
+    {
+      "id": "TASK-005",
+      "title": "Post-processing rule 1: join a table that runs over pages",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-001"],
+      "files": ["corpus/parsers/docling_post.py", "tests/test_docling_post.py", "tests/fixtures/docling/"],
+      "acceptance": [
+        "`tests/test_docling_post.py::test_split_table_is_joined` passes: a stored document with one table on page 1 and its continuation on page 2 (same column count, adjacent in reading order) becomes one table with two provenance entries, pages 1 and 2",
+        "`::test_repeated_header_is_dropped`, `::test_different_columns_are_not_joined` and `::test_join_is_linear` pass; the last joins a 200-part table without rebuilding the element list per part",
+        "The rule works on the JSON dict of `doc.raw.json`, with no Docling import, and never changes the input",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "doctool's join is the example (`transforms.py:132-260`): adjacent in reading order, consecutive pages, same label, same `num_cols`, no caption on the continuation, repeated header dropped. Its loop rebuilds all elements for each join (`transforms.py:153-160`); this one walks once. Fixtures are small hand-made JSON files in Docling's format, cut from the exploration's real outputs (`$EMA_RESULTS_DIR/2026-11-26_row17_explore/probe_b/timed/`)."
+    },
+    {
+      "id": "TASK-006",
+      "title": "Post-processing rule 2: footnote marks stay marks, footnote texts attach to their table",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-005"],
+      "files": ["corpus/parsers/docling_post.py", "tests/test_docling_post.py"],
+      "acceptance": [
+        "`::test_footnote_mark_is_not_merged_into_number` passes: a cell `12.5\\(^{1}\\)` becomes the value 12.5 with the mark 1, never 12.51",
+        "`::test_footnote_texts_attach_to_table` passes: texts below a table that begin with a mark used in its cells are attached to that table",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Exploration section 4: PaddleOCR-VL writes marks as superscript markup (`FAS\\(^{a}\\)`), and Docling 2.153.0 exports the footnotes under the repatha table, which 2.132.0 drops."
+    },
+    {
+      "id": "TASK-007",
+      "title": "Post-processing rule 3: turn the table model's markup into text",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-005"],
+      "files": ["corpus/parsers/docling_post.py", "tests/test_docling_post.py"],
+      "acceptance": [
+        "`::test_latex_markup_becomes_text` passes for the cases seen on EMA tables: `\\(\\pm\\)` gives ±, a literal `\\n` gives a space, `2.06e^{-14}` gives 2.06e-14, `\\(^{a}\\)` gives a superscript mark",
+        "Each conversion is counted in the counts that run.json and the batch report read",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "doctool's `paddleocr_vl.py:38-153` is the example. Dashes stay as Docling wrote them (proposal: no guess at the original character)."
+    },
+    {
+      "id": "TASK-008",
+      "title": "Post-processing rule 4: take title and reference number from the page header",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-005"],
+      "files": ["corpus/parsers/docling_post.py", "tests/test_docling_post.py"],
+      "acceptance": [
+        "`::test_reference_from_page_header` passes: a document whose `EMA/…` reference stands only in a page header gets it at the top of the row's text, where `text_metadata` (first 2,048 characters, `corpus/metadata/text_metadata.py:95`) finds it",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Proposal step 4; the first look found the header layer left out of Docling's export."
+    },
+    {
+      "id": "TASK-009",
+      "title": "Write the writer: three files, a staged move, the failures list, the Markdown text and the Mongo row",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-001", "TASK-005", "TASK-006", "TASK-007", "TASK-008"],
+      "files": ["corpus/parsers/docling_store.py", "tests/test_docling_store.py"],
+      "acceptance": [
+        "`::test_failed_write_keeps_previous_folder` passes: a write that fails mid-way leaves the previous folder byte-identical",
+        "`::test_failure_is_listed` passes: a failed parse appends `{url, doc_id, error, sha256}` to `<root>/failures.jsonl` and writes no folder",
+        "`::test_mongo_row_shape` passes on mongomock: key `(url, 'docling', '<docling version>+<hash8>')`, `content_type` application/pdf, `meta` with doc id, relative folder, source hash and counts, a size guard below 16 MB",
+        "Writing the Mongo row is off unless `--write-mongo` is given",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Whether batch 0 writes rows is open (state.json decisions); the default is files only, as the owner's yes says. The Markdown is rendered in the parse environment with docling-core from doc.json; the guard keeps the row under MongoDB's 16 MB (the largest legacy row holds 12.45 million characters)."
+    },
+    {
+      "id": "TASK-010",
+      "title": "Write the ranking script: complex-table score and page count per PDF",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": [],
+      "files": ["scripts/rank_pdfs_by_tables.py", "tests/test_rank_pdfs_by_tables.py"],
+      "acceptance": [
+        "`tests/test_rank_pdfs_by_tables.py` passes: the score of a document is the number of cells in its tables with 8 or more columns, 20 or more rows, or ragged rows; a table needs a separator line",
+        "The script writes a ranked JSONL to `config.RESULTS_DIR` with url, score, pages, cache_path, gzip, and documents with pages without text listed after the scored ones",
+        "Run read-only on the stores: it reports 58,121 legacy PDF rows and 16,633 with a score above 0 (the exploration's count)",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "The rule is the proposal's (section 'The batches'); exploration section 6 counted 16,633 documents under it, against the review's 5,424 under a stricter rule. Page counts come from the cache (the exploration's count took 567 s with 4 processes)."
+    },
+    {
+      "id": "TASK-011",
+      "title": "Write the batch command and wire the parser, the post-processing and the writer into it",
+      "type": "wiring",
+      "status": "pending",
+      "dependencies": ["TASK-004", "TASK-009", "TASK-010"],
+      "files": ["scripts/parse_pdfs_docling.py", "tests/test_parse_pdfs_docling.py"],
+      "acceptance": [
+        "The command takes a ranked list and a page budget, decompresses a gzip body, skips a document whose folder exists for these options, and replaces its worker process after a set number of documents",
+        "A PDF above a set number of pages is parsed in page ranges and joined; a failed or partial document is listed and the batch goes on",
+        "It pauses on a schedule (`--pause-every-docs`, `--pause-seconds`) and stops between documents when a stop file exists",
+        "`tests/test_parse_pdfs_docling.py` passes in the gate with a stand-in parser: skip of an existing folder, budget, failure listed, stop file honoured",
+        "`make test-parse` runs the command on 2 small PDFs end to end",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Proposal section 'The batch command'. The nulojix RMP summary (12.4 million characters) fails on every graph build (row 10's measurement page); the command must list such a document and go on. Runs only in the parse environment."
+    },
+    {
+      "id": "TASK-012",
+      "title": "Write the batch report: rates, failures, sizes, post-processing counts, table numbers, words held",
+      "type": "mechanism",
+      "status": "pending",
+      "dependencies": ["TASK-009"],
+      "files": ["scripts/report_docling_batch.py", "tests/test_report_docling_batch.py"],
+      "acceptance": [
+        "The report gives seconds per page for pages without tables, seconds per table and per cell, for the ranked and the random group separately, each with n",
+        "It lists every failed or partial document, the bytes per page of each file plain and gzip, and the counts of tables joined, footnotes attached and markup converted",
+        "The table-number check: for each table on a page with a text layer, the share of the text layer's numbers inside the table's box that the cells hold, and the share of the cells' numbers that the text layer holds",
+        "Words and numbers held against the legacy text of the same document",
+        "`tests/test_report_docling_batch.py` passes on two stored fixture documents",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Proposal section 'What batch 0 reports'. The check cannot see a number in the wrong cell; the page says so."
+    },
+    {
+      "id": "TASK-013",
+      "title": "Document the parser, the environment and the batch command",
+      "type": "documentation",
+      "status": "pending",
+      "dependencies": ["TASK-002", "TASK-011", "TASK-012"],
+      "files": ["docs/PARSING_DOCLING.md", "docs/RETRIEVAL.md", "README.md"],
+      "acceptance": [
+        "A docs page says how to build the environment, run a batch, stop it, and read its report, and that Docling never enters .venv",
+        "`docs/RETRIEVAL.md` section 2 names the docling parser and says that nothing reaches the graph until row 21",
+        "`make test` passes and `make lint` passes, each run on its own line"
+      ],
+      "notes": "Every command that writes says where."
+    },
+    {
+      "id": "TASK-014",
+      "title": "Checkpoint: write batch 0's decision note and measure the rate on 3 documents",
+      "type": "checkpoint",
+      "status": "pending",
+      "dependencies": ["TASK-011", "TASK-012", "TASK-013"],
+      "files": ["docs/pm/decisions/2026-11-26_batch-0.md"],
+      "acceptance": [
+        "The note lists the 270 URLs, the seed, the strata sizes counted in the stores, the pages, and the estimated GPU hours with the arithmetic, from a 3-document run in the parse environment",
+        "It names beforehand the share of tables with numbers missing or added that would stop the batches",
+        "It cites the owner's yes of 2026-11-25 (about 270 PDFs, 7 to 12 GPU hours, files only); the batch starts only if the estimate stays inside it, and is cut to fit otherwise"
+      ],
+      "notes": "Plan choices, overrulable: the 200 are the top of the ranking with at most 60 pages (7,749 pages in the exploration); the 70 are drawn with a fixed seed from the rest with at most 200 pages, so that a few test the page-range path. Exploration section 8: 8.4 to 9.0 hours for the at-most-60-page draw."
+    },
+    {
+      "id": "TASK-015",
+      "title": "Run batch 0",
+      "type": "measurement",
+      "status": "pending",
+      "dependencies": ["TASK-014"],
+      "files": [],
+      "acceptance": [
+        "270 documents parsed or listed as failed, files only under `config.PARSED_ROOT`; no Mongo row and no graph change",
+        "One test with two and with three worker processes on the same 20 documents, timed",
+        "The GPU stays at the 250 W cap; the pauses run; no build runs at the same time"
+      ],
+      "notes": "Stop and report if a count differs from the note or the GPU misbehaves (planning workflow; the GSP crash memory). The batch can stop and resume: existing folders are skipped."
+    },
+    {
+      "id": "TASK-016",
+      "title": "Write batch 0's page in docs/eval",
+      "type": "measurement",
+      "status": "pending",
+      "dependencies": ["TASK-015"],
+      "files": ["docs/eval/2026-11-2X_docling_batch_0.md"],
+      "acceptance": [
+        "The page has every measure of the proposal's table 'What batch 0 reports', each with n, and every failed document",
+        "It states the versions, the options hash and the model revisions"
+      ],
+      "notes": "The report script of TASK-012 produces the numbers."
+    },
+    {
+      "id": "TASK-017",
+      "title": "Checkpoint: report batch 0 to the owner",
+      "type": "checkpoint",
+      "status": "pending",
+      "dependencies": ["TASK-016"],
+      "files": ["docs/pm/decisions/2026-11-2X_parsed-storage.md"],
+      "acceptance": [
+        "A decision note asks open question 1 of the proposal (where the folders live, compressed or not) with batch 0's sizes",
+        "It says whether batch 0's numbers stay inside the thresholds of TASK-014, and what that means for row 21"
+      ],
+      "notes": "No later batch runs in this row (proposal)."
+    }
+  ]
+}

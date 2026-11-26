@@ -1,0 +1,24 @@
+{
+  "id": "2026-11-26_28_pdf-parsing-docling",
+  "proposal": "docs/next/pdf_parsing_docling.md",
+  "proposal_commit": "ea628e2",
+  "backlog_row": 17,
+  "created_at": "2026-11-26",
+  "status": "planned",
+  "branch": "pdf-parsing-docling",
+  "branched_from": "develop@0a37623",
+  "proposal_stands": true,
+  "settled_by_exploration": {
+    "Q2 Docling version": "2.153.0 with rapidocr 3.10.0 (exploration section 4)",
+    "OCR language": "English via RapidOCR enums: LangRec.EN, OCRVersion.PPOCRV5, ModelType.MOBILE (section 5)"
+  },
+  "open_decisions": [
+    "1: does batch 0 write the Mongo row or files only (lead/owner)",
+    "2: where the parse environment lives (/plan)",
+    "3: may the random 70 include PDFs over 60 pages (/plan)",
+    "4: which complex-table rule ranks the documents (/plan)",
+    "5: onnxruntime-gpu for RapidOCR (/plan)"
+  ],
+  "next": "/next",
+  "planned_at": "2026-11-26"
+}

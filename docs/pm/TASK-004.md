@@ -1,43 +1,39 @@
 ---
 type: pm-task
-epic: 2026-11-23_27_pipeline-refresh
-sprint: 2026-11-23_27_pipeline-refresh
+epic: 2026-11-26_28_pdf-parsing-docling
+sprint: 2026-11-26_28_pdf-parsing-docling
 task: TASK-004
-status: done
+status: todo
 kind: mechanism
-title: "Make the real build join document_metadata"
+title: "Write the docling parser on the Parser protocol"
 generated: true
-waiting_on: —
-tags: [pm/task, pm/done]
+waiting_on: the assistant
+tags: [pm/task, pm/todo]
 ---
 
-> [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
+> [!warning] Generated from `.claude/work/2026-11-26_28_pdf-parsing-docling/state.json` by `scripts/pm_notes.py`.
 > Anything written here by hand is lost on the next run.
 
-# TASK-004 — Make the real build join document_metadata
+# TASK-004 — Write the docling parser on the Parser protocol
 
-**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
 
 ## Why it exists
 
-Defect 4 of the proposal: `_embed_pass` calls `build_ingested_doc(row, chunking=chunking, html_lookup=lookup)` at property_graph.py:307 without the metadata lookup. Only `ingest()` joins (ingest.py:213-228), and only tests call `ingest()`.
-
-Move the miss-counting wrapper (ingest.py:216-221) into a named function both call. Use `mongo_metadata_lookup(client)` from harness/indexing/document_metadata.py. Let `build_property_graph_index` accept an injected `metadata_lookup` for tests, as it accepts `html_lookup`.
-
-What the join cannot do (exploration 3.4): it reaches only documents the build builds, and it cannot clear a label (`_clean` drops None, property_graph.py:88). `propagate` stays a required step for label changes; TASK-018 says so in the docs. On a fresh build the join must reproduce doc_type on 55,930 documents, audience 20,386, site_topic 5,947, topic_hubs 49 (exploration 3.4). No fresh build is part of this item.
+`corpus/parsers/base.py:40-58` is the protocol; `llamahub_pdf.py:123` is the example of `missing_extra`. The options and their hash go into run.json. Exploration section 5: `lang=['en']` alone loads the multilingual PP-OCRv6 model, and the first look's 'authorisation 木' comes back.
 
 ## Acceptance criteria
 
-- [x] `tests/test_indexing_property_graph.py::test_build_joins_document_metadata` passes: the build over mongomock, with a document_metadata row that holds doc_type, upserts a :Document entity whose properties hold that doc_type
-- [x] `grep -c 'counted_metadata_lookup' harness/indexing/ingest.py harness/indexing/property_graph.py` shows at least one use in each file: ingest() and the build share one function
-- [x] `make test` passes and `make lint` passes, each run on its own line
+- [ ] `tests/test_parsers_docling_pdf.py::test_missing_extra_in_retrieval_env` passes in the gate: without Docling, `parse()` returns a document whose error starts with `missing_extra`
+- [ ] The converter uses Heron pinned through `LayoutObjectDetectionOptions.from_preset('layout_heron_default')`, RapidOCR with `Rec.lang_type=LangRec.EN`, `Rec.ocr_version=OCRVersion.PPOCRV5`, `Rec.model_type=ModelType.MOBILE`, the table stage of TASK-003, and `allow_external_plugins=True`
+- [ ] A status other than SUCCESS (PARTIAL_SUCCESS included) is returned as an error; `parse()` never raises
+- [ ] `make test-parse` passes `::test_parser_on_fixture_pdf`: `tests/fixtures/fixture_pdf_0.pdf` gives SUCCESS, a page count, and no CJK character
+- [ ] `make test` passes and `make lint` passes, each run on its own line
 
-## What was built
-
-_embed_pass passes a counted mongo_metadata_lookup to build_ingested_doc, so a build stamps doc_type, audience, site_topic and topic_hubs; build_property_graph_index accepts metadata_lookup for tests. ingest() and the build share CountedMetadataLookup via counted_metadata_lookup (harness/indexing/ingest.py), which warns once with the miss count. Reached by python -m harness.indexing.build (not run: it writes to the live graph). Test: test_build_joins_document_metadata, which fails on the old call at property_graph.py:307. Gates: make test 755 passed, 2 skipped, 7 deselected; make lint All checks passed.
+**Depends on:** [[TASK-001]], [[TASK-003]]
 
 ## Files it touched
 
-- `harness/indexing/ingest.py`
-- `harness/indexing/property_graph.py`
-- `tests/test_indexing_property_graph.py`
+- `corpus/parsers/docling_pdf.py`
+- `tests/test_parsers_docling_pdf.py`
+- `tests/test_docling_parse_env.py`

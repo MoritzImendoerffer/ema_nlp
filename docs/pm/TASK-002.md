@@ -1,49 +1,40 @@
 ---
 type: pm-task
-epic: 2026-11-23_27_pipeline-refresh
-sprint: 2026-11-23_27_pipeline-refresh
+epic: 2026-11-26_28_pdf-parsing-docling
+sprint: 2026-11-26_28_pdf-parsing-docling
 task: TASK-002
-status: done
+status: todo
 kind: mechanism
-title: "Select one row per URL: the first matching preference entry, then the newest parsed_at"
+title: "Build the parse environment with pinned versions, outside .venv, and prefetch its models"
 generated: true
-waiting_on: —
-tags: [pm/task, pm/done]
+waiting_on: the assistant
+tags: [pm/task, pm/todo]
 ---
 
-> [!warning] Generated from `.claude/work/2026-11-23_27_pipeline-refresh/state.json` by `scripts/pm_notes.py`.
+> [!warning] Generated from `.claude/work/2026-11-26_28_pdf-parsing-docling/state.json` by `scripts/pm_notes.py`.
 > Anything written here by hand is lost on the next run.
 
-# TASK-002 — Select one row per URL: the first matching preference entry, then the newest parsed_at
+# TASK-002 — Build the parse environment with pinned versions, outside .venv, and prefetch its models
 
-**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
 
 ## Why it exists
 
-Today `iter_source_rows` (harness/indexing/ingest.py:159-196) reads `find({'error': ''}).sort('url', 1)` and keeps the first row per URL (line 182). The sort makes the rows of one URL adjacent (index url_idx), so selection groups consecutive rows; no second query.
-
-Keep the signature `iter_source_rows(scope, *, client)` (callers: `_embed_pass` and `_links_pass` in property_graph.py, `ingest()`). Add `iter_source_groups(scope, *, client, preference=None)` yielding a small dataclass with `selected` and `old_rule`. `old_rule` is the first clean row the cursor yields for the URL: the rule before this change. TASK-006 and TASK-012 need it, because the proposal says that a graph document without the three values 'counts as built from the row that the old rule would have picked'.
-
-Content type to preference key: 'pdf' in content_type gives 'application/pdf', 'html' gives 'text/html' (the same test as ingest.py:184-186). Store values today are exactly 'application/pdf' and 'text/html'.
-
-Ties on parsed_at: the larger `_id` wins. A row without parsed_at counts as the oldest. `scope.limit` counts URLs, as today. Decision F: a URL whose rows match no entry falls back to its newest clean row; log one warning per URL and a total at the end of the pass.
+Exploration section 7: installing Docling into .venv would move torch 2.10.0 under the embedding model to 2.15.0. The trial environments of the exploration (~/.local/share/ema_nlp/envs/docling-a, docling-b) proved the install; `make parse-env` makes it reproducible. The English recognition model is not in the rapidocr wheel; RapidOCR fetches it from modelscope.cn on first use, so the script fetches it once and a batch never depends on a download.
 
 ## Acceptance criteria
 
-- [x] `tests/test_indexing_ingest.py::test_preferred_parser_row_wins` passes: rows (u, pymupdf4llm, legacy) and (u, pymupdf4llm, 1.27.2.3) inserted in both orders, the legacy row is yielded both times
-- [x] `tests/test_indexing_ingest.py::test_newest_row_of_one_parser_wins` passes: (u, trafilatura, legacy, parsed_at 2026-05-27) and (u, trafilatura, 2.0.0, parsed_at 2026-11-25), the 2.0.0 row is yielded
-- [x] `tests/test_indexing_ingest.py::test_unlisted_parser_falls_back_to_newest` passes: a URL with only llamahub_pdf_PDFReader rows yields the newest one, a warning is logged and the fallback count is 1
-- [x] `tests/test_indexing_ingest.py::test_old_rule_row_is_the_first_row_of_the_cursor` passes: iter_source_groups yields the selected row and the first clean row the cursor gave for the URL
-- [x] The 7 tests that tests/test_indexing_ingest.py holds today pass unchanged
-- [x] `make test` passes and `make lint` passes, each run on its own line
+- [ ] `make parse-env` builds a Python 3.12 environment at `config.DOCLING_ENV` from `requirements/parse-docling.txt` (docling 2.153.0, docling-core 2.108.0, docling-ibm-models 4.0.5, docling-parse 7.28.0, rapidocr 3.10.0, transformers 5.24.1, torch 2.15.0, onnxruntime 1.32.0, pypdfium2 5.15.2, pymongo, python-dotenv) and installs this repository into it with `--no-deps`
+- [ ] The script downloads `en_PP-OCRv5_rec_mobile`, PaddleOCR-VL-1.6 at revision `c5630abae1d940eafe0697512a0325494b02ab42` and Heron at `8f39ad3c0b4c58e9c2d2c84a38465abf757272d8`, and prints each file's SHA-256
+- [ ] After `make parse-env`, `.venv/bin/python -c 'import torch; print(torch.__version__)'` still prints 2.10.0 and `import docling` fails in .venv
+- [ ] pyproject registers the marker `gpu`; `make test-parse` runs the tests marked `parse` in the parse environment; `make test` deselects them
+- [ ] `make test` passes and `make lint` passes, each run on its own line
 
 **Depends on:** [[TASK-001]]
 
-## What was built
-
-iter_source_groups (harness/indexing/ingest.py) groups the URL-sorted clean rows per URL and yields SourceChoice(selected, old_rule, fallback): the earliest matching preference entry wins, then the newest parsed_at (tie: later _id); no match falls back to the newest row with a warning and a SelectionStats count (decision F). iter_source_rows keeps its signature and yields the selected row; its callers are _embed_pass, _links_pass, ingest() and harness/ontology/enrich.py. 7 new tests in tests/test_indexing_ingest.py (14 in the file). Read-only on the live MongoDB, 2026-11-25: the first 2,000 URLs give selected == old_rule for 2,000 and 0 fallbacks; the 5 URLs with two clean rows each select pymupdf4llm legacy. Gates: make test 752 passed, 2 skipped, 7 deselected; make lint All checks passed.
-
 ## Files it touched
 
-- `harness/indexing/ingest.py`
-- `tests/test_indexing_ingest.py`
+- `scripts/setup_parse_env.sh`
+- `requirements/parse-docling.txt`
+- `Makefile`
+- `pyproject.toml`
