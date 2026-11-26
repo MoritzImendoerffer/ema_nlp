@@ -30,6 +30,7 @@ Proposal section 'What batch 0 reports'. The check cannot see a number in the wr
 - [ ] Words and numbers held against the legacy text of the same document
 - [ ] `tests/test_report_docling_batch.py` passes on two stored fixture documents
 - [ ] `make test` passes and `make lint` passes, each run on its own line
+- [ ] It counts CJK characters returned by OCR per document (exploration section 12)
 
 **Depends on:** [[TASK-009]]
 

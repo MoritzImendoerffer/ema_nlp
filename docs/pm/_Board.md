@@ -11,7 +11,7 @@ tags: [pm/board]
 
 # Board — the active epic
 
-**[[epic|2026-11-26_28_pdf-parsing-docling]]** · **3 of 18 done** · 15 todo
+**[[epic|2026-11-26_28_pdf-parsing-docling]]** · **4 of 18 done** · 14 todo
 
 [[epic|Why this epic]] · [[_Archive|Finished epics]] · [[BACKLOG|What is open, in order]]
 
@@ -29,7 +29,6 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 
 | Task | Status | Waiting on | Kind | What it is |
 |---|---|---|---|---|
-| [[TASK-018]] | `todo` | the assistant | measurement | Measure the OCR recognition models on pages with a known answer, and choose one |
 | [[TASK-004]] | `todo` | the assistant | mechanism | Write the docling parser on the Parser protocol |
 | [[TASK-005]] | `todo` | the assistant | mechanism | Post-processing rule 1: join a table that runs over pages |
 | [[TASK-006]] | `todo` | the assistant | mechanism | Post-processing rule 2: footnote marks stay marks, footnote texts attach to their table |
@@ -52,6 +51,7 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 | [[TASK-001]] | `done` | — | contract | Fix the stored shape: folder layout, file names, document id, options hash, config roots |
 | [[TASK-002]] | `done` | — | mechanism | Build the parse environment with pinned versions, outside .venv, and prefetch its models |
 | [[TASK-003]] | `done` | — | mechanism | Write the PaddleOCR-VL table stage and register it in code |
+| [[TASK-018]] | `done` | — | measurement | Measure the OCR recognition models on pages with a known answer, and choose one |
 
 ---
 

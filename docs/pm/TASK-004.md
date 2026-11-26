@@ -25,7 +25,7 @@ tags: [pm/task, pm/todo]
 ## Acceptance criteria
 
 - [ ] `tests/test_parsers_docling_pdf.py::test_missing_extra_in_retrieval_env` passes in the gate: without Docling, `parse()` returns a document whose error starts with `missing_extra`
-- [ ] The converter uses Heron pinned through `LayoutObjectDetectionOptions.from_preset('layout_heron_default')`, RapidOCR with the recognition model TASK-018 chose, the table stage of TASK-003, and `allow_external_plugins=True`; `prefetch()` builds the converter once so that every model the options need is on disk before a batch
+- [ ] The converter uses Heron pinned through `LayoutObjectDetectionOptions.from_preset('layout_heron_default')`, RapidOCR PP-OCRv6 with `model_size='small'` and `rec_model_path` set to the medium recognizer (`multi_PP-OCRv6_rec_medium.onnx`, SHA-256 from rapidocr 3.10.0's default_models.yaml), the table stage of TASK-003, and `allow_external_plugins=True`; `prefetch()` downloads and checks the medium recognizer and builds the converter once, so every model is on disk before a batch
 - [ ] A status other than SUCCESS (PARTIAL_SUCCESS included) is returned as an error; `parse()` never raises
 - [ ] `make test-parse` passes `::test_parser_on_fixture_pdf`: `tests/fixtures/fixture_pdf_0.pdf` gives SUCCESS and a page count
 - [ ] `make test` passes and `make lint` passes, each run on its own line

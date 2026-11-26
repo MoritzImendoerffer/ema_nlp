@@ -202,3 +202,63 @@ which could include longer ones (section 10, question 3).
   rows. Row 11 counts it exactly.
 - Docling 2.153.0 adds `RapidOcrOptions.replace_broken_text_layer` and `detect_orientation`.
   Neither is used here; both may matter for row 21's scanned documents.
+
+## 12. Addendum, 2026-11-26: the OCR recognition model, measured (TASK-018)
+
+Required by the lead session's review before TASK-004 fixes the model. Section 5's switch to
+the English model rested on one wrong character in one document. A model that cannot write
+CJK passes a "no CJK" test by construction, and the larger risk is a dose symbol read wrong.
+
+**Pages.** 30 pages with a text layer from 29 cached PDFs, each with at least 3 different
+target symbols (µ ± ≥ ≤ ° × or Greek letters) and at least 400 characters. PDFs of at most 20
+pages, not gzip, in a shuffled order with seed 20261126; at most 3 pages per PDF.
+Symbol-rich pages are rare, so 459 PDFs were visited to find 30 pages. Each page was rendered
+at 200 DPI, OCRed as a whole image, and compared with its own text layer. Script and outputs:
+`$EMA_RESULTS_DIR/2026-11-26_row17_explore/ocr_pages.py`, `ocr_compare.py`,
+`ocr_compare.json`, `ocr_compare_detmedium.json`.
+
+**Measure.** Both texts are NFKC-normalized, so µ and μ count as one sign. Held share = the
+sum over tokens of min(count in layer, count in OCR), divided by the count in the layer.
+Words have two or more letters; numbers are digit runs with `.` or `,`.
+
+| Recognition model (detector: PP-OCRv6 small, unless named) | Words held (of 7,235) | Numbers (of 1,190) | µ (of 110) | ± (4) | ≥ (4) | ≤ (1) | × (2) | Greek other than µ (of 1,668) | CJK returned | OCR time, 30 pages, CPU |
+|---|---|---|---|---|---|---|---|---|---|---|
+| PP-OCRv6 small, multilingual (the wheel's default) | 92.4% | 98.0% | 70.9% | 4 | 4 | 1 | 2 | 42.1% | 0 | 70 s |
+| **PP-OCRv6 medium, multilingual** | **92.6%** | **98.2%** | **95.5%** | 4 | 4 | 1 | 2 | **68.8%** | 0 | 180 s |
+| PP-OCRv6 medium, with the medium detector too | 92.7% | 96.0% | 94.5% | 4 | 4 | 0 | 2 | 66.4% | 1 | 252 s |
+| en PP-OCRv5 mobile | 87.9% | 98.0% | 91.8% | 4 | 4 | 1 | **0** | 41.5% | 0 | 105 s |
+| latin PP-OCRv5 mobile | 89.9% | 93.9% | 60.9% | 4 | 4 | 1 | 2 | 32.0% | 0 | 103 s |
+| en PP-OCRv4 mobile | 82.3% | 96.0% | 0.0% | 0 | 0 | 0 | 0 | 0.0% | 0 | 113 s |
+
+The pages held no °. ±, ≥, ≤ and × are rare (1 to 4 each), so those columns show only
+whether a model can write the sign at all. µ (110) and Greek (1,668) carry the comparison.
+
+**Character lists**, read from each model's metadata key `character` with onnxruntime, which
+is where rapidocr takes them from. A character counts as Greek when it lies in U+0391 to
+U+03C9.
+
+| Model | Characters | CJK | Greek | Holds |
+|---|---|---|---|---|
+| PP-OCRv6 small | 18,708 | 15,910 | 48 | µ μ ± ≥ ≤ ° × – — |
+| PP-OCRv6 medium | 18,708, the same list as small | 15,910 | 48 | the same |
+| en PP-OCRv5 mobile | 436 | 0 | 49 | µ μ ± ≥ ≤ ° × — (no en dash, U+2013) |
+
+**Choice: PP-OCRv6, multilingual, with the small detector and the medium recognizer.** It
+holds the most words, numbers, µ and Greek letters, and it stays the PP-OCRv6 the proposal
+names. The English model loses 4.5 points of words and both ×, so the lead's rule applies:
+keep the multilingual model, and let the batch report count CJK characters. The medium
+detector holds fewer numbers and is slower, so it is not taken.
+
+Docling 2.153.0's `RapidOcrOptions.model_size` switches detector and recognizer together.
+The parser therefore keeps `model_size="small"` and sets `rec_model_path` to the medium
+recognizer. The character lists are identical, so the dictionary still matches. The file
+(76,629,984 bytes) comes from RapidOCR's model host. Its SHA-256 matches rapidocr 3.10.0's
+`default_models.yaml`. The parse environment's setup fetches and checks it (TASK-004).
+
+**Cost.** OCR runs on the CPU, at 6.0 s against 2.3 s per full page for the medium and small
+recognizers. Docling OCRs only the regions without a text layer: 30,614 of the 1,133,660
+pages hold under 50 characters (section 6). The difference is therefore at most about
+30,614 × 3.7 s ≈ 31 CPU hours over the whole conversion, and much less in batch 0.
+
+This supersedes section 5's recommendation of the English PP-OCRv5 model. Section 5's
+finding stands: `lang=["en"]` alone changes nothing.
