@@ -130,17 +130,17 @@ Full phase sequence and status table: `project_roadmap/ROADMAP.md` (reconciliati
 
 ## Data sources
 
-> **Starting the data services:** `scripts/start_services.sh` brings up MongoDB (`deploy/mongo/`) and Neo4j (`deploy/neo4j/`) as Docker containers and health-checks them. *(Postgres/pgvector was removed in LIR-012 — `start_services.sh` no longer starts it.)* On this host (kernel ≥ 6.19) MongoDB **must** run via the pinned `mongo:8.0.4` container — the native package crashes (SERVER-121912). See `deploy/mongo/README.md` and `deploy/neo4j/README.md`.
+> **Starting the data services:** `scripts/start_services.sh` brings up MongoDB (`deploy/mongo/`) and Neo4j (`deploy/neo4j/`) as Docker containers and health-checks them. *(Postgres/pgvector was removed in LIR-012 — `start_services.sh` no longer starts it.)* **On this host the native `mongod` 8.0.4 runs and owns :27017** (checked 2026-11-26, kernel 7.0.0-43): run `systemctl is-active mongod` first. While it is active, `start_services.sh` stops with an error at its MongoDB step and starts nothing; start Neo4j with `docker compose up -d` in `deploy/neo4j/`. The script itself is repaired under backlog row 12. *(History: in May 2026 the native package crashed on kernel ≥ 6.19, SERVER-121912, and the pinned `mongo:8.0.4` container was required.)* See `deploy/mongo/README.md` and `deploy/neo4j/README.md`.
 
 - **MongoDB** `ema_scraper.web_items` — raw scraped EMA pages; HTML stored as `html_raw` (1-element list), PDFs as metadata only
 - **MongoDB** `ema_scraper.parsed_pdfs` — pymupdf4llm markdown keyed by URL; built by `scripts/ingest_parsed_pdfs.py --legacy`; 65k docs; query `{error: ""}` for clean parses
 - **MongoDB** `ema_scraper.parsed_documents` (MIGR-001) — canonical parser-output sink. One row per `(url, parser, parser_version)`. Populated by `corpus/parsers/*.py` CLIs. **Ingestion source for `harness.indexing.ingest`.** *(The full ~80k-doc output is indexed into Neo4j; `scripts/backfill_parsed_documents_subset.py` seeds a small verify subset for CPU iteration.)*
-- **MongoDB** `ema_scraper.document_metadata` (2026-07-13) — canonical per-URL EMA labels: `doc_type` (website-data JSON export), `audience`/`site_topic` (`ema-bg-*` page badges), with per-group provenance timestamps. Written post-scrape by `scripts/enrich_document_metadata.py`; joined at ingest onto `:Document` (rebuilds keep the labels); `scripts/propagate_metadata_to_graph.py` patches an existing graph without rebuild. **`scripts/update_graph.py` is the one scraper-output→Neo4j pipeline entry point** (parse → enrich → build). See `docs/RETRIEVAL.md` §2/§6/§7.
+- **MongoDB** `ema_scraper.document_metadata` (2026-07-13) — canonical per-URL EMA labels: `doc_type` (website-data JSON export), `audience`/`site_topic` (`ema-bg-*` page badges), with per-group provenance timestamps. Written post-scrape by `scripts/enrich_document_metadata.py`; joined at ingest onto each `:Document` that a build writes; a label change on a document that is already in the graph needs `scripts/propagate_metadata_to_graph.py`, which patches the graph without a rebuild. **`scripts/update_graph.py` is the one scraper-output→Neo4j pipeline entry point** (parse → enrich → build). See `docs/RETRIEVAL.md` §2/§6/§7.
 - **`ema_scraper.link_graph` — exists, unused.** The collection holds 22,743 documents (counted 2026-11-23) and no code in this repository reads it; earlier versions of this file called it "never built". Links are extracted at ingest time from `web_items.html_raw` by `harness.indexing.links.extract_links` and become `LINKS_TO` edges in Neo4j.
 - **Neo4j** (Docker, `deploy/neo4j/`) — the retrieval store: a LlamaIndex `PropertyGraphIndex` of `:Document` + `:Chunk` nodes with `HAS_CHUNK`/`PARENT_OF`/`LINKS_TO` edges and a native vector index over chunk embeddings. Built by `harness.indexing.build_index` from Mongo `parsed_documents`. This is the retrieval target; `corpus.jsonl` is benchmark-only. See `docs/RETRIEVAL.md`. *(Replaced the former Postgres+pgvector store, deleted in LIR-012.)*
 - **Nextcloud**: `~/Nextcloud/Datasets/` — Scrapy cache (`ema_scraper/cache/`) + IDMP ontology RDF files
 - Paths are configured in `config.py`, which loads `~/Nextcloud/Datasets/ema_nlp/ema_nlp.env` via python-dotenv
-- MongoDB source adaptors: `corpus/sources/mongo_source.py` yields `QARecord` for the Q&A pipeline; `corpus/sources/parsed_documents.py` exposes the writer and index bootstrap for the parsers layer; `corpus/sources/synthetic_legacy_reader.py` (MIGR-008) bridges `parsed_pdfs` + `web_items` rows to the sync as a transition fixture until MIGR-013 backfills.
+- MongoDB source adaptors: `corpus/sources/mongo_source.py` yields `QARecord` for the Q&A pipeline; `corpus/sources/parsed_documents.py` exposes the writer and index bootstrap for the parsers layer. *(`corpus/sources/synthetic_legacy_reader.py`, MIGR-008, was deleted in LIR-012.)*
 - Retrieval is selected by `EMA_INDEX_PROFILE` (default `neo4j_hier` → `harness/configs/index/*.yaml`). See `docs/RETRIEVAL.md`. *(The old `EMA_RETRIEVER=faiss|pgvector` switch is removed.)*
 
 ## Commands
@@ -148,9 +148,10 @@ Full phase sequence and status table: `project_roadmap/ROADMAP.md` (reconciliati
 ```bash
 pip install -e ".[dev]"       # install project + dev deps (or: uv pip install -e ".[dev]")
 scripts/start_services.sh     # start MongoDB + Neo4j (Docker) and health-check them
-make test                     # GATE: pytest without the tests marked integration (736 tests, 18 s on 2026-11-23)
+make test                     # GATE: pytest without the tests marked integration or parse (840 passed, 3 skipped, 34 s on 2026-11-26)
 make lint                     # GATE: ruff check .
-make test-live                # the 7 tests that read the live MongoDB
+make test-live                # the 13 tests marked integration: 7 read the live MongoDB; 6 need a throwaway Neo4j named by $EMA_SCRATCH_NEO4J_URI and are skipped without it
+make test-parse               # the tests marked parse, in the Docling environment (make parse-env builds it); reported, not a gate
 make pm                       # regenerate docs/pm/ from the active work unit
 make fmt                      # ruff check --fix .
 .venv/bin/python -m pytest tests/path/to/test.py   # run a single test file
@@ -239,7 +240,8 @@ The rules every session follows:
 4. **Ask before a run that deletes or costs,** with the counts, the hours and the
    amount: a graph reset, a rebuild or re-embed of more than one hour on the GPU, paid
    model calls beyond a smoke run of 3 items. `build_index(profile, reset=True)` and
-   `--reset` delete the whole live graph.
+   `--reset` delete every `:Document` and `:Chunk` node of the live graph, in batches;
+   nodes with other labels stay (since backlog row 10, 2026-11-25).
 5. **A number comes from a recorded run.** It names the recipe, the benchmark file and
    its commit, the generator and the judge model, n, and the failed rows. A failed row
    is listed and left out of the mean, never judged as an answer. The judge model is a

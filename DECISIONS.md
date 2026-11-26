@@ -42,6 +42,26 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **What it changes:** `CLAUDE.md` rule 7 and the same sentence in `.claude/commands/explore.md`. No page is changed in retrospect.  
 **Ref:** [`docs/eval/2026-11-25_direction_review.md`](docs/eval/2026-11-25_direction_review.md), section 5.2 (the page that raised the question)
 
+### Pushing allowed, the GPU runs scheduled without a yes each, LlamaIndex first
+**Decided:** 2026-11-26, by the owner: "The decisions sound good to me (let's start with LlamaIndex and later think or other tools/systems later e.g. langchain if more agentic work should be tested). You can push. You can schedule the GPU runs." The message answered a table of seven open decisions, each with the lead assistant's recommendation.  
+**What, the owner's decisions:**
+- **Pushing is allowed.** The owner's earlier answer, "Keep local, I read first", ends.
+- **The GPU runs may be scheduled** without a yes for each run.
+- **LlamaIndex stays the framework** in which the strategies are built. Other tools and systems come later, for example LangChain, if more agentic work is to be tested.
+
+**What, the lead assistant's reading:** It is not the owner's answer, and the owner can overrule each point.
+- *What "the GPU runs" covers:* the conversion of the PDFs with the `docling` parser, files only, in rows 17 and 21: 65,799 PDFs, about 1.08 million pages, estimated on 2026-11-26 at 16 to 113 days of one process ([batch 0's note](docs/pm/decisions/2026-11-26_batch-0.md)). Batch 0's limit of 12 GPU hours is lifted with it.
+- *What it does not cover:* a run that deletes (a graph reset, a build that replaces chunks in the live graph), the re-embedding, and paid model calls beyond a smoke run of 3 items. Those are still asked with counts, hours and amount (planning rule 4).
+- *What stays in force for every batch:* a note with its documents, pages and estimated hours before it starts, a report after it, and the stop thresholds of batch 0's note. A crossed threshold stops the next batch until the owner has seen the report.
+- *Pushing:* the lead session pushes after a scan of the outgoing commits for credentials and for content of the private plan. Branches are pushed under their own names. No merge into `main`, no pull request and no forced push follow from this answer.
+- *Other tools and systems:* the trial of Cognee on three text units, which the lead had recommended, is not started. It is parked in [`BACKLOG.md`](BACKLOG.md) with LangChain.
+- *The six outdated lines of `CLAUDE.md`* that the lead had flagged are corrected, because the table offered "one yes and I correct all six". They are listed in the [direction review](docs/eval/2026-11-25_direction_review.md), section 9.
+
+**Left open by the answer:** whether structured records outside the documents belong to the retrieval plan, the labelling of 30 claims by a person (row 20), and three other rules the lead had flagged (one open work unit during a long run, the wording of the complexity lock, the clause on vendors in rule 7).  
+**What it changes:** the sentence "the note of batch 1 asks for one standing yes" in the entry on PDF parsing is answered. Row 21 no longer waits for a yes; it waits for its proposal and for batch 0's report.  
+**What it does not change:** planning rules 1, 4 (for deletes and paid calls), 5 and 7, the cap of 3 on `Now`, and the order of the backlog.  
+**Ref:** [`BACKLOG.md`](BACKLOG.md) rows 17, 21 and 12; [`docs/pm/decisions/2026-11-26_batch-0.md`](docs/pm/decisions/2026-11-26_batch-0.md)
+
 ### Main focus: reasoning an agent can use, and an answer a person can confirm
 **Decided:** 2026-11-25. The focus is the owner's, stated that day. The direction that follows from it is the lead assistant session's, taken under the owner's delegation of that day ("You are allowed to plan and implement ways forward") after an adversarial review. It is not the owner's answer, and the owner can overrule any part of it.  
 **What, the owner's focus:** Beyond comparing retrieval strategies, this repository should show how project-specific reasoning can be made available to an agent, and how an assistant agent can guide a scientist. The pattern of interest is: the agent retrieves prior knowledge, proposes, and a person confirms before anything is acted on. The confirmation must be efficient, so the reasoning before it must be transparent, traceable and where possible verifiable by automated tests.  

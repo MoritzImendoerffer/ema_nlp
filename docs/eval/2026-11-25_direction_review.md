@@ -681,3 +681,9 @@ received, and only a closed-book run separates the model's memory from an error.
     `scripts/propagate_metadata_to_graph.py`.
   - line 143 names `corpus/sources/synthetic_legacy_reader.py`, deleted in LIR-012. Line 133
     says MongoDB must run in the pinned container; the native `mongod` is what runs.
+  - **Corrected on 2026-11-26** by the lead session, on the owner's yes of that day
+    (`DECISIONS.md`, "Pushing allowed, the GPU runs scheduled without a yes each, LlamaIndex
+    first"). The numbers written then come from that day's runs: `make test` printed 840
+    passed and 3 skipped, and 13 tests are marked `integration`. One thing was found while
+    correcting: `scripts/start_services.sh` stops with an error while the native `mongod`
+    is active and then starts nothing, Neo4j included. That belongs to row 12.
