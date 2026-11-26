@@ -425,12 +425,15 @@ cites that bears on this page.
 
 **The white paper.** 53 pages. Its title page says "Version 274 · October 14, 2026", and
 its file name says v271. It describes the vendor's product. It reports no new accuracy
-run: its benchmark numbers are those of section 5.2. It describes a loop, "model, measure,
-compute, repeat", and names four places where a person acts in it:
+run. Its benchmark numbers are those of the methodology document of section 5.2, with one
+exception: an example of one task over three runs, whose source is a draft paper of the
+vendor that the literature session did not find in public. It describes a loop, "model,
+measure, compute, repeat", and names four places where a person acts in it:
 
 1. **Answers a clarifying question.** The software asks when a term has more than one
    definition. The answer is stored "as a rule or synonym, so the same question isn't asked
-   twice".
+   twice". One person's answer then holds for the next person, and the paper names no
+   review of such a rule.
 2. **Decides a conflict.** Agents draft the definitions from dashboards, spreadsheets,
    documentation, glossaries and database schemas. They "flag the calls only a person can
    make, such as which of two revenue definitions the business reports".
@@ -460,22 +463,28 @@ applied, so 100% is still the target."
    run 1." The best-of-three figures, and the 93% headline (a best run of three with the
    memory on, by the paper's note 8), therefore include answers that the grader had
    already confirmed for the same question. Only the first run is free of this. Section
-   5.2 compares the first runs.
+   5.2 compares the first runs. For the 317 questions of the headline no first run is
+   published: the methodology document gives a best run (93%) and a mean of three runs
+   (90.6%). The mean includes runs 2 and 3, and the best run may be one of them.
 2. **The white paper does not say that the definitions were tuned on the benchmark.** It
    says that the software "modeled all 22 databases behind the 600 questions in a couple
    of hours, with object descriptions drawn from BIRD's own corpus". The audit is not
    mentioned. Point 2 of the list in section 5.2 stands.
-3. **A new table: the cost of model calls per right answer.** Without the layer and with
-   it: from $0.17 and $0.14 (Grok 4.3) to $0.87 and $0.73 (Claude Opus 4.6). The paper
-   states a fall of 7% to 44%, about 21% on average; the seven rows of its table give a
-   mean of 21.3%. Its note 8 defines the measure: model spend per run at list prices,
-   divided by the first questions passed over all 600 tasks. The note does not say which
-   run the passes come from. The cost of the database and the cost of the layer (the
-   licence, the modeller's work) are not in it.
+3. **A table that section 5.2 left out: the cost of model calls per right answer.** It is
+   in the methodology document too. Without the layer and with it: from $0.17 and $0.14
+   (Grok 4.3) to $0.87 and $0.73 (Claude Opus 4.6). The paper states a fall of 7% to 44%,
+   about 21% on average; the seven rows of its table give a mean of 21.3%. The measure is
+   the mean model spend per run at list prices, divided by the first questions passed
+   over all 600 tasks. Two of the three runs with the layer could reuse the memory, and
+   the largest fall (Nemotron 3 Ultra, 44%) rests on runs 2 and 3 only. The cost of the
+   database and the cost of the layer (the licence, the modeller's work) are not in it.
 4. **Its case against ontologies and knowledge graphs is an argument, not a
    measurement.** "Context doesn't compute anything, though: the model can ignore or
    misread it, and it still writes the query." No run in the vendor's material gives the
-   agent the same definitions as text or as a graph.
+   agent the same definitions as text or as a graph. The literature session adds a
+   reading: the vendor's own definitions are compiled into what the paper calls a
+   "semantic graph", and code walks it. The argument is therefore about who uses a graph,
+   the model or code, and not against graphs.
 
 **The post it cites.** The data team of Anthropic describes its own analytics agent
 (2026-06-03). It is a company's report on its own system. No data and no test set are
@@ -504,7 +513,8 @@ three are in the post. The white paper leaves out the rest:
   request for the owner of the domain.
 - **What a reviewing model costs.** A second model that challenges the answer raised the
   accuracy on the test set by 6% "at the cost of 32% more tokens and 72% higher latency".
-  A cheaper reviewing model "lost most of the accuracy wins".
+  The post does not say whether the 6% are points or a relative gain. A cheaper reviewing
+  model "lost most of the accuracy wins".
 - **What stays open.** "The answer is wrong, but looks plausible and is used without
   objection." For this case: "we don't have a robust solution yet."
 
@@ -523,8 +533,11 @@ three are in the post. The white paper leaves out the rest:
    earlier work. The few-shot cache of this repository works the same way: it retrieves
    rated answers by similarity to the question (`harness/fewshot_inject.py`). Light et
    al. (section 5.1) report a large gain from worked examples on synthetic documents. The
-   evidence points both ways. So the arm "worked examples" of E5 runs on the held-out
-   product, and its example store holds no question of the test set.
+   literature session adds Rabelo et al. (2026): on 48 questions over a database of
+   batch records, worked examples from a pool that shares no item with the benchmark
+   raised accuracy from 23–25% to 46–48%. The evidence points both ways. So the arm
+   "worked examples" of E5 runs on the held-out product, and its example store holds no
+   question of the test set.
 3. **A model may draft a definition. A person owns it.** The two sources disagree on the
    drafting and agree on the ownership. This applies to every graph or ontology that is
    built automatically. Such an arm of the ladder needs a part that a person has
@@ -547,6 +560,14 @@ Sources, read by the lead on 2026-11-26 as text:
 - Cherry, J., Peng, C., Jiao, J., Leder, J. and Chang, C. (2026-06-03). How Anthropic
   enables self-service data analytics with Claude. Blog post.
   <https://claude.com/blog/how-anthropic-enables-self-service-data-analytics-with-claude>
+
+A literature session checked both documents against its own copies on the same day and
+corrected three points of the lead's first version of this section. Read by that session
+and not by the lead:
+
+- Rabelo, L. et al. (2026). RAG-grounded natural-language-to-SQL for on-premise deployment
+  in regulated batch manufacturing. *Applied Sciences* 16(21), 10971.
+  doi:10.3390/app162110971
 
 ## 6. The direction
 
