@@ -11,7 +11,7 @@ tags: [pm/board]
 
 # Board — the active epic
 
-**[[epic|2026-11-26_28_pdf-parsing-docling]]** · **0 of 17 done** · 17 todo
+**[[epic|2026-11-26_28_pdf-parsing-docling]]** · **1 of 17 done** · 16 todo
 
 [[epic|Why this epic]] · [[_Archive|Finished epics]] · [[BACKLOG|What is open, in order]]
 
@@ -29,7 +29,6 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 
 | Task | Status | Waiting on | Kind | What it is |
 |---|---|---|---|---|
-| [[TASK-001]] | `todo` | the assistant | contract | Fix the stored shape: folder layout, file names, document id, options hash, config roots |
 | [[TASK-002]] | `todo` | the assistant | mechanism | Build the parse environment with pinned versions, outside .venv, and prefetch its models |
 | [[TASK-003]] | `todo` | the assistant | mechanism | Write the PaddleOCR-VL table stage and register it in code |
 | [[TASK-004]] | `todo` | the assistant | mechanism | Write the docling parser on the Parser protocol |
@@ -49,7 +48,9 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 
 ## Done
 
-*None.*
+| Task | Status | Waiting on | Kind | What it is |
+|---|---|---|---|---|
+| [[TASK-001]] | `done` | — | contract | Fix the stored shape: folder layout, file names, document id, options hash, config roots |
 
 ---
 

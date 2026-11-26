@@ -41,6 +41,14 @@ INDEX_DIR = Path(os.getenv("EMA_INDEX_PATH", str(EMA_DATA_DIR / "index"))).expan
 # everywhere) — override with EMA_RESULTS_DIR.
 RESULTS_DIR = Path(os.getenv("EMA_RESULTS_DIR", str(EMA_DATA_DIR / "results"))).expanduser()
 
+# Docling parses of the PDFs (backlog row 17): one folder per PDF, docling@<options hash>/
+# with doc.raw.json, doc.json, run.json. Where they finally live is open question 1 of
+# docs/next/pdf_parsing_docling.md — override with EMA_PARSED_ROOT.
+PARSED_ROOT = Path(os.getenv("EMA_PARSED_ROOT", str(EMA_DATA_DIR / "parsed"))).expanduser()
+# The parse environment (Docling, PaddleOCR-VL, RapidOCR). Never .venv: Docling would
+# move the torch build under the embedding model. Built by `make parse-env`.
+DOCLING_ENV = Path(os.getenv("EMA_DOCLING_ENV", "~/.local/share/ema_nlp/envs/docling")).expanduser()
+
 # IDMP Onologies
 rdf_path = nx_datafolder.joinpath("Pistoia-Alliance-Ontologies/IDMP-O/1.3.0").expanduser()
 rdf_file_name = "IdentificationOfMedicinalProductsOntology.rdf"
