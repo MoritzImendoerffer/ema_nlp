@@ -3,7 +3,7 @@
   "proposal": "docs/next/pdf_parsing_docling.md",
   "planned_at": "2026-11-26",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-012",
+  "current_task": "TASK-013",
   "baseline": {
     "make_test": "786 passed, 2 skipped, 13 deselected (develop at 0a37623, 2026-11-26)",
     "make_lint": "All checks passed",
@@ -303,7 +303,7 @@
       "id": "TASK-012",
       "title": "Write the batch report: rates, failures, sizes, post-processing counts, table numbers, words held",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-009"
       ],
@@ -322,7 +322,8 @@
         "Beside numbers: Greek letters and the micro sign held against the text layer, for the page text and for the tables, each with n, and the Greek letters returned that the layer lacks; a Greek letter on a line without a run of 3 or more Greek letters counts as a symbol in Latin text (the lead session's line rule of 2026-11-26), and the page states the rule",
         "Table numbers: a pair where the text-layer number equals the cell's number followed by its mark's digits (layer 12.51, cell 12.5[^1]) is counted in its own column and kept out of both the held and the missed shares (lead session's review, 2026-11-26)"
       ],
-      "notes": "Proposal section 'What batch 0 reports'. The check cannot see a number in the wrong cell; the page says so."
+      "notes": "Proposal section 'What batch 0 reports'. The check cannot see a number in the wrong cell; the page says so.",
+      "outcome": "scripts/report_docling_batch.py (runs in .venv; reads doc.json as JSON, the PDF text layer with pymupdf, the legacy rows read-only) writes report_<list>.json and .md under RESULTS_DIR/docling. Per group with n: seconds per page (all; documents without tables) and a least-squares fit seconds = a x pages without tables + b x tables + c x cells (n >= 3). Failures without a folder, with cause; parsed after an earlier failure counted. Bytes per page of each file plain and gzip. Post-processing counts. Table numbers per table on a page with a text layer (>= 50 characters): layer numbers inside the table's boxes held by the cells and cell numbers held by the layer; pairs where the layer flattened a footnote mark (layer 12.51, cell 12.5[^1]) counted in their own column and left out of both shares (lead session's review). Greek letters by the lead session's line rule (no run of 3+ Greek letters = symbol in Latin text), for page text and tables: symbols held, of which μ, Greek-language letters held, Greek letters returned that the layer lacks; the page states the rule; NFKC so µ = μ. CJK per document. Words and numbers held against the legacy text. Fixtures: tests/fixtures/docling/batch/ (the two parses the batch command made in the parse env). tests/test_report_docling_batch.py 5 passed (two fixture documents: 5 tables checked, 42 of 42 layer numbers held; failure listed; fit recovers 0.5/2.0/0.1; flattened pair; line rule). Ran as a command on the fixture list. Gates: make test 840 passed, 3 skipped, 13 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-013",
