@@ -92,6 +92,8 @@ testpaths = ["tests"]
 addopts = "-v --tb=short"
 markers = [
     "integration: requires live external services (MongoDB, network)",
+    "parse: runs in the Docling parse environment (make test-parse), never in the gate",
+    "gpu: needs the GPU (PaddleOCR-VL)",
 ]
 
 [tool.setuptools]

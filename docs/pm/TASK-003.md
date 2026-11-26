@@ -20,7 +20,7 @@ tags: [pm/task, pm/todo]
 
 ## Why it exists
 
-Written here; doctool's `src/dw/parsers/paddleocr_vl_stage.py:54-183` is the example (exploration section 3). The model repository's configuration turns the generation cache off, which made one table 7 to 20 times slower in doctool: set `use_cache=True` on every generate call. Registration in code works in Docling 2.153.0 (exploration section 4); no entry point.
+Written here; doctool's `src/dw/parsers/paddleocr_vl_stage.py:54-183` is the example (exploration section 3). The model repository's configuration turns the generation cache off, which made one table 7 to 20 times slower in doctool: set `use_cache=True` on every generate call. Registration in code works in Docling 2.153.0 (exploration section 4); no entry point. Written fresh in this repository's style; no public file (code comment, docs page, README) points at a path inside doctool (lead session's review of 2026-11-26).
 
 ## Acceptance criteria
 

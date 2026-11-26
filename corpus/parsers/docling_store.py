@@ -11,10 +11,9 @@ Per PDF one folder::
         run.json       the run record: source hash, versions, model revisions, options, counts
 
 The document id is ``<slug>_<hash12>``: the last part of the URL, cut to 40 characters,
-and the first 12 hex characters of the SHA-256 of the PDF bytes. doctool uses 6 hex
-characters (``src/dw/ids.py:124-131``); for about 66,000 PDFs that gave an expected 4%
-chance of two different PDFs sharing a folder. Two PDFs with the same bytes share one
-folder on purpose, and are parsed once.
+and the first 12 hex characters of the SHA-256 of the PDF bytes. With 6 hex characters,
+about 66,000 PDFs would give an expected 4% chance of two different PDFs sharing a folder.
+Two PDFs with the same bytes share one folder on purpose, and are parsed once.
 """
 
 from __future__ import annotations

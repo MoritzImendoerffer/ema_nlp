@@ -20,7 +20,7 @@ tags: [pm/task, pm/todo]
 
 ## Why it exists
 
-Every command that writes says where.
+Every command that writes says where. No path inside doctool in any public file.
 
 ## Acceptance criteria
 

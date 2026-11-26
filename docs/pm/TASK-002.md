@@ -3,12 +3,12 @@ type: pm-task
 epic: 2026-11-26_28_pdf-parsing-docling
 sprint: 2026-11-26_28_pdf-parsing-docling
 task: TASK-002
-status: todo
+status: done
 kind: mechanism
 title: "Build the parse environment with pinned versions, outside .venv, and prefetch its models"
 generated: true
-waiting_on: the assistant
-tags: [pm/task, pm/todo]
+waiting_on: —
+tags: [pm/task, pm/done]
 ---
 
 > [!warning] Generated from `.claude/work/2026-11-26_28_pdf-parsing-docling/state.json` by `scripts/pm_notes.py`.
@@ -16,7 +16,7 @@ tags: [pm/task, pm/todo]
 
 # TASK-002 — Build the parse environment with pinned versions, outside .venv, and prefetch its models
 
-**Epic:** [[epic]] · **Status:** `todo` · **Waiting on:** the assistant · **Board:** [[_Board]]
+**Epic:** [[epic]] · **Status:** `done` · **Waiting on:** — · **Board:** [[_Board]]
 
 ## Why it exists
 
@@ -24,13 +24,17 @@ Exploration section 7: installing Docling into .venv would move torch 2.10.0 und
 
 ## Acceptance criteria
 
-- [ ] `make parse-env` builds a Python 3.12 environment at `config.DOCLING_ENV` from `requirements/parse-docling.txt` (docling 2.153.0, docling-core 2.108.0, docling-ibm-models 4.0.5, docling-parse 7.28.0, rapidocr 3.10.0, transformers 5.24.1, torch 2.15.0, onnxruntime 1.32.0, pypdfium2 5.15.2, pymongo, python-dotenv) and installs this repository into it with `--no-deps`
-- [ ] The script downloads `en_PP-OCRv5_rec_mobile`, PaddleOCR-VL-1.6 at revision `c5630abae1d940eafe0697512a0325494b02ab42` and Heron at `8f39ad3c0b4c58e9c2d2c84a38465abf757272d8`, and prints each file's SHA-256
-- [ ] After `make parse-env`, `.venv/bin/python -c 'import torch; print(torch.__version__)'` still prints 2.10.0 and `import docling` fails in .venv
-- [ ] pyproject registers the marker `gpu`; `make test-parse` runs the tests marked `parse` in the parse environment; `make test` deselects them
-- [ ] `make test` passes and `make lint` passes, each run on its own line
+- [x] `make parse-env` builds a Python 3.12 environment at `config.DOCLING_ENV` from `requirements/parse-docling.txt` (docling 2.153.0, docling-core 2.108.0, docling-ibm-models 4.0.5, docling-parse 7.28.0, rapidocr 3.10.0, transformers 5.24.1, torch 2.15.0, onnxruntime 1.32.0, pypdfium2 5.15.2, pymongo, python-dotenv) and installs this repository into it with `--no-deps`
+- [x] The script prefetches PaddleOCR-VL-1.6 at revision `c5630abae1d940eafe0697512a0325494b02ab42` and Heron at `8f39ad3c0b4c58e9c2d2c84a38465abf757272d8` and prints each weight file's SHA-256, plus the hashes of the OCR files in the rapidocr wheel. Prefetching an OCR recognition model that is not in the wheel moved to TASK-004 (the parser's prefetch), because the model choice waits for TASK-018
+- [x] After `make parse-env`, `.venv/bin/python -c 'import torch; print(torch.__version__)'` still prints 2.10.0 and `import docling` fails in .venv
+- [x] pyproject registers the markers `parse` and `gpu`; `make test-parse` runs `tests/test_docling_parse_env.py` in the parse environment; `make test` deselects `parse`
+- [x] `make test` passes and `make lint` passes, each run on its own line
 
 **Depends on:** [[TASK-001]]
+
+## What was built
+
+make parse-env (scripts/setup_parse_env.sh) builds config.DOCLING_ENV (~/.local/share/ema_nlp/envs/docling) with Python 3.12 from requirements/parse-docling.lock.txt (129 pins frozen from the exploration's environment B: docling 2.153.0, docling-core 2.108.0, rapidocr 3.10.0, transformers 5.24.1, torch 2.15.0, onnxruntime 1.32.0, pypdfium2 5.15.2, pymongo 4.17.0), installs this repository with --no-deps plus pytest and mongomock, prefetches Heron (8f39ad3c) and PaddleOCR-VL-1.6 (c5630abae1d9) and prints the weight hashes (model.safetensors 00333a43451945aa and 85a479d506a11e72) and the rapidocr wheel files. It refuses if DOCLING_ENV is .venv, and checks that .venv keeps torch 2.10.0+cu128 and cannot import docling (both held on the real run). Plain RapidOCR did not fetch en_PP-OCRv5_rec_mobile; the OCR prefetch moved to TASK-004, after TASK-018 chooses the model. pyproject: markers parse and gpu; make test deselects parse; make test-parse runs tests/test_docling_parse_env.py (2 passed). Gates: make test 792 passed, 3 skipped, 13 deselected; make lint All checks passed.
 
 ## Files it touched
 

@@ -26,6 +26,7 @@ The report script of TASK-012 produces the numbers.
 
 - [ ] The page has every measure of the proposal's table 'What batch 0 reports', each with n, and every failed document
 - [ ] It states the versions, the options hash and the model revisions
+- [ ] It carries the counted corpus numbers of the exploration (66,183 PDFs, 1,133,660 pages, 16,633 ranked documents, 328,278 tables, 30,614 pages without text), each with its rule; row 21's proposal cites this page
 
 **Depends on:** [[TASK-015]]
 

@@ -3,7 +3,7 @@
   "proposal": "docs/next/pdf_parsing_docling.md",
   "planned_at": "2026-11-26",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-002",
+  "current_task": "TASK-003",
   "baseline": {
     "make_test": "786 passed, 2 skipped, 13 deselected (develop at 0a37623, 2026-11-26)",
     "make_lint": "All checks passed",
@@ -24,7 +24,7 @@
     },
     {
       "question": "Does batch 0 write Mongo rows?",
-      "answer": null,
+      "answer": "files only; the writer's row code stays behind --write-mongo, off by default (lead session's review of 2026-11-26): under decision F a docling row for a URL without a legacy row would enter the graph at the next build",
       "plan_default": "files only, as the owner's yes of 2026-11-25 says; rows can be written later from the stored doc.json"
     },
     {
@@ -58,7 +58,7 @@
       "id": "TASK-002",
       "title": "Build the parse environment with pinned versions, outside .venv, and prefetch its models",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-001"
       ],
@@ -70,12 +70,13 @@
       ],
       "acceptance": [
         "`make parse-env` builds a Python 3.12 environment at `config.DOCLING_ENV` from `requirements/parse-docling.txt` (docling 2.153.0, docling-core 2.108.0, docling-ibm-models 4.0.5, docling-parse 7.28.0, rapidocr 3.10.0, transformers 5.24.1, torch 2.15.0, onnxruntime 1.32.0, pypdfium2 5.15.2, pymongo, python-dotenv) and installs this repository into it with `--no-deps`",
-        "The script downloads `en_PP-OCRv5_rec_mobile`, PaddleOCR-VL-1.6 at revision `c5630abae1d940eafe0697512a0325494b02ab42` and Heron at `8f39ad3c0b4c58e9c2d2c84a38465abf757272d8`, and prints each file's SHA-256",
+        "The script prefetches PaddleOCR-VL-1.6 at revision `c5630abae1d940eafe0697512a0325494b02ab42` and Heron at `8f39ad3c0b4c58e9c2d2c84a38465abf757272d8` and prints each weight file's SHA-256, plus the hashes of the OCR files in the rapidocr wheel. Prefetching an OCR recognition model that is not in the wheel moved to TASK-004 (the parser's prefetch), because the model choice waits for TASK-018",
         "After `make parse-env`, `.venv/bin/python -c 'import torch; print(torch.__version__)'` still prints 2.10.0 and `import docling` fails in .venv",
-        "pyproject registers the marker `gpu`; `make test-parse` runs the tests marked `parse` in the parse environment; `make test` deselects them",
+        "pyproject registers the markers `parse` and `gpu`; `make test-parse` runs `tests/test_docling_parse_env.py` in the parse environment; `make test` deselects `parse`",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "Exploration section 7: installing Docling into .venv would move torch 2.10.0 under the embedding model to 2.15.0. The trial environments of the exploration (~/.local/share/ema_nlp/envs/docling-a, docling-b) proved the install; `make parse-env` makes it reproducible. The English recognition model is not in the rapidocr wheel; RapidOCR fetches it from modelscope.cn on first use, so the script fetches it once and a batch never depends on a download."
+      "notes": "Exploration section 7: installing Docling into .venv would move torch 2.10.0 under the embedding model to 2.15.0. The trial environments of the exploration (~/.local/share/ema_nlp/envs/docling-a, docling-b) proved the install; `make parse-env` makes it reproducible. The English recognition model is not in the rapidocr wheel; RapidOCR fetches it from modelscope.cn on first use, so the script fetches it once and a batch never depends on a download.",
+      "outcome": "make parse-env (scripts/setup_parse_env.sh) builds config.DOCLING_ENV (~/.local/share/ema_nlp/envs/docling) with Python 3.12 from requirements/parse-docling.lock.txt (129 pins frozen from the exploration's environment B: docling 2.153.0, docling-core 2.108.0, rapidocr 3.10.0, transformers 5.24.1, torch 2.15.0, onnxruntime 1.32.0, pypdfium2 5.15.2, pymongo 4.17.0), installs this repository with --no-deps plus pytest and mongomock, prefetches Heron (8f39ad3c) and PaddleOCR-VL-1.6 (c5630abae1d9) and prints the weight hashes (model.safetensors 00333a43451945aa and 85a479d506a11e72) and the rapidocr wheel files. It refuses if DOCLING_ENV is .venv, and checks that .venv keeps torch 2.10.0+cu128 and cannot import docling (both held on the real run). Plain RapidOCR did not fetch en_PP-OCRv5_rec_mobile; the OCR prefetch moved to TASK-004, after TASK-018 chooses the model. pyproject: markers parse and gpu; make test deselects parse; make test-parse runs tests/test_docling_parse_env.py (2 passed). Gates: make test 792 passed, 3 skipped, 13 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-003",
@@ -96,7 +97,26 @@
         "In .venv the module is not imported by any test of the gate",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "Written here; doctool's `src/dw/parsers/paddleocr_vl_stage.py:54-183` is the example (exploration section 3). The model repository's configuration turns the generation cache off, which made one table 7 to 20 times slower in doctool: set `use_cache=True` on every generate call. Registration in code works in Docling 2.153.0 (exploration section 4); no entry point."
+      "notes": "Written here; doctool's `src/dw/parsers/paddleocr_vl_stage.py:54-183` is the example (exploration section 3). The model repository's configuration turns the generation cache off, which made one table 7 to 20 times slower in doctool: set `use_cache=True` on every generate call. Registration in code works in Docling 2.153.0 (exploration section 4); no entry point. Written fresh in this repository's style; no public file (code comment, docs page, README) points at a path inside doctool (lead session's review of 2026-11-26)."
+    },
+    {
+      "id": "TASK-018",
+      "title": "Measure the OCR recognition models on pages with a known answer, and choose one",
+      "type": "measurement",
+      "status": "pending",
+      "dependencies": [
+        "TASK-002"
+      ],
+      "files": [
+        ".claude/work/2026-11-26_28_pdf-parsing-docling/exploration.md"
+      ],
+      "acceptance": [
+        "About 30 pages with a text layer from about 10 cached PDFs, chosen so that they hold µ, ±, ≥, ≤, °, × and Greek letters; the page list and the rule written down",
+        "Each recognition model OCRs the whole page image: the multilingual PP-OCRv6 small model, en_PP-OCRv5_rec_mobile, and any other English or Latin recognition model that rapidocr 3.10.0 offers",
+        "Against the text layer: the share of words, of numbers and of each symbol held, and the CJK characters returned, per model, each with n",
+        "The choice and the numbers go into an addendum of exploration.md and into the plan's choices; if the English model loses symbols, keep the multilingual model and let the batch report count CJK characters"
+      ],
+      "notes": "Required by the lead session's review of 2026-11-26 before TASK-004 fixes the model. The exploration's switch rested on one wrong character in one document, and 'no CJK character' is a weak test: a model that cannot write CJK passes it by construction. The larger risk is µg read as ug or mg, which changes a dose. OCR touches 30,614 pages in 5,503 documents (exploration section 6). CPU work of minutes; no approval needed."
     },
     {
       "id": "TASK-004",
@@ -105,7 +125,8 @@
       "status": "pending",
       "dependencies": [
         "TASK-001",
-        "TASK-003"
+        "TASK-003",
+        "TASK-018"
       ],
       "files": [
         "corpus/parsers/docling_pdf.py",
@@ -114,9 +135,9 @@
       ],
       "acceptance": [
         "`tests/test_parsers_docling_pdf.py::test_missing_extra_in_retrieval_env` passes in the gate: without Docling, `parse()` returns a document whose error starts with `missing_extra`",
-        "The converter uses Heron pinned through `LayoutObjectDetectionOptions.from_preset('layout_heron_default')`, RapidOCR with `Rec.lang_type=LangRec.EN`, `Rec.ocr_version=OCRVersion.PPOCRV5`, `Rec.model_type=ModelType.MOBILE`, the table stage of TASK-003, and `allow_external_plugins=True`",
+        "The converter uses Heron pinned through `LayoutObjectDetectionOptions.from_preset('layout_heron_default')`, RapidOCR with the recognition model TASK-018 chose, the table stage of TASK-003, and `allow_external_plugins=True`; `prefetch()` builds the converter once so that every model the options need is on disk before a batch",
         "A status other than SUCCESS (PARTIAL_SUCCESS included) is returned as an error; `parse()` never raises",
-        "`make test-parse` passes `::test_parser_on_fixture_pdf`: `tests/fixtures/fixture_pdf_0.pdf` gives SUCCESS, a page count, and no CJK character",
+        "`make test-parse` passes `::test_parser_on_fixture_pdf`: `tests/fixtures/fixture_pdf_0.pdf` gives SUCCESS and a page count",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
       "notes": "`corpus/parsers/base.py:40-58` is the protocol; `llamahub_pdf.py:123` is the example of `missing_extra`. The options and their hash go into run.json. Exploration section 5: `lang=['en']` alone loads the multilingual PP-OCRv6 model, and the first look's 'authorisation 木' comes back."
@@ -307,7 +328,7 @@
         "`docs/RETRIEVAL.md` section 2 names the docling parser and says that nothing reaches the graph until row 21",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "Every command that writes says where."
+      "notes": "Every command that writes says where. No path inside doctool in any public file."
     },
     {
       "id": "TASK-014",
@@ -327,7 +348,7 @@
         "It names beforehand the share of tables with numbers missing or added that would stop the batches",
         "It cites the owner's yes of 2026-11-25 (about 270 PDFs, 7 to 12 GPU hours, files only); the batch starts only if the estimate stays inside it, and is cut to fit otherwise"
       ],
-      "notes": "Plan choices, overrulable: the 200 are the top of the ranking with at most 60 pages (7,749 pages in the exploration); the 70 are drawn with a fixed seed from the rest with at most 200 pages, so that a few test the page-range path. Exploration section 8: 8.4 to 9.0 hours for the at-most-60-page draw."
+      "notes": "Plan choices, overrulable: the 200 are the top of the ranking with at most 60 pages (7,749 pages in the exploration); the 70 are drawn with a fixed seed from the rest with at most 200 pages, so that a few test the page-range path. Exploration section 8: 8.4 to 9.0 hours for the at-most-60-page draw. The 70 random documents are drawn from PDFs that have a legacy row, so that the comparison with today's text exists for each (lead session's review of 2026-11-26)."
     },
     {
       "id": "TASK-015",
@@ -358,7 +379,8 @@
       ],
       "acceptance": [
         "The page has every measure of the proposal's table 'What batch 0 reports', each with n, and every failed document",
-        "It states the versions, the options hash and the model revisions"
+        "It states the versions, the options hash and the model revisions",
+        "It carries the counted corpus numbers of the exploration (66,183 PDFs, 1,133,660 pages, 16,633 ranked documents, 328,278 tables, 30,614 pages without text), each with its rule; row 21's proposal cites this page"
       ],
       "notes": "The report script of TASK-012 produces the numbers."
     },

@@ -20,7 +20,7 @@ tags: [pm/task, pm/todo]
 
 ## Why it exists
 
-Plan choices, overrulable: the 200 are the top of the ranking with at most 60 pages (7,749 pages in the exploration); the 70 are drawn with a fixed seed from the rest with at most 200 pages, so that a few test the page-range path. Exploration section 8: 8.4 to 9.0 hours for the at-most-60-page draw.
+Plan choices, overrulable: the 200 are the top of the ranking with at most 60 pages (7,749 pages in the exploration); the 70 are drawn with a fixed seed from the rest with at most 200 pages, so that a few test the page-range path. Exploration section 8: 8.4 to 9.0 hours for the at-most-60-page draw. The 70 random documents are drawn from PDFs that have a legacy row, so that the comparison with today's text exists for each (lead session's review of 2026-11-26).
 
 ## Acceptance criteria
 
