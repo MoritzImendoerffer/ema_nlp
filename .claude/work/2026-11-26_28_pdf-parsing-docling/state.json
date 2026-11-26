@@ -3,7 +3,7 @@
   "proposal": "docs/next/pdf_parsing_docling.md",
   "planned_at": "2026-11-26",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-007",
+  "current_task": "TASK-008",
   "baseline": {
     "make_test": "786 passed, 2 skipped, 13 deselected (develop at 0a37623, 2026-11-26)",
     "make_lint": "All checks passed",
@@ -191,7 +191,7 @@
       "id": "TASK-007",
       "title": "Post-processing rule 3: turn the table model's markup into text",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-005"
       ],
@@ -204,7 +204,8 @@
         "Each conversion is counted in the counts that run.json and the batch report read",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "doctool's `paddleocr_vl.py:38-153` is the example. Dashes stay as Docling wrote them (proposal: no guess at the original character)."
+      "notes": "doctool's `paddleocr_vl.py:38-153` is the example. Dashes stay as Docling wrote them (proposal: no guess at the original character).",
+      "outcome": "Rule 3 in corpus/parsers/docling_post.py: convert_markup(text) unwraps \\text{}/\\mathrm{} and the math delimiters, writes ^{\\circ} as °, e^{-14} as e-14 and 10^{9} as 10^9, writes subscripts as plain text (C_{max} -> Cmax, as the text layer has it), maps every Greek letter command (\\alpha to \\omega, the capitals, variants; 48+ entries) and the symbol commands (\\pm ±, \\le/\\leq ≤, \\ge/\\geq ≥, \\times ×, \\neq ≠, \\approx ≈, \\rightarrow →, ...) to Unicode, drops the spaces between a command word and a following letter (\\mu g -> μg), leaves an unknown command as written, and replaces a literal \\n by a space only after the commands, so \\nu stays ν and \\neq stays ≠ (a bug found by the test). convert_table_markup() runs it on every table cell after rule 2; counted as markup_converted. Dashes untouched. 6 new tests (16 in tests/test_docling_post.py), including the whole Greek alphabet (the owner's requirement relayed by the lead, 2026-11-26). Gates: make test 811 passed, 3 skipped, 13 deselected; make lint All checks passed; make test-parse 8 passed."
     },
     {
       "id": "TASK-008",

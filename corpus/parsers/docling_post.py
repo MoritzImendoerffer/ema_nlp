@@ -14,6 +14,12 @@ Rule 2, footnotes in tables: PaddleOCR-VL writes a footnote mark as superscript 
 ``12.5\\(^{1}\\)``. Read as plain text that becomes "12.51", another number. The mark is
 written as a Unicode superscript, "12.5¹", so it stays a mark. Footnote texts below a table
 that begin with a mark used in its cells are attached to that table.
+
+Rule 3, the model's markup: some cell text comes back as LaTeX, such as ``\\(\\pm\\)``,
+``2.06e^{-14}``, ``\\alpha``, ``\\text{...}`` or a literal ``\\n``. It is turned into text.
+Greek letters are kept as Greek letters: they carry meaning in EMA tables (α-tocopherol, Δ,
+μg). Dashes are left as the parser wrote them: a guess at the original character is worse
+than a known substitution.
 """
 
 from __future__ import annotations
@@ -253,9 +259,90 @@ def attach_table_footnotes(doc: dict[str, Any]) -> tuple[int, int]:
     return marks_written, attached
 
 
+_GREEK = {
+    "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ε", "varepsilon": "ε",
+    "zeta": "ζ", "eta": "η", "theta": "θ", "vartheta": "ϑ", "iota": "ι", "kappa": "κ",
+    "lambda": "λ", "mu": "μ", "nu": "ν", "xi": "ξ", "omicron": "ο", "pi": "π", "varpi": "ϖ",
+    "rho": "ρ", "varrho": "ϱ", "sigma": "σ", "varsigma": "ς", "tau": "τ", "upsilon": "υ",
+    "phi": "φ", "varphi": "φ", "chi": "χ", "psi": "ψ", "omega": "ω",
+    "Alpha": "Α", "Beta": "Β", "Gamma": "Γ", "Delta": "Δ", "Epsilon": "Ε", "Zeta": "Ζ",
+    "Eta": "Η", "Theta": "Θ", "Iota": "Ι", "Kappa": "Κ", "Lambda": "Λ", "Mu": "Μ", "Nu": "Ν",
+    "Xi": "Ξ", "Omicron": "Ο", "Pi": "Π", "Rho": "Ρ", "Sigma": "Σ", "Tau": "Τ",
+    "Upsilon": "Υ", "Phi": "Φ", "Chi": "Χ", "Psi": "Ψ", "Omega": "Ω",
+}
+_SYMBOLS = {
+    "pm": "±", "mp": "∓", "le": "≤", "leq": "≤", "ge": "≥", "geq": "≥", "times": "×",
+    "cdot": "·", "div": "÷", "neq": "≠", "ne": "≠", "approx": "≈", "sim": "~", "simeq": "≃",
+    "infty": "∞", "rightarrow": "→", "to": "→", "leftarrow": "←", "uparrow": "↑",
+    "downarrow": "↓", "degree": "°", "circ": "°", "prime": "′", "%": "%", "log": "log",
+    "ln": "ln", "lt": "<", "gt": ">", "ll": "≪", "gg": "≫", "dagger": "†", "ddagger": "‡",
+    "S": "§", "quad": " ", "qquad": " ", ",": " ", ";": " ", "!": "",
+}
+_WRAPPERS = re.compile(r"\\(?:text|mathrm|textrm|mathit|textit|mathbf|textbf|operatorname)\{([^{}]*)\}")
+_DEGREE = re.compile(r"\^\{\s*\\circ\s*\}")
+_EXPONENT = re.compile(r"(\d[eE]|10)\^\{([+-]?\d{1,3})\}")
+_SUBSCRIPT_MARKUP = re.compile(r"_\{([^{}]{1,6})\}")
+_COMMAND = re.compile(r"\\([A-Za-z]+|[%,;!])( +(?=[A-Za-z]))?")
+
+
+def convert_markup(text: str) -> tuple[str, int]:
+    """Rule 3 on one cell's text. Returns the text and the number of conversions."""
+    count = 0
+
+    def sub(rx: re.Pattern[str], repl: Any, value: str) -> str:
+        nonlocal count
+        new, n = rx.subn(repl, value)
+        count += n
+        return new
+
+    t = sub(_WRAPPERS, lambda m: m.group(1), text)
+    t = sub(_DEGREE, "°", t)
+    t = sub(_EXPONENT, lambda m: f"{m.group(1)}{m.group(2)}" if m.group(1) != "10" else f"10^{m.group(2)}", t)
+    # A subscript becomes plain text: the PDF's text layer writes C_max as "Cmax", and a
+    # search for "Cmax" must find the cell.
+    t = sub(_SUBSCRIPT_MARKUP, lambda m: m.group(1), t)
+
+    def command(m: re.Match[str]) -> str:
+        nonlocal count
+        name = m.group(1)
+        if name in _GREEK:
+            count += 1
+            return _GREEK[name]
+        if name in _SYMBOLS:
+            count += 1
+            return _SYMBOLS[name]
+        return m.group(0)  # unknown command: left as written, never guessed
+
+    # Known commands first, matched as a whole word: \\nu is ν and \\neq is ≠. A literal \\n
+    # (a line break inside a cell) is replaced only after that, so "Pharma\\nceutical"
+    # becomes "Pharma ceutical" and not a command.
+    t = _COMMAND.sub(command, t)
+    if "\\n" in t:
+        count += t.count("\\n")
+        t = t.replace("\\n", " ")
+    for delim in ("\\(", "\\)", "\\[", "\\]"):
+        if delim in t:
+            count += t.count(delim)
+            t = t.replace(delim, "")
+    t = re.sub(r"\$([^$]{1,40})\$", lambda m: m.group(1), t)
+    return " ".join(t.split()) if t != text else t, count
+
+
+def convert_table_markup(doc: dict[str, Any]) -> int:
+    """Rule 3, in place on every table cell. Returns the number of conversions."""
+    total = 0
+    for table in doc.get("tables", []):
+        for cell in table["data"]["table_cells"]:
+            cell["text"], n = convert_markup(cell.get("text", ""))
+            total += n
+        _rebuild_grid(table["data"])
+    return total
+
+
 def post_process(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, int]]:
     """All rules, in order, on a copy of ``raw``. Returns the new document and the counts."""
     doc = copy.deepcopy(raw)
     counts = {"tables_joined": join_tables_over_pages(doc)}
     counts["footnote_marks"], counts["footnotes_attached"] = attach_table_footnotes(doc)
+    counts["markup_converted"] = convert_table_markup(doc)
     return doc, counts

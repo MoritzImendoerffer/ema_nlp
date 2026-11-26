@@ -159,3 +159,60 @@ def test_exponent_is_left_for_rule_3_and_unknown_mark_stays_apart():
 
     assert superscript_marks(r"2.06e^{-14}") == (r"2.06e^{-14}", 0)
     assert superscript_marks(r"x\(^{q}\)") == ("x^q", 1)
+
+
+# ── rule 3: the model's markup (TASK-007) ──────────────────────────────────────
+
+
+def test_latex_markup_becomes_text():
+    from corpus.parsers.docling_post import convert_markup
+
+    cases = {
+        r"Cycle 1 Day 1 to 14 (\(\pm\) 2 days)": "Cycle 1 Day 1 to 14 (± 2 days)",
+        r"Pharma\nceutical": "Pharma ceutical",
+        r"2.06e^{-14}": "2.06e-14",
+        r"37^{\circ}C": "37°C",
+        r"x \(\geq\) 2 and y \(\le\) 5": "x ≥ 2 and y ≤ 5",
+        r"\text{n} = 120": "n = 120",
+        r"C_{max}": "Cmax",
+        r"10^{9}/L": "10^9/L",
+        r"3 \(\times\) daily": "3 × daily",
+    }
+    for raw, want in cases.items():
+        assert convert_markup(raw)[0] == want, raw
+
+
+def test_greek_letter_commands_become_greek_letters():
+    """The owner, 2026-11-25: Greek symbols must be conserved."""
+    from corpus.parsers.docling_post import _GREEK, convert_markup
+
+    lower = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega"
+    assert "".join(convert_markup("\\" + name)[0] for name in lower.split()) == "αβγδεζηθικλμνξοπρστυφχψω"
+    upper = "Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega"
+    assert "".join(convert_markup("\\" + name)[0] for name in upper.split()) == "ΓΔΘΛΞΠΣΥΦΨΩ"
+    assert convert_markup(r"\(\alpha\)-tocopherol")[0] == "α-tocopherol"
+    assert convert_markup(r"\mu g/kg")[0] == "μg/kg"
+    assert convert_markup(r"\(\Delta\) AUC")[0] == "Δ AUC"
+    assert len(_GREEK) >= 48
+
+
+def test_unknown_command_is_left_as_written():
+    from corpus.parsers.docling_post import convert_markup
+
+    assert convert_markup(r"\foo bar") == (r"\foo bar", 0)
+
+
+def test_markup_is_converted_in_tables_and_counted():
+    doc = _doc(["#/tables/0"], [_table(0, 1, [["Window", "Agent"], [r"(\(\pm\) 2 days)", r"\(\alpha\)-tocopherol"]])])
+    out, counts = post_process(doc)
+    texts = {c["text"] for c in out["tables"][0]["data"]["table_cells"]}
+    assert {"(± 2 days)", "α-tocopherol"} <= texts
+    assert counts["markup_converted"] >= 2
+
+
+def test_nu_and_neq_are_not_taken_for_a_line_break():
+    from corpus.parsers.docling_post import convert_markup
+
+    assert convert_markup(r"\nu = 3")[0] == "ν = 3"
+    assert convert_markup(r"a \(\neq\) b")[0] == "a ≠ b"
+    assert convert_markup(r"Pharma\nceutical")[0] == "Pharma ceutical"
