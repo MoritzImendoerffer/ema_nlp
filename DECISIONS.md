@@ -62,6 +62,25 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 **What it does not change:** Row 11 as proposed, HTML parsing, the embedding model, the chunk sizes, and planning rule 4: the pilot and every tier of the conversion wait for the owner's yes with their hours.  
 **Ref:** [`docs/next/pdf_parsing_docling.md`](docs/next/pdf_parsing_docling.md), [`BACKLOG.md`](BACKLOG.md) rows 17 and 21
 
+### Graph refresh: the preferred and newest parse per URL, a changed document replaced
+**Decided:** 2026-11-25 and 2026-11-26, work unit `2026-11-23_27_pipeline-refresh` (backlog row 10, shipped 2026-11-26). Decisions A, B, D, E, F and G were taken by the lead assistant session under the owner's delegation of 2026-11-25. They are the assistant's answers, and the owner can overrule each. The live runs are the owner's answer.  
+**What:** Each `:Document` records the parse its chunks were built from (`parser`, `parser_version`, `text_sha256`). For each URL the build selects one clean row of `parsed_documents`: the first matching entry of `harness/configs/parser_preference.yaml`, then the newest `parsed_at`. It then skips the document, stamps it or replaces it; the text hash decides, not the parser's name. The PDF step parses `response_body` bytes with the installed pymupdf4llm. The real build joins `document_metadata`. `--prune` and a batched `--reset` exist. The deletes go through `harness/indexing/graph_ops.py`, which starts every query at `:Document {id}`.
+
+| | Decision | Answer | Note |
+|---|---|---|---|
+| A | Which PDF parse the preference file names first | the legacy rows (`pymupdf4llm@legacy`), then the new parser | [`2026-11-25_pdf-parser-order.md`](docs/pm/decisions/2026-11-25_pdf-parser-order.md) |
+| B | Is a URL that left the source deleted | kept by default; `--prune` deletes, compared with all clean URLs, never the scope | [`2026-11-25_removed-urls.md`](docs/pm/decisions/2026-11-25_removed-urls.md) |
+| D | How the legacy rows and the byte parser are told apart | an entry may name a version, `name@version` | [`2026-11-25_legacy-parser-name.md`](docs/pm/decisions/2026-11-25_legacy-parser-name.md) |
+| E | OCR in the byte parser | on; options and library versions recorded in `meta` | [`2026-11-25_pdf-ocr.md`](docs/pm/decisions/2026-11-25_pdf-ocr.md) |
+| F | A URL whose rows match no entry | the newest clean row, with a warning and a count | [`2026-11-25_unlisted-parser.md`](docs/pm/decisions/2026-11-25_unlisted-parser.md) |
+| G | The pickle reader | removed from the path to `parsed_documents`; `ingest_parsed_pdfs.py --legacy` stays | [`2026-11-25_pickle-reader.md`](docs/pm/decisions/2026-11-25_pickle-reader.md) |
+| — | The two live runs | the owner: the backfill, then one PDF replaced and restored (option 1) | [`2026-11-25_live-graph-runs.md`](docs/pm/decisions/2026-11-25_live-graph-runs.md) |
+
+**Why:** `scripts/update_graph.py` could add a document and could not change one. The PDF step failed on every PDF. A re-parse never won. A shorter text left stale chunks behind. A fresh build lost the labels. `--reset` deleted the whole graph in one transaction: on a throwaway Neo4j, 80,000 chunks in one transaction already exceed the 1.4 GiB pool.  
+**Result:** All 79,882 live documents are stamped (`verify: 100 of 100 equal`). One PDF was replaced on the live graph and restored, and the totals returned to 79,882 documents, 7,435,393 chunks and 99,520 `LINKS_TO` edges. A build that changes one document takes about 12 minutes, 8 of them in the `LINKS_TO` pass.  
+**Not chosen:** renaming the 58,121 legacy rows (D2); giving the byte parser another name (D3); deleting removed URLs by default; `Neo4jPropertyGraphStore.delete`, which scans all nodes on each call.  
+**Ref:** [`docs/RETRIEVAL.md`](docs/RETRIEVAL.md) §3 and §6, [`docs/eval/2026-11-25_graph_delete_measurement.md`](docs/eval/2026-11-25_graph_delete_measurement.md)
+
 ### LlamaIndex-first retrieval: hierarchical PropertyGraphIndex on Neo4j
 **Decided:** 2026-05-30 (branch `refactor/llamaindex-retrieval-pipeline`, work unit `2026-05-30_20_llamaindex-retrieval-refactor`)
 **What:** Retrieval is rebuilt LlamaIndex-first. The single store is a hierarchical LlamaIndex `PropertyGraphIndex` backed by `Neo4jPropertyGraphStore`: `:Document` + `:Chunk` nodes; `HAS_CHUNK` / `PARENT_OF` / `LINKS_TO` edges; Neo4j's native vector index over chunk embeddings. A custom `HierarchicalPGRetriever` does vector hit → small-to-big parent merge + `links_to` expansion in one Cypher. Active index/retriever is chosen by `EMA_INDEX_PROFILE` → `harness/configs/index/*.yaml`; new kinds register through `harness.indexing`'s registries. Built by `harness.indexing.build_index` from Mongo `parsed_documents`.

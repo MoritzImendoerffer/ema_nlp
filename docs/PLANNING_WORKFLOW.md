@@ -97,6 +97,13 @@ Where no source is named, the evidence is in
     anything had built it. Haiku's responses did not show it. A test of such a defect runs in
     a fresh interpreter, because inside the test process another test has already done the
     first call.
+14. **A temporary edit of an authored file is undone by the next command, not later.** The
+    live replace of work unit 27 swapped the PDF order of `parser_preference.yaml` for one
+    build. The build finished at 17:37 on 2026-11-25; the session then waited, and the file was
+    restored at about 07:20 the next morning. For those 14 hours the shared working tree held
+    the swapped file, and `make test` failed 4 tests in another session. Chain the restore to
+    the run (`run; git checkout -- <file>`), and check `git diff --quiet -- <file>` before
+    anything else.
 
 ## `docs/pm/` — the sprint you can see
 

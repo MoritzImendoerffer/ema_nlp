@@ -3,11 +3,11 @@
   "proposal": "docs/next/pipeline_refresh.md",
   "backlog_row": 10,
   "created_at": "2026-11-23",
-  "status": "planned",
+  "status": "delivered",
   "branch": "pipeline-refresh",
   "branched_from": "develop@9dfc405",
   "proposal_stands": true,
-  "next": "/next",
+  "next": null,
   "planned_at": "2026-11-25",
   "decisions": {
     "A": "settled 2026-11-25 by the lead assistant session under the owner's delegation (owner can overrule): legacy PDF rows first — docs/pm/decisions/2026-11-25_pdf-parser-order.md",
@@ -17,5 +17,7 @@
     "E": "settled 2026-11-25, same label: OCR on, options recorded — docs/pm/decisions/2026-11-25_pdf-ocr.md",
     "F": "settled 2026-11-25, same label: fall back to the newest clean row with a warning — docs/pm/decisions/2026-11-25_unlisted-parser.md",
     "G": "settled 2026-11-25 by the lead assistant session under the owner's delegation (owner can overrule): G1, the pickle path to parsed_documents is removed — docs/pm/decisions/2026-11-25_pickle-reader.md"
-  }
+  },
+  "delivered_at": "2026-11-26",
+  "merged_into": "develop (local, not pushed)"
 }

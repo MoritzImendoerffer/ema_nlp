@@ -116,8 +116,9 @@ flowchart LR
   `parser_version` and `text_sha256` (SHA-256 of the row text, UTF-8) name the
   `parsed_documents` row the chunks were built from. The build compares them with the
   row it selects (see §6, "How the build refreshes a document"). The 79,882 documents
-  built earlier get them from `scripts/backfill_parse_identity.py`; until it has run, a
-  document without them counts as built from its old-rule row.
+  built earlier got them from `scripts/backfill_parse_identity.py` on 2026-11-25 (0 left
+  unstamped; 100 of 100 sampled documents rebuild to the same chunks). A document without
+  them counts as built from its old-rule row.
 - **`:Chunk`** node per hierarchical chunk — `id`, `text`, `is_leaf`, `doc_id`,
   `source_url`, `embedding`. Multi-level (chunk_sizes `[2048,512,128]`); parent/child
   retained (the old flat chunker discarded non-leaves).
@@ -267,6 +268,17 @@ ones in the same flush. A text that gives no chunk leaves the old chunks in plac
 `--no-resume` replaces every document. The deletes go through
 `harness/indexing/graph_ops.py`, which starts every query at `:Document {id}` (the
 `ema_document_id` index) and deletes in batches.
+
+What it costs, measured
+([`eval/2026-11-25_graph_delete_measurement.md`](eval/2026-11-25_graph_delete_measurement.md)):
+- **Replace on live data:** one PDF was replaced and restored on 2026-11-25/26. A build that
+  changes one document takes about 12 minutes. 8 of them go to the `LINKS_TO` pass, which every
+  build runs, and about 3.5 to a 12.4-million-character PDF that fails to chunk on every build.
+- **Batch size:** on a throwaway Neo4j with the live memory limits, one document of 26,000
+  chunks deletes in one transaction, while 80,000 exceed the 1.4 GiB pool. Hence batches of
+  10,000 rows.
+- **Chunk ids:** a chunk id is `sha256(doc_id|position)`, so a replaced document can keep its
+  chunk ids with new text. The `:Document`'s `text_sha256` says which text they hold.
 
 ### Programmatic retrieve
 
