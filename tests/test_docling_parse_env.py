@@ -92,3 +92,19 @@ def test_ocr_uses_the_medium_recognizer():
 
     opts = conv.format_to_options[InputFormat.PDF].pipeline_options
     assert opts.ocr_options.rec_model_path == str(path) and opts.ocr_options.model_size == "small"
+
+
+def test_post_processed_document_loads_in_docling_core():
+    """The joined document is still a valid DoclingDocument and renders to Markdown."""
+    import json
+
+    from docling_core.types.doc import DoclingDocument
+
+    from corpus.parsers.docling_post import post_process
+
+    raw = json.loads((_FIXTURES / "trepulmix_procedural_steps.raw.json").read_text())
+    doc, counts = post_process(raw)
+    loaded = DoclingDocument.model_validate(doc)
+    assert counts["tables_joined"] == 3 and len(loaded.tables) == 1
+    assert loaded.tables[0].data.num_rows == 16
+    assert "Application number" in loaded.export_to_markdown()

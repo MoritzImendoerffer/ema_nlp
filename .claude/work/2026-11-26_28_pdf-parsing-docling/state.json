@@ -3,7 +3,7 @@
   "proposal": "docs/next/pdf_parsing_docling.md",
   "planned_at": "2026-11-26",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-005",
+  "current_task": "TASK-006",
   "baseline": {
     "make_test": "786 passed, 2 skipped, 13 deselected (develop at 0a37623, 2026-11-26)",
     "make_lint": "All checks passed",
@@ -149,7 +149,7 @@
       "id": "TASK-005",
       "title": "Post-processing rule 1: join a table that runs over pages",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-001"
       ],
@@ -164,7 +164,8 @@
         "The rule works on the JSON dict of `doc.raw.json`, with no Docling import, and never changes the input",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "doctool's join is the example (`transforms.py:132-260`): adjacent in reading order, consecutive pages, same label, same `num_cols`, no caption on the continuation, repeated header dropped. Its loop rebuilds all elements for each join (`transforms.py:153-160`); this one walks once. Fixtures are small hand-made JSON files in Docling's format, cut from the exploration's real outputs (`$EMA_RESULTS_DIR/2026-11-26_row17_explore/probe_b/timed/`)."
+      "notes": "doctool's join is the example (`transforms.py:132-260`): adjacent in reading order, consecutive pages, same label, same `num_cols`, no caption on the continuation, repeated header dropped. Its loop rebuilds all elements for each join (`transforms.py:153-160`); this one walks once. Fixtures are small hand-made JSON files in Docling's format, cut from the exploration's real outputs (`$EMA_RESULTS_DIR/2026-11-26_row17_explore/probe_b/timed/`).",
+      "outcome": "corpus/parsers/docling_post.py: post_process(raw) -> (doc, counts) on a deep copy; rule 1 join_tables_over_pages: one pass over the body's reading order; part B joins table A when only furniture items (page headers and footers), A's captions and footnotes, and pictures on A's last page (the logo on EMA first pages) lie between, B starts on the next page, same label and column count, no caption on B; repeated header rows dropped; provenance, footnotes, references and children carried over; parts removed and every #/tables/N renumbered once; grids rebuilt. Real fixture tests/fixtures/docling/trepulmix_procedural_steps.raw.json (61 KB, Docling 2.153.0 export): 4 tables -> 1 table of 16 rows on pages 1-4 with its 3 footnotes. 7 tests in tests/test_docling_post.py (incl. a 200-part table joined in one pass under 5 s, input unchanged, text between parts ends the table). make test-parse: 7 passed incl. the joined document loading as a DoclingDocument and rendering to Markdown. Gates: make test 802 passed, 3 skipped, 13 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-006",
