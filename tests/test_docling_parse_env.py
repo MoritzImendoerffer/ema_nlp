@@ -122,7 +122,29 @@ def test_attached_footnotes_load_in_docling_core():
     loaded = DoclingDocument.model_validate(out)
     assert counts["footnotes_attached"] == 1
     assert loaded.tables[0].footnotes[0].cref == "#/texts/0"
-    assert "FASᵃ" in loaded.export_to_markdown()
+    md = loaded.export_to_markdown()
+    assert "FAS[^a]" in md and "[^a]: Full analysis set." in md
+
+
+def test_marked_number_stays_a_number_in_the_markdown_after_normalisation():
+    """Lead session's review of 2026-11-26: the Markdown, after NFKC and after NFKD, still holds
+    12.5 and 3.2 as numbers of their own, never 12.51 or 3.2a."""
+    import re
+    import unicodedata
+
+    from docling_core.types.doc import DoclingDocument
+
+    from corpus.parsers.docling_post import post_process
+    from tests.test_docling_post import _doc, _table, _text
+
+    doc = _doc(["#/tables/0", "#/texts/0"], [_table(0, 1, [["Dose", "Ratio"], [r"12.5\(^{1}\)", "3.2ᵃ"]])],
+               texts=[_text(0, 1, "1 Given with food.")])
+    out, _ = post_process(doc)
+    md = DoclingDocument.model_validate(out).export_to_markdown()
+    for form in ("NFKC", "NFKD"):
+        numbers = re.findall(r"\d+(?:\.\d+)?", unicodedata.normalize(form, md))
+        assert "12.5" in numbers and "3.2" in numbers
+        assert "12.51" not in numbers and "3.2a" not in unicodedata.normalize(form, md)
 
 
 def test_lifted_header_reference_heads_the_markdown():

@@ -128,9 +128,35 @@ def test_footnote_mark_is_not_merged_into_number():
     doc = _doc(["#/tables/0"], [_table(0, 1, [["Dose", "Value"], ["Child", r"12.5\(^{1}\)"]])])
     out, counts = post_process(doc)
     cell = next(c for c in out["tables"][0]["data"]["table_cells"] if c["start_row_offset_idx"] == 1 and c["start_col_offset_idx"] == 1)
-    assert cell["text"] == "12.5¹"
-    assert re.findall(r"\d+(?:\.\d+)?", cell["text"]) == ["12.5"]
+    assert cell["text"] == "12.5[^1]"
+    assert re.findall(r"\d+(?:\.\d+)?", cell["text"])[0] == "12.5"
     assert counts["footnote_marks"] == 1
+
+
+def test_footnote_mark_survives_compatibility_normalisation():
+    """Lead session's review of 2026-11-26: a Unicode superscript, "12.5¹", becomes "12.51" under
+    NFKC and NFKD, which full-text analysers and text cleaning apply. The mark must stay apart."""
+    import re
+    import unicodedata
+
+    doc = _doc(["#/tables/0"], [_table(0, 1, [["Dose", "Ratio"], [r"12.5\(^{1}\)", "3.2ᵃ"]])])
+    out, _ = post_process(doc)
+    cells = {c["text"] for c in out["tables"][0]["data"]["table_cells"] if c["start_row_offset_idx"] == 1}
+    assert cells == {"12.5[^1]", "3.2[^a]"}
+    for form in ("NFKC", "NFKD"):
+        for text, number, flat in (("12.5[^1]", "12.5", "12.51"), ("3.2[^a]", "3.2", "3.2a")):
+            normal = unicodedata.normalize(form, text)
+            assert re.findall(r"\d+(?:\.\d+)?", normal)[0] == number
+            assert flat not in normal
+
+
+def test_unit_exponents_are_not_footnote_marks():
+    from corpus.parsers.docling_post import superscript_marks
+
+    assert superscript_marks(r"1.73 m\(^{2}\)") == ("1.73 m^2", 0)
+    assert superscript_marks(r"cells/mm\(^{3}\)") == ("cells/mm^3", 0)
+    assert superscript_marks(r"mL min\(^{-1}\)") == ("mL min^-1", 0)
+    assert superscript_marks(r"FAS\(^{2}\)") == ("FAS[^2]", 1)
 
 
 def test_footnote_texts_attach_to_table():
@@ -154,11 +180,11 @@ def test_text_with_an_unused_mark_is_not_attached():
     assert counts["footnotes_attached"] == 0 and out["body"]["children"][-1] == {"$ref": "#/texts/0"}
 
 
-def test_exponent_is_left_for_rule_3_and_unknown_mark_stays_apart():
+def test_exponent_is_left_for_rule_3_and_a_letter_mark_stays_apart():
     from corpus.parsers.docling_post import superscript_marks
 
     assert superscript_marks(r"2.06e^{-14}") == (r"2.06e^{-14}", 0)
-    assert superscript_marks(r"x\(^{q}\)") == ("x^q", 1)
+    assert superscript_marks(r"x\(^{q}\)") == ("x[^q]", 1)
 
 
 # ── rule 3: the model's markup (TASK-007) ──────────────────────────────────────

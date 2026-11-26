@@ -11,9 +11,12 @@ procedural-steps table, as four separate tables. The parts are joined into one t
 keeps one provenance entry per page.
 
 Rule 2, footnotes in tables: PaddleOCR-VL writes a footnote mark as superscript markup,
-``12.5\\(^{1}\\)``. Read as plain text that becomes "12.51", another number. The mark is
-written as a Unicode superscript, "12.5¹", so it stays a mark. Footnote texts below a table
-that begin with a mark used in its cells are attached to that table.
+``12.5\\(^{1}\\)``. Read as plain text that becomes "12.51", another number. A Unicode
+superscript ("12.5¹") is not safe either: NFKC and NFKD normalisation, which full-text
+analysers and text cleaning apply, turn it back into "12.51". The mark is therefore written
+as a Markdown footnote reference, "12.5[^1]": unambiguous, unchanged by normalisation, and
+"12.5" is still a substring of the cell. Footnote texts below a table that begin with a mark
+used in its cells are attached to that table and written as definitions, "[^1]: ...".
 
 Rule 3, the model's markup: some cell text comes back as LaTeX, such as ``\\(\\pm\\)``,
 ``2.06e^{-14}``, ``\\alpha``, ``\\text{...}`` or a literal ``\\n``. It is turned into text.
@@ -185,44 +188,52 @@ def _remove_tables(doc: dict[str, Any], joined_into: dict[int, int]) -> None:
         _rebuild_grid(t["data"])
 
 
-_SUPERSCRIPT = dict(zip("0123456789+-=()abcdefghijklmnoprstuvwxyz",
-                        "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ"))
-_BASE = {v: k for k, v in _SUPERSCRIPT.items()}
+_UNICODE_SUP = dict(zip("⁰¹²³⁴⁵⁶⁷⁸⁹ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ",
+                        "0123456789abcdefghijklmnoprstuvwxyz"))
 # A superscript after a mantissa (2.06e^{-14}, 10^{3}) is an exponent, not a footnote mark;
 # rule 3 writes it as text.
 _EXPONENT_BEFORE = re.compile(r"(?:\d[eE]|10)$")
+# A unit's exponent is not a footnote mark either: 1.73 m^{2}, cells/mm^{3}, mL min^{-1}.
+# A signed superscript is always an exponent; a digit is one after a length unit. Both are
+# written with a caret, as rule 3 writes 10^9.
+_LENGTH_UNIT_BEFORE = re.compile(r"(?<![A-Za-z])(?:m|cm|mm|dm|km|nm|µm|μm)$")
+_SIGNED = re.compile(r"[+\-−]\s*\d{1,2}")
 _SUP_MARKUP = re.compile(r"\\\(\s*\^\{([^{}]{1,4})\}\s*\\\)|\^\{([^{}]{1,4})\}")
-_TRAILING_MARKS = re.compile(r"([⁰¹²³⁴⁵⁶⁷⁸⁹ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ*†‡§]+)$")
-_FOOTNOTE_START = re.compile(r"^\s*(?:\(?([0-9]{1,2}|[a-z]|\*{1,3}|[†‡§])\)?(?=[\s.:)])|([⁰¹²³⁴⁵⁶⁷⁸⁹ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ]+))")
+_TRAILING_UNICODE_SUP = re.compile("([" + "".join(_UNICODE_SUP) + "]+)$")
+_MARK_REF = re.compile(r"\[\^([^\]\s]{1,4})\]")
+_FOOTNOTE_START = re.compile(r"^\s*(?:\[\^([^\]\s]{1,4})\]:?|\(?([0-9]{1,2}|[a-z]|\*{1,3}|[†‡§])\)?(?=[\s.:)])|([" + "".join(_UNICODE_SUP) + r"]+))\s*[.:)]?\s*")
 
 
 def superscript_marks(text: str) -> tuple[str, int]:
-    """Write ``\\(^{1}\\)`` and ``^{a}`` as Unicode superscripts; leave exponents for rule 3.
+    """Write ``\\(^{1}\\)``, ``^{a}`` and a trailing Unicode superscript as ``[^1]``, ``[^a]``.
 
-    Returns the new text and the number of marks written. A mark without a Unicode
-    superscript form stays as ``^x``, still apart from the number before it.
+    Exponents after a mantissa are left for rule 3. Returns the new text and the number of
+    marks written.
     """
     count = 0
 
     def repl(m: re.Match[str]) -> str:
         nonlocal count
-        mark = (m.group(1) or m.group(2) or "").strip()
-        if _EXPONENT_BEFORE.search(text[: m.start()]):
+        before = m.string[: m.start()]
+        content = (m.group(1) or m.group(2) or "").strip()
+        if _EXPONENT_BEFORE.search(before):
             return m.group(0)
+        if _SIGNED.fullmatch(content) or (content.isdigit() and _LENGTH_UNIT_BEFORE.search(before)):
+            return "^" + content.replace(" ", "")
         count += 1
-        if mark and all(ch.lower() in _SUPERSCRIPT for ch in mark):
-            return "".join(_SUPERSCRIPT[ch.lower()] for ch in mark)
-        return "^" + mark
+        return f"[^{content}]"
 
-    return _SUP_MARKUP.sub(repl, text), count
-
-
-def _base_mark(mark: str) -> str:
-    return "".join(_BASE.get(ch, ch) for ch in mark)
+    out = _SUP_MARKUP.sub(repl, text)
+    tail = _TRAILING_UNICODE_SUP.search(out.rstrip())
+    if tail:
+        marks = "".join(_UNICODE_SUP[ch] for ch in tail.group(1))
+        out = out.rstrip()[: tail.start()] + f"[^{marks}]"
+        count += 1
+    return out, count
 
 
 def attach_table_footnotes(doc: dict[str, Any]) -> tuple[int, int]:
-    """Rule 2, in place. Returns (marks written as superscripts, footnote texts attached)."""
+    """Rule 2, in place. Returns (footnote marks written as ``[^n]``, footnote texts attached)."""
     marks_written = attached = 0
     marks_by_table: dict[int, set[str]] = {}
     for i, table in enumerate(doc.get("tables", [])):
@@ -231,9 +242,7 @@ def attach_table_footnotes(doc: dict[str, Any]) -> tuple[int, int]:
             text, n = superscript_marks(cell.get("text", ""))
             cell["text"] = text
             marks_written += n
-            m = _TRAILING_MARKS.search(text.strip())
-            if m:
-                marks |= {_base_mark(ch) for ch in m.group(1)}
+            marks |= set(_MARK_REF.findall(text))
         marks_by_table[i] = marks
         _rebuild_grid(table["data"])
     body = doc["body"]["children"]
@@ -251,10 +260,10 @@ def attach_table_footnotes(doc: dict[str, Any]) -> tuple[int, int]:
             if item.get("content_layer") == "furniture":
                 out_children.append(child)
                 continue
-            fm = _FOOTNOTE_START.match(item.get("text", ""))
-            mark = _base_mark(fm.group(1) or fm.group(2) or "") if fm else ""
+            mark = _footnote_mark(item.get("text", ""))
             if mark and mark in marks_by_table.get(current, set()):
                 table = doc["tables"][current]
+                item["text"] = _as_definition(item.get("text", ""), mark)
                 item["parent"] = {"$ref": f"#/tables/{current}"}
                 table.setdefault("footnotes", []).append({"$ref": ref})
                 table.setdefault("children", []).append({"$ref": ref})
@@ -263,7 +272,29 @@ def attach_table_footnotes(doc: dict[str, Any]) -> tuple[int, int]:
         current = None if not tm else current
         out_children.append(child)
     doc["body"]["children"] = out_children
+    # Footnotes that Docling already attached are written as definitions too.
+    for i, table in enumerate(doc.get("tables", [])):
+        for ref in table.get("footnotes", []):
+            item = _resolve(doc, ref["$ref"])
+            mark = _footnote_mark(item.get("text", ""))
+            if mark and mark in marks_by_table.get(i, set()) and not item["text"].lstrip().startswith("[^"):
+                item["text"] = _as_definition(item["text"], mark)
     return marks_written, attached
+
+
+def _footnote_mark(text: str) -> str:
+    fm = _FOOTNOTE_START.match(text)
+    if not fm:
+        return ""
+    raw = fm.group(1) or fm.group(2) or fm.group(3) or ""
+    return "".join(_UNICODE_SUP.get(ch, ch) for ch in raw)
+
+
+def _as_definition(text: str, mark: str) -> str:
+    """'1 Notifications are issued ...' -> '[^1]: Notifications are issued ...'."""
+    fm = _FOOTNOTE_START.match(text)
+    rest = text[fm.end():] if fm else text
+    return f"[^{mark}]: {rest.strip()}"
 
 
 _GREEK = {
