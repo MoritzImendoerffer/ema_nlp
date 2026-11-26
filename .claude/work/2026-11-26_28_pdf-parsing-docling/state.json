@@ -3,7 +3,7 @@
   "proposal": "docs/next/pdf_parsing_docling.md",
   "planned_at": "2026-11-26",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-010",
+  "current_task": "TASK-012",
   "baseline": {
     "make_test": "786 passed, 2 skipped, 13 deselected (develop at 0a37623, 2026-11-26)",
     "make_lint": "All checks passed",
@@ -256,7 +256,7 @@
       "id": "TASK-010",
       "title": "Write the ranking script: complex-table score and page count per PDF",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [],
       "files": [
         "scripts/rank_pdfs_by_tables.py",
@@ -268,7 +268,8 @@
         "Run read-only on the stores: it reports 58,121 legacy PDF rows and 16,633 with a score above 0 (the exploration's count)",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "The rule is the proposal's (section 'The batches'); exploration section 6 counted 16,633 documents under it, against the review's 5,424 under a stricter rule. Page counts come from the cache (the exploration's count took 567 s with 4 processes)."
+      "notes": "The rule is the proposal's (section 'The batches'); exploration section 6 counted 16,633 documents under it, against the review's 5,424 under a stricter rule. Page counts come from the cache (the exploration's count took 567 s with 4 processes).",
+      "outcome": "scripts/rank_pdfs_by_tables.py: score = cells in Markdown tables (a separator line required) with 8+ columns, 20+ rows or ragged rows, from the legacy pymupdf4llm row; pages, pages without text (<50 characters) and the gzip flag from the Scrapy cache (pymupdf, 4 processes); order: score descending, then documents with pages without text (most first), then the rest by URL; one JSONL (url, score, tables, complex_tables, cache_path, pages, pages_without_text, gzip, cache_error, rank, tier) under RESULTS_DIR/docling/. Full read-only run, 450 s: legacy_rows 58121, score_above_0 16633, pages_without_text_tier 2726, others 38762, cache_errors 0, pages 919404 -> RESULTS_DIR/docling/ranking_2026-11-26.jsonl; all 58,121 scores equal the exploration's count; the top 200 of at most 60 pages hold 7,749 pages (scores 4,962 to 10,975). None of the legacy rows points to a gzip body (the 6,833 gzip bodies belong to PDFs without a legacy row). Exploration section 6's 'up to 10,975' corrected to 69,305; section 12.2 added. tests/test_rank_pdfs_by_tables.py 6 passed. Gates: make test 835 passed, 3 skipped, 13 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-011",

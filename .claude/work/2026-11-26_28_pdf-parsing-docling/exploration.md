@@ -137,7 +137,7 @@ recognition model, and it is recorded in `run.json` with the model file's hash.
 | PDFs over 60 pages | 4,552, holding 530,343 pages (47% of all) | the same |
 | Legacy PDF rows | 58,121; 34,534 (59.4%) hold a table | `count_tables.py`: a table is a run of `|` lines with a separator line |
 | Tables in legacy rows | 328,278 | the same |
-| Documents with a complex table (8+ columns, 20+ rows or ragged) | 16,633; scores (cells in complex tables) up to 10,975 | the same |
+| Documents with a complex table (8+ columns, 20+ rows or ragged) | 16,633; scores (cells in complex tables) up to 69,305 (corrected 2026-11-26: 10,975 is the top among documents of at most 60 pages) | the same |
 | `parsed_documents` rows | 80,084 (row 10 added one `pymupdf4llm 1.27.2.3` row) | read-only `count_documents` |
 
 ## 7. The parse environment
@@ -302,3 +302,13 @@ table stage on the 30 pages. All 30 parsed with SUCCESS. The page Markdown held 
 Greek symbols, and the table cells held 797 of 799 numbers in the text layer.
 
 **Unchanged choice:** the multilingual PP-OCRv6 small detector with the medium recognizer.
+
+### 12.2 The ranking, run in full (TASK-010, 2026-11-26)
+
+`scripts/rank_pdfs_by_tables.py`, read-only, 450 s with 4 processes:
+`{"legacy_rows": 58121, "score_above_0": 16633, "pages_without_text_tier": 2726, "others": 38762, "cache_errors": 0, "pages": 919404}`.
+All 58,121 scores equal those of section 6's count. The top score is 69,305 (the RAS-acting
+agents referral annex, 3,808 pages); section 6's "up to 10,975" was the top among documents of
+at most 60 pages and is corrected. None of the 58,121 legacy rows points to a gzip body: the
+6,833 gzip bodies in the cache belong to PDFs without a legacy row, which the ranking leaves out
+until they have a text.
