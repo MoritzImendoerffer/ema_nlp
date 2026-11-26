@@ -3,7 +3,7 @@
   "proposal": "docs/next/pdf_parsing_docling.md",
   "planned_at": "2026-11-26",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-008",
+  "current_task": "TASK-009",
   "baseline": {
     "make_test": "786 passed, 2 skipped, 13 deselected (develop at 0a37623, 2026-11-26)",
     "make_lint": "All checks passed",
@@ -211,7 +211,7 @@
       "id": "TASK-008",
       "title": "Post-processing rule 4: take title and reference number from the page header",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-005"
       ],
@@ -223,7 +223,8 @@
         "`::test_reference_from_page_header` passes: a document whose `EMA/…` reference stands only in a page header gets it at the top of the row's text, where `text_metadata` (first 2,048 characters, `corpus/metadata/text_metadata.py:95`) finds it",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "Proposal step 4; the first look found the header layer left out of Docling's export."
+      "notes": "Proposal step 4; the first look found the header layer left out of Docling's export.",
+      "outcome": "Rule 4 in corpus/parsers/docling_post.py: lift_header_reference() uses the build's own EMA_REF_RE (corpus/metadata/text_metadata.py); when the body's first 2,048 characters hold no EMA reference, the first page_header that does (lowest page) is copied into the body as its first item (label text, content_layer body, its provenance kept). Counted as header_reference_lifted. Order of post_process: join, footnote marks and texts, markup, header reference. 2 new tests (18 in tests/test_docling_post.py): text_metadata finds EMA/CHMP/123456/2020 after the lift and not before; no lift when the body holds it. make test-parse 9 passed incl. the lifted line heading DoclingDocument.export_to_markdown(). Gates: make test 813 passed, 3 skipped, 13 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-009",

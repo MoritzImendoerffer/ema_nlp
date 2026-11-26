@@ -11,7 +11,7 @@ tags: [pm/board]
 
 # Board — the active epic
 
-**[[epic|2026-11-26_28_pdf-parsing-docling]]** · **8 of 18 done** · 10 todo
+**[[epic|2026-11-26_28_pdf-parsing-docling]]** · **9 of 18 done** · 9 todo
 
 [[epic|Why this epic]] · [[_Archive|Finished epics]] · [[BACKLOG|What is open, in order]]
 
@@ -29,7 +29,6 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 
 | Task | Status | Waiting on | Kind | What it is |
 |---|---|---|---|---|
-| [[TASK-008]] | `todo` | the assistant | mechanism | Post-processing rule 4: take title and reference number from the page header |
 | [[TASK-009]] | `todo` | the assistant | mechanism | Write the writer: three files, a staged move, the failures list, the Markdown text and the Mongo row |
 | [[TASK-010]] | `todo` | the assistant | mechanism | Write the ranking script: complex-table score and page count per PDF |
 | [[TASK-011]] | `todo` | the assistant | wiring | Write the batch command and wire the parser, the post-processing and the writer into it |
@@ -52,6 +51,7 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 | [[TASK-005]] | `done` | — | mechanism | Post-processing rule 1: join a table that runs over pages |
 | [[TASK-006]] | `done` | — | mechanism | Post-processing rule 2: footnote marks stay marks, footnote texts attach to their table |
 | [[TASK-007]] | `done` | — | mechanism | Post-processing rule 3: turn the table model's markup into text |
+| [[TASK-008]] | `done` | — | mechanism | Post-processing rule 4: take title and reference number from the page header |
 
 ---
 

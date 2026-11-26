@@ -123,3 +123,20 @@ def test_attached_footnotes_load_in_docling_core():
     assert counts["footnotes_attached"] == 1
     assert loaded.tables[0].footnotes[0].cref == "#/texts/0"
     assert "FASᵃ" in loaded.export_to_markdown()
+
+
+def test_lifted_header_reference_heads_the_markdown():
+    from docling_core.types.doc import DoclingDocument
+
+    from corpus.metadata.text_metadata import text_metadata
+    from corpus.parsers.docling_post import post_process
+    from tests.test_docling_post import _doc, _text
+
+    texts = [_text(0, 1, "EMA/CHMP/123456/2020 Rev. 1", "page_header", "furniture"),
+             _text(1, 1, "Guideline on the investigation of bioequivalence", "title"),
+             _text(2, 1, "This guideline specifies the requirements.")]
+    out, counts = post_process(_doc(["#/texts/0", "#/texts/1", "#/texts/2"], [], texts=texts))
+    md = DoclingDocument.model_validate(out).export_to_markdown()
+    assert counts["header_reference_lifted"] == 1
+    assert md.lstrip().startswith("EMA/CHMP/123456/2020")
+    assert text_metadata(md).reference_number == "EMA/CHMP/123456/2020"

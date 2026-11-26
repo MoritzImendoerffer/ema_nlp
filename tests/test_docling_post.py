@@ -216,3 +216,31 @@ def test_nu_and_neq_are_not_taken_for_a_line_break():
     assert convert_markup(r"\nu = 3")[0] == "ν = 3"
     assert convert_markup(r"a \(\neq\) b")[0] == "a ≠ b"
     assert convert_markup(r"Pharma\nceutical")[0] == "Pharma ceutical"
+
+
+# ── rule 4: the reference number from the page header (TASK-008) ───────────────
+
+
+def test_reference_from_page_header():
+    from corpus.metadata.text_metadata import text_metadata
+    from corpus.parsers.docling_post import _body_text
+
+    texts = [_text(0, 1, "EMA/CHMP/123456/2020 Rev. 1 Committee for Medicinal Products for Human Use", "page_header", "furniture"),
+             _text(1, 1, "Guideline on the investigation of bioequivalence", "title"),
+             _text(2, 1, "This guideline specifies the requirements."),
+             _text(3, 2, "EMA/CHMP/123456/2020 Rev. 1", "page_header", "furniture")]
+    doc = _doc(["#/texts/0", "#/texts/1", "#/texts/2", "#/texts/3"], [], texts=texts)
+    assert text_metadata(_body_text(doc)).reference_number is None
+    out, counts = post_process(doc)
+    assert counts["header_reference_lifted"] == 1
+    assert out["body"]["children"][0] == {"$ref": "#/texts/4"}
+    assert out["texts"][4]["content_layer"] == "body" and out["texts"][4]["prov"][0]["page_no"] == 1
+    assert text_metadata(_body_text(out)).reference_number == "EMA/CHMP/123456/2020"
+
+
+def test_no_lift_when_the_body_holds_the_reference():
+    texts = [_text(0, 1, "EMA/CHMP/123456/2020", "page_header", "furniture"),
+             _text(1, 1, "Our reference EMA/CHMP/123456/2020 is in the body.")]
+    doc = _doc(["#/texts/0", "#/texts/1"], [], texts=texts)
+    out, counts = post_process(doc)
+    assert counts["header_reference_lifted"] == 0 and len(out["texts"]) == 2

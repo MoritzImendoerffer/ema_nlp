@@ -20,6 +20,13 @@ Rule 3, the model's markup: some cell text comes back as LaTeX, such as ``\\(\\p
 Greek letters are kept as Greek letters: they carry meaning in EMA tables (α-tocopherol, Δ,
 μg). Dashes are left as the parser wrote them: a guess at the original character is worse
 than a known substitution.
+
+Rule 4, the reference number from the page header: Docling keeps page headers apart from the
+body, and its Markdown export leaves them out. An EMA document's reference number
+(``EMA/CHMP/123456/2020``) often stands only in the page header, and the build reads it from
+the first 2,048 characters of the row's text (``corpus/metadata/text_metadata.py``). When the
+body does not hold it there, the first page header that does is copied into the body as its
+first item.
 """
 
 from __future__ import annotations
@@ -339,10 +346,47 @@ def convert_table_markup(doc: dict[str, Any]) -> int:
     return total
 
 
+def _body_text(doc: dict[str, Any], limit: int = 2048) -> str:
+    """The text of the body's text items in reading order, up to ``limit`` characters."""
+    parts: list[str] = []
+    size = 0
+    for ref in _reading_order(doc):
+        if not ref.startswith("#/texts/"):
+            continue
+        item = _resolve(doc, ref)
+        if item.get("content_layer") == "furniture":
+            continue
+        parts.append(item.get("text", ""))
+        size += len(parts[-1]) + 1
+        if size >= limit:
+            break
+    return " ".join(parts)[:limit]
+
+
+def lift_header_reference(doc: dict[str, Any]) -> int:
+    """Rule 4, in place. Returns 1 when a page header was copied into the body, else 0."""
+    from corpus.metadata.text_metadata import EMA_REF_RE
+
+    if EMA_REF_RE.search(_body_text(doc)):
+        return 0
+    headers = [t for t in doc.get("texts", [])
+               if t.get("label") == "page_header" and EMA_REF_RE.search(t.get("text", ""))]
+    if not headers:
+        return 0
+    first = min(headers, key=lambda t: (t["prov"][0]["page_no"] if t.get("prov") else 10**6))
+    item = copy.deepcopy(first)
+    item.update({"self_ref": f"#/texts/{len(doc['texts'])}", "parent": {"$ref": "#/body"},
+                 "children": [], "content_layer": "body", "label": "text"})
+    doc["texts"].append(item)
+    doc["body"]["children"].insert(0, {"$ref": item["self_ref"]})
+    return 1
+
+
 def post_process(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, int]]:
     """All rules, in order, on a copy of ``raw``. Returns the new document and the counts."""
     doc = copy.deepcopy(raw)
     counts = {"tables_joined": join_tables_over_pages(doc)}
     counts["footnote_marks"], counts["footnotes_attached"] = attach_table_footnotes(doc)
     counts["markup_converted"] = convert_table_markup(doc)
+    counts["header_reference_lifted"] = lift_header_reference(doc)
     return doc, counts
