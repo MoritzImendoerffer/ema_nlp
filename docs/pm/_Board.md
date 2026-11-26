@@ -11,7 +11,7 @@ tags: [pm/board]
 
 # Board — the active epic
 
-**[[epic|2026-11-23_27_pipeline-refresh]]** · **17 of 18 done** · 1 todo
+**[[epic|2026-11-23_27_pipeline-refresh]]** · **18 of 18 done**
 
 [[epic|Why this epic]] · [[_Archive|Finished epics]] · [[BACKLOG|What is open, in order]]
 
@@ -27,9 +27,7 @@ None of them blocks the work below.
 Nothing in this table needs the project owner. It is what the coding assistant has still to
 do, and it is here so the state is visible, not so anyone else acts on it.
 
-| Task | Status | Waiting on | Kind | What it is |
-|---|---|---|---|---|
-| [[TASK-017]] | `todo` | the assistant | data | Run one URL through parse-pdfs and build on the live stores |
+*None.*
 
 ## Done
 
@@ -51,6 +49,7 @@ do, and it is here so the state is visible, not so anyone else acts on it.
 | [[TASK-014]] | `done` | — | mechanism | Fix the delete and reset batch sizes from the measurement |
 | [[TASK-015]] | `done` | — | checkpoint | Checkpoint: report the code and the measurement, and ask for the two live runs |
 | [[TASK-016]] | `done` | — | data | Backfill the parse identity on the live graph |
+| [[TASK-017]] | `done` | — | data | Run one URL through parse-pdfs and build on the live stores |
 | [[TASK-018]] | `done` | — | documentation | Write down what each pipeline step can and cannot refresh |
 
 ---

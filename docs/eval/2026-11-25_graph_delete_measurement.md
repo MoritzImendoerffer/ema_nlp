@@ -138,3 +138,70 @@ TASK-015 measured the live side of the two remaining runs without writing to eit
 
 The go-ahead for the two runs, with these numbers, is the open decision note
 [`docs/pm/decisions/2026-11-25_live-graph-runs.md`](../pm/decisions/2026-11-25_live-graph-runs.md).
+
+## The live runs, 2026-11-25 and 2026-11-26 (TASK-016, TASK-017)
+
+The owner chose option 1 of
+[`docs/pm/decisions/2026-11-25_live-graph-runs.md`](../pm/decisions/2026-11-25_live-graph-runs.md):
+the backfill, then one PDF replaced and restored (shape b).
+
+### Backfill (TASK-016)
+
+`scripts/backfill_parse_identity.py --verify 100`, 2026-11-25: 80,078 URLs read in 12.7 s, 79,882
+documents stamped, 0 old-rule rows that differ from the new selection, "verify: 100 of 100
+equal"; 27.2 s wall, 459 MB peak memory. A second run stamped 0 (6.0 s).
+
+| Query | Before | After |
+|---|---|---|
+| `MATCH (d:Document) WHERE d.text_sha256 IS NULL RETURN count(d)` | 79,882 | 0 |
+| `MATCH (c:Chunk) RETURN count(c)` | 7,435,393 | 7,435,393 |
+| `MATCH ()-[r:LINKS_TO]->() RETURN count(r)` | 99,520 | 99,520 |
+
+### One PDF replaced and restored (TASK-017)
+
+URL: `https://www.ema.europa.eu/en/documents/procedural-steps-after/veoza-epar-procedural-steps-taken-scientific-information-after-authorisation_en.pdf`.
+Its legacy row holds 2,299 characters; the graph held 9 chunks (6 leaves) built from it.
+
+| Step | Command | Result |
+|---|---|---|
+| Parse | `python -m corpus.parsers.pymupdf4llm --cache <cache> --url <url>` | 1 row `(pymupdf4llm, 1.27.2.3)`, 2,175 characters, 0 errors; 9.1 s wall. `parsed_documents` 80,083 → 80,084 |
+| Build 1 | `parser_preference.yaml` with `pymupdf4llm@1.27.2.3` first (working tree only), `python -m harness.indexing.build --full --embed-device cuda` | "0 new, 1 replaced, 0 stamped, 79881 skipped, 0 replace-without-chunks, 0 preference fallbacks; 9 chunks (6 leaf-embedded)"; the document then records `1.27.2.3`; 11 min 55 s wall |
+| Restore | `git checkout -- harness/configs/parser_preference.yaml`; `git diff --quiet` on it succeeds | no commit holds the swapped file |
+| Build 2 | the same build command | "0 new, 1 replaced, 0 stamped, 79881 skipped, …"; the document records `legacy` again; 12 min 13 s wall |
+
+After build 2:
+- the document holds the same 9 chunk ids as before the runs;
+- its chunks equal a fresh `build_ingested_doc` of the legacy row (ids, texts, leaf flags);
+- 6 of its 9 chunk texts had differed after build 1;
+- all 6 leaves carry an embedding.
+
+Totals before the runs and after build 2: 79,882 documents, 7,435,393 chunks, 99,520 `LINKS_TO`
+edges, 1 dashboard node, 0 documents without `text_sha256`. The only count that differs is
+`parsed_documents`, 80,083 → 80,084: the new row stays, as the note said, and the restored
+preference never selects it.
+
+The new text split into the same 9 positions as the legacy text, so the chunk ids did not
+change; the texts did. A replace on live data therefore deletes and writes chunks whose ids can
+equal the old ones. The id says nothing about which text it holds; the `:Document`'s
+`text_sha256` does.
+
+### What a build costs today (for row 11)
+
+| Part | Build 1 | Build 2 | Note |
+|---|---|---|---|
+| Embed pass (document states, reading and hashing 80,078 rows, deciding, the one replaced document) | 219 s | 224 s | most of it is the PDF below, which fails on every build |
+| Embedding 6 leaves on the GPU | < 1 s inside the flush | < 1 s | the log prints "0 emb/s" because the rate is rounded over the whole pass |
+| `LINKS_TO` pass (21,957 HTML pages, 404,330 candidate pairs, 465 pages without main-content links) | 8 min 4 s | 8 min 17 s | about 90 s in June 2026 (work unit 24's exploration, line 106) with the older extractor; every build runs it, also when no document changed |
+| Wall time | 11 min 55 s | 12 min 13 s | 2.37 GB peak memory |
+
+So a build that changes one document still costs about 12 minutes, two thirds of it in the
+`LINKS_TO` pass.
+
+**A PDF that fails on every build.**
+`https://www.ema.europa.eu/en/documents/rmp-summary/nulojix-epar-risk-management-plan-summary_en.pdf`
+has a clean row of 12,454,382 characters. `chunk_document` gives up on it with `RecursionError:
+maximum recursion depth exceeded` after about 3.5 minutes, logs "skipping", and the document
+never reaches the graph. Each build retries it: it was one of the 196 clean URLs without a
+`:Document` (exploration, section 4.3), and it is most of the 219 s and 224 s above. What happens
+to it is row 11's decision. For row 17, the parser's batch command must list such a document as
+failed and go on.

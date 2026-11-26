@@ -246,6 +246,7 @@ Where the costs come from, and where no rate is recorded:
 - Row 10 must have shipped. Check it in the store: `MATCH (d:Document) WHERE d.text_sha256 IS
   NULL RETURN count(d)` is 0 (79,882 on 2026-11-25). Read row 10's measurement page for the
   delete rate and for the embedding rate, and redo the hours of the order table with them.
+- Row 10's live runs are in [`../eval/2026-11-25_graph_delete_measurement.md`](../eval/2026-11-25_graph_delete_measurement.md), section "The live runs": a build that changes one document takes about 12 minutes, 8 of them in the `LINKS_TO` pass (about 90 s in June), and the nulojix RMP summary (12.4 million characters) fails with `RecursionError` on every build; decide what happens to it.
 - Read trafilatura 2.0.0 before you write the pre-processing, and name the file. The cause
   given above was found on the three example pages and tested on the 393 guidance pages.
 - The candidate repair was a scratch script outside the repository. Its steps are the second
