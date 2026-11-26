@@ -3,7 +3,7 @@
   "proposal": "docs/next/pdf_parsing_docling.md",
   "planned_at": "2026-11-26",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-013",
+  "current_task": "TASK-014",
   "baseline": {
     "make_test": "786 passed, 2 skipped, 13 deselected (develop at 0a37623, 2026-11-26)",
     "make_lint": "All checks passed",
@@ -329,7 +329,7 @@
       "id": "TASK-013",
       "title": "Document the parser, the environment and the batch command",
       "type": "documentation",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-002",
         "TASK-011",
@@ -345,7 +345,8 @@
         "`docs/RETRIEVAL.md` section 2 names the docling parser and says that nothing reaches the graph until row 21",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "Every command that writes says where. No path inside doctool in any public file."
+      "notes": "Every command that writes says where. No path inside doctool in any public file.",
+      "outcome": "docs/PARSING_DOCLING.md: what the parser is (Docling 2.153.0, Heron pinned, PP-OCRv6 small detector + medium recognizer with the 30-page numbers, PaddleOCR-VL tables), the options hash, why Docling never enters .venv (make parse-env / make test-parse, what setup_parse_env.sh checks), how to rank, cut a list, parse (every option with its default), where each command writes (folders, failures.jsonl, batch_logs, the Mongo row only with --write-mongo), how to stop (<root>/STOP), how to read the report, the four post-processing rules with their reasons, and the files. docs/RETRIEVAL.md section 2's collection table gains the docling row: files only, nothing reaches the graph until row 21. README links the page. No doctool path in any new public file (grep). Gates: make test 840 passed, 3 skipped, 13 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-014",

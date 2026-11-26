@@ -82,6 +82,7 @@ The **four Mongo collections**:
 | `web_items` | raw scrape (HTML in `html_raw`, `url` is a 1-element list) | `ema_scraper` |
 | `parsed_pdfs` | legacy pymupdf4llm PDF markdown (`_id` = url) — benchmark/corpus use only, not in the build path | `scripts/ingest_parsed_pdfs.py` |
 | `parsed_documents` | canonical parser output (`url, parser, parser_version, content_type, text, text_format, error`) — **the build's ingestion source** | `corpus.parsers.{trafilatura,pymupdf4llm}` CLIs / `scripts/backfill_parsed_documents_subset.py` |
+| `parsed_documents`, parser `docling` | **none yet.** The `docling` PDF parser (work unit 28, [`docs/PARSING_DOCLING.md`](PARSING_DOCLING.md)) writes files under `config.PARSED_ROOT`; its row is written only with `--write-mongo`, which batch 0 does not use. **Nothing of it reaches the graph until backlog row 21** decides how its output is chunked and selected | `scripts/parse_pdfs_docling.py` (parse environment) |
 | `document_metadata` | canonical per-URL EMA labels (`doc_type`, `audience`, `site_topic` + per-group provenance timestamps) — joined at ingest, propagated to an existing graph | `scripts/enrich_document_metadata.py` |
 
 > **Data note.** `parsed_documents` holds the full ~80k-doc parser output and the Neo4j

@@ -37,6 +37,7 @@ Then, in reading order:
 - **[Recipes →](docs/RECIPES.md)** — configure pipelines via YAML, with worked examples (simple RAG, reproducing the CRAG paper, the kitchen sink)
 - **[Examples (notebooks) →](docs/examples/README.md)** — runnable Jupyter notebooks that drive the pipeline headless, one concept at a time
 - **[Retrieval →](docs/RETRIEVAL.md)** — Neo4j PropertyGraphIndex: node/graph model, config profiles, build + retrieve
+- **[Parsing PDFs with Docling →](docs/PARSING_DOCLING.md)** — the `docling` parser in its own environment: ranking, batch command, report; files only, not yet in the graph
 - **[Tools & retrieval reference →](docs/tools/README.md)** — one file per agent tool (`ema_search`, `corrective_search`, `topic_context`, `resolve_substance`) plus the retriever, the site tree, and chain capture/export
 - **[Citations →](docs/CITATIONS.md)** — claim-span attribution, the SME review panel, per-citation feedback, Markdown/HTML export
 - **[Architecture →](docs/ARCHITECTURE.md)** — module map, data flow, MongoDB collections
