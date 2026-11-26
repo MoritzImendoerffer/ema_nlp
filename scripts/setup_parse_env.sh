@@ -63,6 +63,9 @@ for f in sorted(models.glob("*.onnx")):
     print(f"rapidocr {f.name} sha256={sha256(f)[:16]}")
 EOF
 
+echo "prefetch: the PP-OCRv6 medium recognizer (SHA-256 checked), then one converter build"
+"$ENV_DIR/bin/python" -c 'from corpus.parsers.docling_pdf import prefetch, OPTIONS_HASH; print("recognizer", prefetch(), "options hash", OPTIONS_HASH)'
+
 echo "check: .venv keeps its own torch and has no docling"
 "$REPO/.venv/bin/python" -c 'import torch; print(".venv torch", torch.__version__)'
 if "$REPO/.venv/bin/python" -c 'import docling' 2>/dev/null; then

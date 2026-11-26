@@ -3,7 +3,7 @@
   "proposal": "docs/next/pdf_parsing_docling.md",
   "planned_at": "2026-11-26",
   "planned_by": "Claude (Opus 5.5)",
-  "current_task": "TASK-004",
+  "current_task": "TASK-005",
   "baseline": {
     "make_test": "786 passed, 2 skipped, 13 deselected (develop at 0a37623, 2026-11-26)",
     "make_lint": "All checks passed",
@@ -124,7 +124,7 @@
       "id": "TASK-004",
       "title": "Write the docling parser on the Parser protocol",
       "type": "mechanism",
-      "status": "pending",
+      "status": "completed",
       "dependencies": [
         "TASK-001",
         "TASK-003",
@@ -142,7 +142,8 @@
         "`make test-parse` passes `::test_parser_on_fixture_pdf`: `tests/fixtures/fixture_pdf_0.pdf` gives SUCCESS and a page count",
         "`make test` passes and `make lint` passes, each run on its own line"
       ],
-      "notes": "`corpus/parsers/base.py:40-58` is the protocol; `llamahub_pdf.py:123` is the example of `missing_extra`. The options and their hash go into run.json. Exploration section 5: `lang=['en']` alone loads the multilingual PP-OCRv6 model, and the first look's 'authorisation 木' comes back."
+      "notes": "`corpus/parsers/base.py:40-58` is the protocol; `llamahub_pdf.py:123` is the example of `missing_extra`. The options and their hash go into run.json. Exploration section 5: `lang=['en']` alone loads the multilingual PP-OCRv6 model, and the first look's 'authorisation 木' comes back.",
+      "outcome": "corpus/parsers/docling_pdf.py: OPTIONS (Heron at 8f39ad3c via LayoutObjectDetectionOptions.from_preset; RapidOCR onnxruntime, model_size small, rec_model_path = PP-OCRv6 medium recognizer; PaddleOCR-VL stage c5630abae1d9 at 200 DPI) with OPTIONS_HASH 6eceaf4e; fetch_rec_model() downloads the medium recognizer from RapidOCR's host and checks SHA-256 eef44482…; build_converter() (lru-cached, registers the table stage); prefetch(); convert_pdf(raw) never raises, decompresses gzip, treats any status but SUCCESS as an error, returns the document dict, Markdown and counts; DoclingPdfParser on the Parser protocol (version <docling version>+<options hash>), missing_extra without Docling. scripts/setup_parse_env.sh runs the prefetch. Gate: tests/test_parsers_docling_pdf.py (3 passed: missing_extra in .venv, protocol and options). make test-parse: 6 passed (fixture_pdf_0.pdf SUCCESS with text; the 3x3 table fixture gives 1 table of 9 cells, gzip gives the same Markdown; the converter's OCR options carry the medium recognizer path and model_size small). Gates: make test 795 passed, 3 skipped, 13 deselected; make lint All checks passed."
     },
     {
       "id": "TASK-005",
