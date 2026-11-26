@@ -248,8 +248,8 @@ The rules every session follows:
 6. **When a requirement is ambiguous, ask.** Do not resolve an ambiguity by building
    both variants.
 7. **The repository is public.** No credential, no raw scraped data, and nothing of
-   the private plan beyond its class and ladder labels: no organisation, no vendor, no
-   person.
+   the private plan beyond its class and ladder labels: no organisation, no person. A
+   vendor and its public material may be named and cited (the owner, 2026-11-26).
 8. **Write clear technical English** in every docstring, comment, commit message and
    Markdown file. Short sentences, one idea each. Concrete numbers instead of
    adjectives.

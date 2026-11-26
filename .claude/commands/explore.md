@@ -89,7 +89,8 @@ If the target is not in `docs/next/`, stop and say so. Offer to write the propos
      rehearsal admits.
    - **The public repository.** The plan this repository rehearses is private. A file here
      carries the plan's class and ladder labels (C1 to C9, E0 to E9) and public EMA content,
-     and nothing else of it: no organisation, no vendor, no person.
+     and nothing else of it: no organisation, no person. A vendor and its public material
+     may be named and cited.
    - **What it assumes that is not decided.** If the work only makes sense given a choice nobody
      has made, name that choice as an open question rather than settling it in code.
 

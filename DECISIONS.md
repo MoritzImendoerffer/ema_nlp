@@ -35,6 +35,13 @@ See `OPEN_QUESTIONS.md` for decisions not yet made.
 - The repository is public and the plan is not. A file here carries the plan's class and ladder labels and public EMA content, and nothing else of it.
 **Ref:** [`docs/eval/2026-11-23_pkr_testbed_review.md`](docs/eval/2026-11-23_pkr_testbed_review.md) (the review; section 11 is the order of work), [`BACKLOG.md`](BACKLOG.md)
 
+### Public repository: a vendor may be named
+**Decided:** 2026-11-26, by the owner ("Remove the no vendor rule. If you think a rule does not make sense, flag it").  
+**What:** Rule 7 of `CLAUDE.md` no longer forbids naming a vendor. A vendor and its public material may be named and cited in this repository. The rest of the rule stays: no credential, no raw scraped data, and nothing of the private plan beyond its class and ladder labels, no organisation and no person. An assistant that thinks a rule does not make sense says so to the owner; it does not work around the rule.  
+**Why:** The rule was written to keep the private plan out of a public repository. Applied to public sources it had no benefit: tools and their makers were already named here (the parsers, the model providers, the tools evaluated in `docs/eval/`), and a number needs its source. The question came up when the owner asked for a vendor's published benchmark to be included.  
+**What it changes:** `CLAUDE.md` rule 7 and the same sentence in `.claude/commands/explore.md`. No page is changed in retrospect.  
+**Ref:** [`docs/eval/2026-11-25_direction_review.md`](docs/eval/2026-11-25_direction_review.md), section 5.2 (the page that raised the question)
+
 ### Main focus: reasoning an agent can use, and an answer a person can confirm
 **Decided:** 2026-11-25. The focus is the owner's, stated that day. The direction that follows from it is the lead assistant session's, taken under the owner's delegation of that day ("You are allowed to plan and implement ways forward") after an adversarial review. It is not the owner's answer, and the owner can overrule any part of it.  
 **What, the owner's focus:** Beyond comparing retrieval strategies, this repository should show how project-specific reasoning can be made available to an agent, and how an assistant agent can guide a scientist. The pattern of interest is: the agent retrieves prior knowledge, proposes, and a person confirms before anything is acted on. The confirmation must be efficient, so the reasoning before it must be transparent, traceable and where possible verifiable by automated tests.  
