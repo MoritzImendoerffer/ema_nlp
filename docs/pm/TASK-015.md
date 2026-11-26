@@ -24,8 +24,8 @@ Stop and report if a count differs from the note or the GPU misbehaves (planning
 
 ## Acceptance criteria
 
-- [ ] 270 documents parsed or listed as failed, files only under `config.PARSED_ROOT`; no Mongo row and no graph change
-- [ ] One test with two and with three worker processes on the same 20 documents, timed
+- [ ] The documents of docs/pm/decisions/2026-11-26_batch-0.md in its run order (70 random, then the ranked in rank order) parsed or listed as failed until the stop-file timer at 11 h 00 min, files only under `config.PARSED_ROOT`; no Mongo row and no graph change (the 270 were estimated at 26 h, so the batch is cut to fit the owner's 12 h; amended 2026-11-26)
+- [ ] One test with two and with three worker processes on the same 20 documents (batch0/workers20.jsonl, the random documents with the fewest pages), timed, each in its own folder under $EMA_RESULTS_DIR/docling/batch0/ and with a stop-file timer at 20 min
 - [ ] The GPU stays at the 250 W cap; the pauses run; no build runs at the same time
 
 **Depends on:** [[TASK-014]]

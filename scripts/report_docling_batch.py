@@ -331,6 +331,10 @@ def summarise(recs: list[dict[str, Any]]) -> dict[str, Any]:
         "bytes_per_page": sizes,
         "post_processing": _sum(r["post"] for r in parsed),
         "table_numbers": {**tnum, "tables_checked": len(tables),
+                          "tables_with_numbers": len(numbered := [t for t in tables if t["layer_numbers"] or t["cell_numbers"]]),
+                          "tables_missing_or_adding": len(off := [t for t in numbered if t["layer_held_by_cells"] < t["layer_numbers"]
+                                                                   or t["cells_held_by_layer"] < t["cell_numbers"]]),
+                          "tables_missing_or_adding_share": share(len(off), len(numbered)),
                           "tables_on_pages_without_layer": sum(r["layer"]["tables_on_pages_without_layer"] for r in parsed),
                           "layer_share": share(tnum.get("layer_held_by_cells", 0), tnum.get("layer_numbers", 0)),
                           "cell_share": share(tnum.get("cells_held_by_layer", 0), tnum.get("cell_numbers", 0))},
@@ -370,6 +374,8 @@ def render(s: dict[str, Any], title: str) -> str:
             f"- Layer numbers inside the tables' boxes held by the cells: {_pct(t.get('layer_held_by_cells', 0), t.get('layer_numbers', 0))}",
             f"- Cell numbers held by the layer: {_pct(t.get('cells_held_by_layer', 0), t.get('cell_numbers', 0))}",
             f"- Pairs where the layer flattened a footnote mark (layer 12.51, cell 12.5[^1]), left out of both shares: {t.get('flattened_mark_pairs', 0)}",
+            f"- Tables with numbers in which the cells miss a layer number or add one the layer lacks: "
+            f"{_pct(t['tables_missing_or_adding'], t['tables_with_numbers'])}",
             "", "The check cannot see a number in the wrong cell.", "",
             "## Greek letters and the micro sign against the text layer", "",
             "Line rule: a Greek letter on a line without a run of 3 or more Greek letters is a symbol in Latin text; "

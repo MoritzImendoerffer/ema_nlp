@@ -47,6 +47,7 @@ def test_report_on_two_parsed_documents(batch):
     t = s["table_numbers"]
     assert t["tables_checked"] == 5 and t["layer_numbers"] == t["layer_held_by_cells"] == 42
     assert t["cell_share"] == 1.0 and t["flattened_mark_pairs"] == 0
+    assert (t["tables_with_numbers"], t["tables_missing_or_adding"], t["tables_missing_or_adding_share"]) == (5, 0, 0.0)
     assert s["bytes_per_page"]["doc.raw.json"]["gzip"] < s["bytes_per_page"]["doc.raw.json"]["plain"]
     assert s["cjk"]["total"] == 0
     assert s["legacy"]["n"] == 1 and s["legacy"]["words_share"] == 1.0 and s["legacy"]["numbers_share"] == 1.0
