@@ -9,7 +9,9 @@ Code state: `47d2cfa` on branch `pipeline-refresh`. Every decision on this page 
 assistant's, taken under the owner's delegation. The owner can overrule each one.*
 
 *Added on 2026-11-26, on the owner's instruction: section 5.2, a vendor's benchmark of a
-semantic layer, with one row in section 6.3 and two points in section 8.*
+semantic layer, with one row in section 6.3 and two points in section 8. Added the same
+day, after the owner asked about it: section 5.3, the vendor's technical overview and a
+post it cites, with one point in section 8.*
 
 ## 1. The question
 
@@ -415,6 +417,137 @@ the lead, the pages through a fetch tool and the document as text:
   Language Models via Lens of Dynamic Interactions. ICLR 2026 (oral) according to the arXiv
   record. arXiv:2510.05318. Only the abstract page was read.
 
+### 5.3 The vendor's technical overview, and a post it cites (added 2026-11-26)
+
+The owner asked whether the vendor's white paper "AtScale for AI: Technical Overview" was
+included. It was not. The lead read it in full on 2026-11-26, and also the one post it
+cites that bears on this page.
+
+**The white paper.** 53 pages. Its title page says "Version 274 · October 14, 2026", and
+its file name says v271. It describes the vendor's product. It reports no new accuracy
+run: its benchmark numbers are those of section 5.2. It describes a loop, "model, measure,
+compute, repeat", and names four places where a person acts in it:
+
+1. **Answers a clarifying question.** The software asks when a term has more than one
+   definition. The answer is stored "as a rule or synonym, so the same question isn't asked
+   twice".
+2. **Decides a conflict.** Agents draft the definitions from dashboards, spreadsheets,
+   documentation, glossaries and database schemas. They "flag the calls only a person can
+   make, such as which of two revenue definitions the business reports".
+3. **Approves a change.** "Every change arrives as a reviewable SML diff. Nothing ships
+   until the data engineer approves it". The definitions are files in Git.
+4. **Sets the pass threshold** of a test set. A test case is a question, a reference query
+   and its result.
+
+What the software then does with a confirmation, by the paper's description:
+
+- **It reruns the tests on a change.** "When a model, instruction or schema changes,
+  Canary reruns the suite to catch regressions."
+- **A miss becomes a proposed fix. A pass becomes an example:** a "certified query" that
+  is offered to the agent when a similar question arrives.
+- **Every answer** "comes back with the metric's definition and the SQL that produced it".
+
+The drafting component and the testing component are "in private preview". On the
+remaining errors the paper says: "AtScale hasn't yet published a rerun with these fixes
+applied, so 100% is still the target."
+
+**What it changes in section 5.2.**
+
+1. **The memory learned from the benchmark's grader.** "In the benchmark, a query is
+   certified when the grader passes the answer". In the paper's example the agent asked
+   the simulated user in run 1 and passed. "In runs 2 and 3, semantic memory offered the
+   certified query, and the AI agent used the same filter pair the user had chosen in
+   run 1." The best-of-three figures, and the 93% headline (a best run of three with the
+   memory on, by the paper's note 8), therefore include answers that the grader had
+   already confirmed for the same question. Only the first run is free of this. Section
+   5.2 compares the first runs.
+2. **The white paper does not say that the definitions were tuned on the benchmark.** It
+   says that the software "modeled all 22 databases behind the 600 questions in a couple
+   of hours, with object descriptions drawn from BIRD's own corpus". The audit is not
+   mentioned. Point 2 of the list in section 5.2 stands.
+3. **A new table: the cost of model calls per right answer.** Without the layer and with
+   it: from $0.17 and $0.14 (Grok 4.3) to $0.87 and $0.73 (Claude Opus 4.6). The paper
+   states a fall of 7% to 44%, about 21% on average; the seven rows of its table give a
+   mean of 21.3%. Its note 8 defines the measure: model spend per run at list prices,
+   divided by the first questions passed over all 600 tasks. The note does not say which
+   run the passes come from. The cost of the database and the cost of the layer (the
+   licence, the modeller's work) are not in it.
+4. **Its case against ontologies and knowledge graphs is an argument, not a
+   measurement.** "Context doesn't compute anything, though: the model can ignore or
+   misread it, and it still writes the query." No run in the vendor's material gives the
+   agent the same definitions as text or as a graph.
+
+**The post it cites.** The data team of Anthropic describes its own analytics agent
+(2026-06-03). It is a company's report on its own system. No data and no test set are
+published. The white paper quotes three numbers from it: hand-written files of
+definitions and procedures ("skills") lifted the accuracy on the team's tests from 21% to
+about 95%, and the accuracy fell to about 65% within a month as the data changed. All
+three are in the post. The white paper leaves out the rest:
+
+- **How the decay was stopped.** The files moved into the repository of the data models.
+  "A code-review hook flags any reporting-model change that doesn't touch a skill file.
+  Roughly 90% of our data-model PRs now include a skill change in the same diff."
+- **That team uses a semantic layer too,** and its agent must try it first. Files of
+  definitions and a semantic layer are two layers of one system there, not alternatives.
+- **Definitions written by a model failed there.** "bootstrapping the semantic layer by
+  having an LLM auto-generate metric definitions from raw tables and query logs" gave
+  "plausible-looking definitions" and "was net-negative on our evals versus a smaller,
+  human-curated layer".
+- **Search over earlier work did not help.** Access to thousands of earlier queries
+  "moved accuracy by less than a point". For the questions the agent got wrong, the answer
+  was in those queries "About 80% of the time". "The information was there, the agent saw
+  it, and it still didn't use it." What helped was a small set of reference documents per
+  domain, written from that material.
+- **A correction becomes a test and a fix.** "We also continuously harvest every time a
+  stakeholder corrects the agent in a thread as that correction is a candidate eval." A
+  scheduled agent drafts a one-line fix to the reference document and opens a change
+  request for the owner of the domain.
+- **What a reviewing model costs.** A second model that challenges the answer raised the
+  accuracy on the test set by 6% "at the cost of 32% more tokens and 72% higher latency".
+  A cheaper reviewing model "lost most of the accuracy wins".
+- **What stays open.** "The answer is wrong, but looks plausible and is used without
+  objection." For this case: "we don't have a robust solution yet."
+
+**What it means for the direction.** The lead's reading.
+
+1. **Both sources describe goals 2 to 4 as a loop, and this repository has the first half
+   of it.** A person's verdict is stored today: the thumbs and the verdicts per citation go
+   to MLflow, and rated answers feed the few-shot cache. The second half is missing. A
+   verdict does not become a test case. The benchmark run is started by hand, and no
+   change of a prompt, a recipe or the routing table triggers it. A point for the
+   proposals of rows 18 and 20 to take up or reject, not built now: the answer record
+   holds what a replay needs, which is the question, the claim, the passage with its text
+   hash, the verdict, who gave it and when.
+2. **Worked examples are tested on new questions.** The vendor's memory gained on the
+   same questions asked again. The other team gained under one point from search over
+   earlier work. The few-shot cache of this repository works the same way: it retrieves
+   rated answers by similarity to the question (`harness/fewshot_inject.py`). Light et
+   al. (section 5.1) report a large gain from worked examples on synthetic documents. The
+   evidence points both ways. So the arm "worked examples" of E5 runs on the held-out
+   product, and its example store holds no question of the test set.
+3. **A model may draft a definition. A person owns it.** The two sources disagree on the
+   drafting and agree on the ownership. This applies to every graph or ontology that is
+   built automatically. Such an arm of the ladder needs a part that a person has
+   certified, and a comparison with a small hand-made one.
+4. **An authored file that describes a changing source decays.** Here the routing table,
+   the hub file and the prompts describe a corpus that changes with each scrape. Nothing
+   flags a file that no longer matches the corpus. Noted as a gap. No backlog row is
+   added for it.
+5. **A reviewing step has a price.** The check of the citations before the answer (E9)
+   reports the accuracy it gains together with the tokens and the seconds it adds.
+6. **The silent error stays the hard case** in both sources: an answer that looks right
+   and is used without objection. The studies on over-reliance in section 5.1 say the
+   same. The sitting of row 20 measures it.
+
+Sources, read by the lead on 2026-11-26 as text:
+
+- AtScale. AtScale for AI: Technical Overview. PDF, 53 pages, "Version 274 · October 14,
+  2026". <https://www.atscale.com/resource/atscale-for-ai-technical-overview/>, file
+  `AtScale-for-AI-Technical-Overview-v271.pdf`, SHA-256 `cf573488…feb58e6`.
+- Cherry, J., Peng, C., Jiao, J., Leder, J. and Chang, C. (2026-06-03). How Anthropic
+  enables self-service data analytics with Claude. Blog post.
+  <https://claude.com/blog/how-anthropic-enables-self-service-data-analytics-with-claude>
+
 ## 6. The direction
 
 ### 6.1 Five rules for anything built under goals 2 to 4
@@ -484,6 +617,10 @@ received, and only a closed-book run separates the model's memory from an error.
   abstract page was read, and of Auto-Ontology only its README.
 - Whether a semantic layer helps on questions over EMA's entity tables is not known. The
   benchmark's databases are business databases, and its questions are not about documents.
+- Section 5.3 rests on a vendor's product description and on one company's post about its
+  own system. Neither publishes its data or its test set. Every number in it is the
+  authors' own report. Nothing in it was run here. Both systems answer questions from
+  database tables, not from documents.
 - The lead has not read the studies of section 5.1. A literature session read them and
   checked each number against the paper. Its notes are kept outside this repository.
   Studies that the reviewers named and that nobody has read since are not cited here.
