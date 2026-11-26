@@ -315,6 +315,27 @@ a semantic layer does not touch. Share of the 410 first questions answered corre
   same model on all 410 it gives: "Unadjusted, leaderboard rules: 53.8% vs 25.9% (3-run
   mean)".
 
+**The benchmark's own leaderboard**, read on 2026-11-26 from the data file of its website
+(last changed 2026-11-23). It holds no entry by AtScale. For the 410 query tasks of the
+full set, in the agentic setting:
+
+| Entry | Dated | Verified by the benchmark's team | First question right | Follow-up also right |
+|---|---|---|---|---|
+| NVIDIA Auto-Ontology with Claude Opus 5.5 | 2026-11-11 | yes | 42.0% (172 of 410) | 24.9% (102 of 410) |
+| AIDBS-DataAgent | 2026-10-27 | no | 37.1% | 23.4% |
+| Quick-BlendedIntelligence | 2026-09-15 | no | 31.7% | 17.3% |
+| Claude Opus 4.6 alone | 2026-02-17 | no | 19.5% | 12.2% |
+
+The entries used different simulated users, so the rows are not a clean comparison. Four of
+the vendor's seven first-run figures above lie over the verified leader's 42.0%.
+
+Auto-Ontology is an open library (Apache-2.0). It builds an ontology automatically from a
+database's catalogue, keys, views and query history: terms with descriptions, the columns
+each term maps to, joins, and named calculations. People certify the elements. The agent
+searches this ontology, and its query is checked against the catalogue before it runs. Its
+README states the limit: "With one well-modeled source and a fixed set of questions, direct
+SQL may be enough."
+
 **What to hold against it.** Each point is the vendor's own statement, from its methodology
 document:
 
@@ -355,7 +376,15 @@ benchmark of the same kind (arXiv:2604.25149); nobody in this project has read i
    the same tables: the agent gets the tables and their column descriptions; or it gets a
    tool that serves defined terms and measures as well. One run per arm, the same judge, n
    and the failed rows stated. The proposal of row 16 decides whether this arm is run.
-5. **Three lessons from how the result was produced.** A best-of-three number is not
+5. **How much it matters here: little today.** Writing a database query from a question
+   matters where the answers are computed from tables. In this repository no question is
+   of that kind yet: 0 of 60 sampled claims compute anything (section 5). EMA's entity
+   tables will be a few tables with a few dozen columns, which is the case where direct
+   queries or a few fixed tools may be enough. The number of computed questions in
+   benchmark v0 (row 15) decides whether the comparison of point 4 is worth a run. What
+   carries over without any SQL is the method: a term a person certifies once, a generated
+   step that code checks before it runs, and an answer that returns the steps it took.
+6. **Three lessons from how the result was produced.** A best-of-three number is not
    compared with a single run. Definitions are not tuned on the questions they are scored
    on: the held-out product of row 16 covers this. And a computed gold answer is audited
    before a score is read: the vendor disputes 93 of 410 answer keys of a peer-reviewed
@@ -369,6 +398,9 @@ the lead, the pages through a fetch tool and the document as text:
 - AtScale. How AI scores on BIRD-Interact. <https://www.atscale.com/benchmarks/bird-interact-results/>
 - AtScale. A better LLM isn't the biggest upgrade for Text-to-SQL. 2026-10-28.
   <https://www.atscale.com/blog/semantic-layer-text-to-sql-accuracy/>
+- BIRD-Interact leaderboard. <https://bird-interact.github.io/>, data file
+  `script/task-category-results.js` of the repository `bird-interact/bird-interact.github.io`.
+- NVIDIA. Auto Ontology. README of <https://github.com/NVIDIA/auto-ontology>.
 - Huo, N. et al. (2026). BIRD-INTERACT: Re-imagining Text-to-SQL Evaluation for Large
   Language Models via Lens of Dynamic Interactions. ICLR 2026 (oral) according to the arXiv
   record. arXiv:2510.05318. Only the abstract page was read.
@@ -436,9 +468,10 @@ received, and only a closed-book run separates the model's memory from an error.
 
 ## 8. Not verified
 
-- Section 5.2 rests on a vendor's own publications. Nothing in it was run here, and the
-  benchmark's leaderboard was not read: its table did not load in the fetch tool. Of the
-  benchmark's paper only the abstract page was read.
+- Section 5.2 rests on a vendor's own publications and on the benchmark's leaderboard.
+  Nothing in it was run here. The leaderboard rows were read from the data file of the
+  benchmark's website, not from the rendered page. Of the benchmark's paper only the
+  abstract page was read, and of Auto-Ontology only its README.
 - Whether a semantic layer helps on questions over EMA's entity tables is not known. The
   benchmark's databases are business databases, and its questions are not about documents.
 - The lead has not read the studies of section 5.1. A literature session read them and
